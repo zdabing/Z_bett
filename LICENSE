@@ -1,0 +1,20 @@
+Bettbox for OpenWrt — LuCI + Rust forge packaging of the Bettbox feature set
+Copyright (C) 2026 Bettbox for OpenWrt contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Upstream components keep their own licenses:
+  - Bettbox (feature reference): GPL-3.0  https://github.com/appshubcc/Bettbox
+  - mihomo (engine):            GPL-3.0  https://github.com/MetaCubeX/mihomo
+  - boa (JS engine, Rust):      MIT/Apache-2.0  https://github.com/boa-dev/boa

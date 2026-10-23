@@ -1,0 +1,35 @@
+{
+	"luci-app-bettbox": {
+		"description": "Grant access to Bettbox",
+		"read": {
+			"ubus": {
+				"bettbox": [
+					"get_status",
+					"get_profiles",
+					"get_scripts",
+					"get_script",
+					"script_options",
+					"get_logs",
+					"api_proxy",
+					"toolbox_call"
+				]
+			},
+			"uci": [ "bettbox" ]
+		},
+		"write": {
+			"ubus": {
+				"bettbox": [
+					"update_profile",
+					"del_profile",
+					"save_script",
+					"del_script",
+					"apply",
+					"service_action",
+					"dashboard",
+					"geo_update"
+				]
+			},
+			"uci": [ "bettbox" ]
+		}
+	}
+}

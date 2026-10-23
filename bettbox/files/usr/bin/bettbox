@@ -1,0 +1,77 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0
+# bettbox CLI dispatcher.
+
+LIBEXEC=/usr/libexec/bettbox
+
+usage() {
+	cat >&2 <<EOF
+usage: bettbox <command> [args]
+  service
+    start | stop | restart | reload          manage the core (procd)
+    enable | disable                         autostart
+  config
+    apply                                    render + validate config
+    live                                     apply and hot-reload the core
+    status                                   quick status summary
+  subscriptions
+    update <sid> | update-all | cron
+    add <url> [label] | remove <sid>
+  toolbox
+    dns <name> [type] [follow|system|custom] [server]
+    ip [direct|proxy] [ip]
+    ping <host> [count] [interval] [tcpport]
+    speedtest [down_bytes] [up_bytes]
+    media
+  extras
+    dashboard install | remove               zashboard external-ui
+    backup create <file> | restore <file>
+    api <METHOD> <path> [json]               mihomo REST passthrough
+EOF
+	exit 2
+}
+
+[ $# -ge 1 ] || usage
+cmd="$1"
+shift
+
+case "$cmd" in
+start|stop|restart|reload|enable|disable)
+	/etc/init.d/bettbox "$cmd"
+	;;
+apply)
+	sh "$LIBEXEC/apply.sh" apply
+	;;
+live)
+	sh "$LIBEXEC/apply.sh" live
+	;;
+status)
+	if sh "$LIBEXEC/apply.sh" apply 2>/dev/null && [ -f /var/run/bettbox/config.yaml ]; then
+		echo "config: ok"
+	else
+		echo "config: failed"
+	fi
+	echo "core: $(api_call GET /version 2>/dev/null || echo offline)"
+	echo "mode: $(uci -q get bettbox.config.mode)"
+	echo "profile: $(uci -q get bettbox.config.profile)"
+	;;
+update|update-all|cron|add|remove)
+	sh "$LIBEXEC/subscription.sh" "$cmd" "$@"
+	;;
+dns|ip|ping|speedtest|media)
+	sh "$LIBEXEC/toolbox.sh" "$cmd" "$@"
+	;;
+dashboard)
+	sh "$LIBEXEC/dashboard.sh" "$1"
+	;;
+backup)
+	sh "$LIBEXEC/backup.sh" "$1" "$2"
+	;;
+api)
+	. "$LIBEXEC/common.sh"
+	api_call "$@"
+	;;
+*)
+	usage
+	;;
+esac

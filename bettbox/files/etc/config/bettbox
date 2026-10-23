@@ -1,0 +1,85 @@
+# Bettbox (mihomo) UCI schema — mirrors Bettbox app settings.
+
+config core 'config'
+	option enabled '0'
+	option profile ''
+	# rule | global | direct
+	option mode 'rule'
+	option log_level 'info'
+	option ipv6 '0'
+	option tcp_concurrent '1'
+	option unified_delay '1'
+	option keep_alive_interval '30'
+	# off | always
+	option find_process_mode 'off'
+	option global_ua 'clash.meta/v1.19.33'
+	option allow_lan '1'
+	option bind_address '*'
+	list authentication ''
+	list skip_auth_prefixes '127.0.0.1' '::1'
+	# inbounds; 0 = disabled
+	option mixed_port '7893'
+	option tproxy_port '7894'
+	option redir_port '0'
+	option socks_port '0'
+	option port '0'
+	# tun | tproxy | redir | off
+	option transparent_mode 'tun'
+	option hijack_dnsmasq '0'
+	# controller
+	option external_controller '127.0.0.1:9097'
+	option secret ''
+	option external_ui '0'
+	option test_url 'https://www.gstatic.com/generate_204'
+	# geo
+	option geodata_mode '0'
+	option geo_auto_update '1'
+	option geo_update_interval '24'
+	option geox_mmdb ''
+	option geox_geoip ''
+	option geox_geosite ''
+	option geox_asn ''
+	# watchdog: procd respawn + controller health check
+	option watchdog '1'
+	option watchdog_interval '30'
+
+config tun 'tun'
+	# mixed | gvisor | system
+	option stack 'mixed'
+	option device 'bettbox'
+	option auto_route '1'
+	option auto_redirect '1'
+	option strict_route '0'
+	option mtu '9000'
+	option dns_hijack 'any:53'
+
+config dns 'dns'
+	option override '1'
+	option listen '0.0.0.0:1053'
+	option ipv6 '0'
+	# fake-ip | redir-host
+	option enhanced_mode 'fake-ip'
+	option fake_ip_range '198.18.0.1/16'
+	option respect_rules '0'
+	list nameserver 'https://223.5.5.5/dns-query' 'https://doh.pub/dns-query'
+	list default_nameserver '223.5.5.5' '119.29.29.29'
+	list fallback 'https://1.1.1.1/dns-query' 'https://8.8.8.8/dns-query'
+
+config quic 'quic'
+	option block '0'
+	option exclude_china '1'
+
+config sniffer 'sniffer'
+	option enabled '0'
+	option override_destination '0'
+
+config ntp 'ntp'
+	option enabled '0'
+	option server 'time.apple.com'
+	option port '123'
+	option interval '30'
+	option write_system '0'
+
+config experimental 'experimental'
+	option quic_gso '1'
+	option quic_ecn '0'

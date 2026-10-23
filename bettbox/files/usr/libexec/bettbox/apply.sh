@@ -1,0 +1,82 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0
+# Render the active profile (+ UCI + JS overrides) into the runtime config.
+
+. /usr/libexec/bettbox/common.sh
+
+apply() {
+	local sid
+	sid=$(uci_get bettbox.config.profile)
+	[ -n "$sid" ] || die "no profile selected (uci bettbox.config.profile)"
+
+	local src
+	src=$(profile_file "$sid")
+	[ -f "$src" ] || die "profile file missing: $src"
+
+	mkdir -p "$BETTBOX_RUN" "$BETTBOX_STATE"
+
+	local base="$BETTBOX_RUN/base.json"
+	yq -o=json -I=0 '.' "$src" > "$base" || die "profile is not valid YAML"
+
+	# JS override (Bettbox script contract) via bettbox-forge
+	if [ "$(uci_get bettbox.$sid.use_script)" = "1" ]; then
+		local script
+		script=$(uci_get bettbox.$sid.script)
+		local script_file="$BETTBOX_SCRIPTS/$script.js"
+		if [ -f "$script_file" ] && command -v bettbox-forge >/dev/null; then
+			local opts out="$BETTBOX_RUN/scripted.json" err="$BETTBOX_RUN/forge.err"
+			opts=$(uci_get bettbox.$sid.custom_options)
+			if bettbox-forge run --script "$script_file" --config "$base" \
+				${opts:+--options "$opts"} --out "$out" 2> "$err"; then
+				cp "$out" "$base"
+			else
+				log "override script failed, falling back to unscripted profile: $(cat "$err")"
+			fi
+			rm -f "$out" "$err"
+		else
+			log "override script '$script' not found, skipping"
+		fi
+	fi
+
+	local out="$BETTBOX_RUN/config.yaml.tmp"
+	if ! ucode /usr/libexec/bettbox/render.uc "$base" "$out" "$sid"; then
+		rm -f "$out"
+		die "config render failed"
+	fi
+
+	# validate; retry once with geodata-mode off (upstream patchValidateConfig)
+	if ! timeout 120 mihomo -t -d "$BETTBOX_ETC" -f "$out" >/dev/null 2>&1; then
+		log "config validation failed, retrying with geodata-mode off"
+		sed -i 's/^geodata-mode: true$/geodata-mode: false/' "$out"
+		if ! timeout 120 mihomo -t -d "$BETTBOX_ETC" -f "$out" >/dev/null 2>&1; then
+			timeout 60 mihomo -t -d "$BETTBOX_ETC" -f "$out" 2>&1 | tail -5 >&2
+			rm -f "$out"
+			die "config validation failed"
+		fi
+	fi
+
+	mv -f "$out" "$BETTBOX_RUN/config.yaml"
+}
+
+# Hot-apply through the controller API when the core is running, like
+# Bettbox's updateConfig; falls back to a service restart.
+apply_live() {
+	apply || return 1
+	if [ -f "$BETTBOX_RUN/config.yaml" ] && api_call GET /version | grep -q version; then
+		api_call PUT /configs "{\"path\": \"$BETTBOX_RUN/config.yaml\", \"payload\": \"\", \"force\": true}" >/dev/null
+		return 0
+	fi
+	/etc/init.d/bettbox restart
+}
+
+case "$1" in
+apply)
+	apply
+	;;
+live)
+	apply_live
+	;;
+*)
+	die "usage: apply.sh apply|live"
+	;;
+esac

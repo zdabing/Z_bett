@@ -1,0 +1,10 @@
+# reference clone of upstream repo (research only)
+/bettbox-src/
+
+# rust build output
+/bettbox-forge/target/
+
+# local test harness deps
+/test/node_modules/
+/test/package-lock.json
+/test/package.json

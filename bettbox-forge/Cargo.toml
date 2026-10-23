@@ -1,0 +1,17 @@
+[package]
+name = "bettbox-forge"
+version = "1.19.7"
+edition = "2021"
+description = "Bettbox JS override script sandbox (boa port of upstream code_forge, QuickJS contract)"
+license = "GPL-3.0"
+
+[dependencies]
+boa_engine = "0.22"
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "s"
+panic = "abort"
