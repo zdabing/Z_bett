@@ -1,8 +1,8 @@
 name: Build OpenWrt 25 packages
 
+# 仅手动触发（Actions 页面点 Run workflow）。
+# 上次自动构建的失败只是 downloads.openwrt.org CDN 502，不是代码问题。
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 jobs:
