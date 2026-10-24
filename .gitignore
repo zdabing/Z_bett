@@ -9,3 +9,6 @@
 /test/package-lock.json
 /test/package.json
 logs-x86.txt
+
+# build artifacts & local backups (never commit)
+/dist/

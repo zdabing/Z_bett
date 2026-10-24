@@ -57,9 +57,10 @@ api_call() {
 	fi
 }
 
-# Escape a string into a JSON literal (ucode based).
+# Escape a string into a JSON literal (ucode based). json() only parses on
+# some ucode builds; serialization goes through sprintf %J.
 json_str() {
-	printf '%s' "$1" | ucode -e 'import { readfile } from "fs"; print(json(readfile("/dev/stdin")))'
+	printf '%s' "$1" | ucode -e 'import { readfile } from "fs"; print(sprintf("%J", json(readfile("/dev/stdin"))))'
 }
 
 profile_file() {

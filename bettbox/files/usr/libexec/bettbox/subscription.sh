@@ -26,7 +26,6 @@ update_one() {
 	sid="$1"
 	local url ua tmp hdr n
 	url=$(uci_get "bettbox.$sid.url")
-	[ -n "$url" ] && { [ "${url#file://}" = "$url" ] || url="${url#file://}"; }
 	[ -n "$url" ] || { log "subscription $sid has no url"; return 1; }
 	[ -f "$(profile_file "$sid")" ] || touch "$(profile_file "$sid")"
 
@@ -37,10 +36,40 @@ update_one() {
 	hdr="$BETTBOX_STATE/$sid.hdr"
 	mkdir -p "$BETTBOX_STATE"
 
-	if ! curl -sSL --fail -m 90 -A "$ua" -D "$hdr" -o "$tmp" "$url"; then
+	# file:// profiles are read directly (curl 8 rejects bare-path URLs).
+	if [ "${url#file://}" != "$url" ]; then
+		if ! cat "${url#file://}" > "$tmp" 2>/dev/null; then
+			rm -f "$tmp"
+			log "subscription $sid local profile unreadable: $url"
+			return 1
+		fi
+		: > "$hdr"
+	elif ! curl -sSL --fail -m 90 -A "$ua" -D "$hdr" -o "$tmp" "$url"; then
 		rm -f "$tmp" "$hdr"
 		log "subscription $sid download failed"
 		return 1
+	fi
+
+	# age-encrypted subscription (Bettbox parity): armor and raw formats share
+	# the "age-encryption.org" magic in the first bytes.
+	if head -c 80 "$tmp" | grep -q 'age-encryption.org'; then
+		local ident idf dec
+		ident=$(uci_get "bettbox.$sid.age_identity")
+		[ -n "$ident" ] || ident=$(uci_get bettbox.config.age_identity)
+		[ -n "$ident" ] || { rm -f "$tmp" "$hdr"; log "subscription $sid is age-encrypted but no age_identity configured"; return 1; }
+		command -v age >/dev/null || { rm -f "$tmp" "$hdr"; log "age not installed (apk add age)"; return 1; }
+		idf="$BETTBOX_STATE/$sid.agekey"
+		dec="$BETTBOX_STATE/$sid.dec"
+		printf '%s\n' "$ident" > "$idf"
+		chmod 600 "$idf"
+		if ! age -d -i "$idf" -o "$dec" "$tmp"; then
+			rm -f "$idf" "$dec" "$tmp" "$hdr"
+			log "subscription $sid age decryption failed"
+			return 1
+		fi
+		rm -f "$idf" "$tmp"
+		tmp="$dec"
+		log "subscription $sid age-decrypted"
 	fi
 
 	# must be a mihomo YAML with proxies (Bettbox treats subs as raw YAML)
@@ -100,7 +129,8 @@ add() {
 	local sid
 	sid="sub$(date +%s)"
 	while uci -q get "bettbox.$sid" >/dev/null; do
-		sid="sub$(date +%s)$RANDOM"
+		sleep 1
+		sid="sub$(date +%s)"
 	done
 	uci set "bettbox.$sid=subscription"
 	uci set "bettbox.$sid.url=$url"
@@ -110,7 +140,12 @@ add() {
 	uci set "bettbox.$sid.use_script=0"
 	uci set "bettbox.$sid.custom_options={}"
 	uci commit bettbox
-	update_one "$sid"
+	if ! update_one "$sid"; then
+		uci -q delete "bettbox.$sid"
+		uci commit bettbox
+		echo "subscription download failed, not added" >&2
+		return 1
+	fi
 	echo "$sid"
 }
 

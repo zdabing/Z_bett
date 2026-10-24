@@ -23,9 +23,15 @@ usage: bettbox <command> [args]
     ping <host> [count] [interval] [tcpport]
     speedtest [down_bytes] [up_bytes]
     media
+    trace <host>                          rule-match tracing
+    mrs <domain>                          geosite reverse lookup
+    nat                                   STUN mapping detection
+    age encrypt <pub>|decrypt <ident>     data on stdin
+    iperf <host> [seconds]
   extras
     dashboard install | remove               zashboard external-ui
-    backup create <file> | restore <file>
+    backup create <file> | restore <file>    local tar backup
+    backup push | pull | list                WebDAV (configure bettbox.backup.*)
     api <METHOD> <path> [json]               mihomo REST passthrough
 EOF
 	exit 2
@@ -58,7 +64,7 @@ status)
 update|update-all|cron|add|remove)
 	sh "$LIBEXEC/subscription.sh" "$cmd" "$@"
 	;;
-dns|ip|ping|speedtest|media)
+dns|ip|ping|speedtest|media|trace|mrs|nat|age|iperf)
 	sh "$LIBEXEC/toolbox.sh" "$cmd" "$@"
 	;;
 dashboard)

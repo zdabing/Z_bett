@@ -20,13 +20,16 @@
 			"ubus": {
 				"bettbox": [
 					"update_profile",
+					"add_profile",
 					"del_profile",
 					"save_script",
 					"del_script",
+					"import_script_url",
 					"apply",
 					"service_action",
 					"dashboard",
-					"geo_update"
+					"geo_update",
+					"backup_call"
 				]
 			},
 			"uci": [ "bettbox" ]

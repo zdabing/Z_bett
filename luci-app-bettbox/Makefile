@@ -11,7 +11,6 @@ PKG_RELEASE:=1
 
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0
-PKG_LICENSE_FILES:=../LICENSE
 
 LUCI_TITLE:=LuCI for Bettbox (mihomo) - proxy, subscriptions, JS overrides, toolbox
 LUCI_DESCRIPTION:=Bettbox feature set on OpenWrt: dashboard widgets, proxy groups, \

@@ -269,7 +269,7 @@ fn run(
     // Phase 1: syntax check the script while defining the wrapper function
     // (upstream evaluates the wrapper, then calls it; same split here).
     let define = format!(
-        "{PRELUDE}\nglobalThis.__FN = (function(__config, __custom) {{ {script}\n;if (__custom && typeof ruleOptionsEnable !== 'undefined') Object.assign(ruleOptionsEnable, __custom);\nreturn main(__config); }});"
+        "{PRELUDE}\nglobalThis.__FN = (function(__config, __custom) {{ {script}\n;if (__custom && typeof ruleOptionsEnable !== 'undefined') Object.assign(ruleOptionsEnable, __custom);\nreturn main(__config, __custom); }});"
     );
     context
         .eval(Source::from_bytes(define.as_bytes()))

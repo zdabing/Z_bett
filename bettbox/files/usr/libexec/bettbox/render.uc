@@ -17,7 +17,7 @@ import { cursor } from 'uci';
 
 const BETT_RULES = 'https://github.com/appshubcc/bett-rules/releases/latest/download';
 
-let argv = filter(ARGV, a => !starts_with(a, '-'));
+let argv = filter(ARGV, a => substr(a, 0, 1) != '-');
 if (length(argv) < 2) {
 	die('usage: render.uc <base.json> <out.yaml> [subscription-sid]\n');
 }
@@ -41,7 +41,13 @@ let uci_list = (section, option) => {
 function plain_safe(s) {
 	if (s == null || length(s) == 0)
 		return false;
-	if (match(s, /[\s:#{}\[\],&*!|>'"%@`?]|^[-?]| $|^ $/))
+	// Character scan instead of a regex class: some ucode builds silently
+	// never match escaped or \s sequences inside [...] classes.
+	for (let i = 0; i < length(s); i++) {
+		if (index(" \t:#{}[],&*!|>'\"%@`?", substr(s, i, 1)) >= 0)
+			return false;
+	}
+	if (substr(s, 0, 1) == '-' || substr(s, 0, 1) == '?')
 		return false;
 	let lower = lc(s);
 	if (lower in ['true', 'false', 'yes', 'no', 'on', 'off', 'null', '~', 'nan'])
@@ -260,7 +266,11 @@ for (let k in ['mmdb', 'geoip', 'geosite', 'asn']) {
 }
 patch['geox-url'] = geox;
 
-// DNS override
+// DNS — upstream semantics: the subscription's DNS section is authoritative
+// (its rule-set filters, nameserver-policy, #DIRECT/#group annotations are
+// crafted by the provider); we only patch enable+listen on top so dnsmasq can
+// forward to the core. A full replace happens only when the user explicitly
+// turns on "覆写 DNS" (dns.override=1), matching upstream overrideDns.
 if (uci('dns', 'override') == '1') {
 	let nameservers = filter(uci_list('dns', 'nameserver'), v => length(v) > 0);
 	if (length(nameservers) == 0)
@@ -279,6 +289,9 @@ if (uci('dns', 'override') == '1') {
 	let fallback = filter(uci_list('dns', 'fallback'), v => length(v) > 0);
 	if (length(fallback) > 0)
 		dns.fallback = fallback;
+	let psn = filter(uci_list('dns', 'proxy_server_nameserver'), v => length(v) > 0);
+	if (length(psn) > 0)
+		dns['proxy-server-nameserver'] = psn;
 	let dns_fip = (base?.dns != null) ? base.dns['fake-ip-filter'] : null;
 	if (dns_fip != null)
 		dns['fake-ip-filter'] = dns_fip;
@@ -288,7 +301,13 @@ if (uci('dns', 'override') == '1') {
 	if (uci('dns', 'respect_rules') == '1')
 		dns['respect-rules'] = true;
 	patch.dns = dns;
-} else if (type(base?.dns) != 'object' || base?.dns?.enable === false) {
+} else if (type(base?.dns) == 'object' && base.dns.enable !== false) {
+	// keep the profile DNS; only ensure it serves on the loopback listener
+	patch.dns = {
+		enable: true,
+		listen: uci('dns', 'listen') ?? '0.0.0.0:1053'
+	};
+} else {
 	// profile has no usable DNS: keep name resolution alive like upstream
 	patch.dns = {
 		enable: true,
@@ -298,7 +317,8 @@ if (uci('dns', 'override') == '1') {
 	};
 }
 
-// TUN
+// TUN — upstream injects a default tun block (route-exclude-address keeps
+// LAN/loopback out of the tunnel; bbr3 + icmp guard match the app defaults)
 if (mode == 'tun') {
 	patch.tun = {
 		enable: true,
@@ -307,8 +327,16 @@ if (mode == 'tun') {
 		'auto-route': (uci('tun', 'auto_route') != '0'),
 		'auto-redirect': (uci('tun', 'auto_redirect') != '0'),
 		'strict-route': (uci('tun', 'strict_route') == '1'),
+		'auto-detect-interface': true,
 		'dns-hijack': [ uci('tun', 'dns_hijack') ?? 'any:53' ],
-		mtu: num(uci('tun', 'mtu'), 9000)
+		mtu: num(uci('tun', 'mtu'), 9000),
+		'route-exclude-address': [
+			'127.0.0.0/8', '::1/128',
+			'10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16',
+			'fd00::/8', 'fe80::/10'
+		],
+		'disable-icmp-forwarding': true,
+		'congestion-controller': 'bbr3'
 	};
 }
 

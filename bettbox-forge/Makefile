@@ -11,7 +11,6 @@ PKG_RELEASE:=1
 
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0
-PKG_LICENSE_FILES:=../LICENSE
 
 # Source lives in this feed directory (no PKG_SOURCE download).
 PKG_BUILD_DEPENDS:=rust/host
@@ -22,6 +21,13 @@ RUST_PKG_LOCKED:=1
 
 include $(INCLUDE_DIR)/package.mk
 include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
+
+# Local-feed package: the default prepare only copies ./src; RustBinPackage
+# runs `cargo install --path $(PKG_BUILD_DIR)` so the manifest must be there.
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
+	$(CP) ./Cargo.toml ./Cargo.lock ./src $(PKG_BUILD_DIR)/
+endef
 
 define Package/bettbox-forge
   SECTION:=net

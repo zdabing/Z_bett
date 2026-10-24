@@ -42,11 +42,11 @@ return view.extend({
 		};
 
 		poll.add(refresh, 3);
+		if (!poll.running) poll.start();
 		refresh();
 
 		return E([
 			E('div', { 'class': 'cbi-map' }, [
-				E('h2', {}, _('日志')),
 				E('div', { 'class': 'cbi-section' }, [
 					E('div', { 'class': 'cbi-section-descr' }, [ search, ' ', level, ' ',
 						E('button', { 'class': 'btn', click: function () {

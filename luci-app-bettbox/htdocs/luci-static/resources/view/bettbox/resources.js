@@ -3,6 +3,12 @@
 'require rpc';
 'require ui';
 
+/* LuCI 25.12 removed ui.createHandlerBtn; shim it on top of createHandlerFn. */
+if (!ui.createHandlerBtn)
+	ui.createHandlerBtn = function(label, fn) {
+		return E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(null, fn) }, label);
+	};
+
 var callStatus = rpc.declare({ object: 'bettbox', method: 'get_status' });
 var callGeoUpdate = rpc.declare({ object: 'bettbox', method: 'geo_update' });
 
@@ -20,11 +26,8 @@ return view.extend({
 
 		return E([
 			E('div', { 'class': 'cbi-map' }, [
-				E('h2', {}, _('资源与面板')),
 				E('div', { 'class': 'cbi-section' }, [
 					E('h3', {}, _('GeoData 资源 (GeoSite / GeoIP / ASN)')),
-					E('div', { 'class': 'cbi-section-descr' },
-						_('内核开启 geo-auto-update 后按设置页的间隔自动更新；也可手动删除后重启内核强制重新下载。GeoX 地址在"设置 → Geo"中自定义，默认使用 appshubcc/bett-rules（与上游一致）。')),
 					E('div', {}, [
 						ui.createHandlerBtn(_('强制更新 Geo'), function () {
 							return callGeoUpdate().then(function () {
@@ -35,7 +38,6 @@ return view.extend({
 				]),
 				E('div', { 'class': 'cbi-section' }, [
 					E('h3', {}, _('控制面板 (zashboard)')),
-					E('div', { 'class': 'cbi-section-descr' }, _('外部面板与 Bettbox 的 OnlinePanel 一致，安装后经内核 external-ui 提供。')),
 					E('div', {}, [
 						ui.createHandlerBtn(_('安装 / 更新面板'), function () {
 							ui.showModal(_('正在下载 zashboard…'));

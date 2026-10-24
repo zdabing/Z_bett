@@ -6,7 +6,7 @@
 
 'use strict';
 
-import { access, lsdir, popen, readfile, unlink, writefile } from 'fs';
+import { access, lsdir, popen, readfile, stat, unlink, writefile } from 'fs';
 import { cursor } from 'uci';
 
 function shellquote(s) {
@@ -24,17 +24,24 @@ function run(cmd) {
 }
 
 function valid_sid(sid) {
-	return type(sid) == 'string' && match(sid, /^[A-Za-z0-9_-]{1,64}$/);
+	// no {n,m} quantifiers: older ucode regex builds reject them
+	return type(sid) == 'string' && length(sid) <= 64 && match(sid, /^[A-Za-z0-9_-]+$/);
 }
 
 function valid_name(name) {
-	return type(name) == 'string' && match(name, /^[A-Za-z0-9_-]{1,64}$/);
+	return type(name) == 'string' && length(name) <= 64 && match(name, /^[A-Za-z0-9_-]+$/);
 }
 
-const CONTROLLER_PATH = /^\/[A-Za-z0-9_\/.?=&:%~-]{0,256}$/;
+function valid_path(p) {
+	return type(p) == 'string' && length(p) <= 200 && match(p, /^\/[A-Za-z0-9._\/-]+$/);
+}
+
+function valid_controller_path(path) {
+	return type(path) == 'string' && length(path) <= 257 && match(path, /^\/[A-Za-z0-9_\/.?=&:%~-]*$/);
+}
 
 function api_raw(method, path, body) {
-	if (!match(path, CONTROLLER_PATH))
+	if (!valid_controller_path(path))
 		return { status: 400, body: null, raw: 'bad path' };
 	let ctx = cursor();
 	let hc = ctx.get('bettbox', 'config', 'external_controller') ?? '127.0.0.1:9097';
@@ -43,7 +50,9 @@ function api_raw(method, path, body) {
 
 	let bf = '/tmp/bettbox-api.body';
 	let cf = '/tmp/bettbox-api.code';
-	let cmd = sprintf('curl -sS -m %d -o %s -w "%%{http_code}" -X %s -H %s',
+	// busybox timeout guard: a wedged curl inside rpcd blocks every ubus call
+	let cmd = sprintf('timeout %d curl -sS -m %d -o %s -w "%%{http_code}" -X %s -H %s',
+		(method == 'GET' ? 7 : 17),
 		method == 'GET' ? 5 : 15,
 		shellquote(bf), method, shellquote('Authorization: Bearer ' + secret));
 	if (body != null && length(body) > 0)
@@ -65,15 +74,16 @@ function profile_list() {
 	cursor().foreach('bettbox', 'subscription', (s) => {
 		let sid = s['.name'];
 		let file = '/etc/bettbox/profiles/' + sid + '.yaml';
-		profiles.push({
+		push(profiles, {
 			id: sid,
 			label: s.label ?? sid,
 			url: s.url ?? '',
 			auto_update: (s.auto_update == '1'),
 			update_interval: int(s.update_interval) ?? 1440,
 			use_script: (s.use_script == '1'),
-			script: s.script ?? '',
-			custom_options: s.custom_options ?? '{}',
+				script: s.script ?? '',
+				age_identity: s.age_identity ?? '',
+				custom_options: s.custom_options ?? '{}',
 			override_rules: s.override_rules ?? '',
 			last_update: int(s.last_update) ?? 0,
 			sub_upload: int(s.sub_upload) ?? 0,
@@ -88,10 +98,14 @@ function profile_list() {
 
 function status_obj() {
 	let ctx = cursor();
+	/* instant by design: no internal curl here — views read live core state
+	   straight from the external-controller (bettbox.core module) */
 	return {
 		enabled: (ctx.get('bettbox', 'config', 'enabled') == '1'),
-		running: (system('pgrep -q mihomo') == 0),
-		core: api_raw('GET', '/version').body,
+		// busybox pgrep has no -q on all builds; redirect instead
+		running: (system('pgrep mihomo >/dev/null') == 0),
+		secret: ctx.get('bettbox', 'config', 'secret') ?? '',
+		core: null,
 		mode: ctx.get('bettbox', 'config', 'mode') ?? 'rule',
 		profile: ctx.get('bettbox', 'config', 'profile') ?? '',
 		controller: ctx.get('bettbox', 'config', 'external_controller') ?? '127.0.0.1:9097',
@@ -111,6 +125,22 @@ return {
 		get_profiles: {
 			call: function() {
 				return { profiles: profile_list() };
+			}
+		},
+		add_profile: {
+			args: { url: '', label: '' },
+			call: function(request) {
+				let url = request.args.url ?? '';
+				if (!(match(url, /^(https?|file):\/\/[A-Za-z0-9._~:\/?#@!$&()*+,;=%-]+$/)))
+					return { error: 'bad url' };
+				let label = request.args.label ?? '';
+				let out = run('/usr/bin/bettbox add ' + shellquote(url) + ' ' + shellquote(label) + ' 2>&1');
+				// sid is echoed on the last line only on success
+				let lines = split(trim(out), '\n');
+				let sid = trim(lines[length(lines) - 1] ?? '');
+				if (match(sid, /^sub[A-Za-z0-9]+$/))
+					return { ok: true, sid: sid, text: out };
+				return { ok: false, text: out };
 			}
 		},
 		update_profile: {
@@ -139,9 +169,13 @@ return {
 			call: function() {
 				let scripts = [];
 				if (access('/etc/bettbox/scripts')) {
+					// ucode builds differ: lsdir may return strings or {name,...} objects
 					for (let ent in lsdir('/etc/bettbox/scripts')) {
-						if (ent?.name && ent.type == 'file' && match(ent.name, /\.js$/))
-							scripts.push({ name: substr(ent.name, 0, length(ent.name) - 3), size: ent.size });
+						let name = (type(ent) == 'string') ? ent : ent?.name;
+						if (name && match(name, /\.js$/)) {
+							let st = stat('/etc/bettbox/scripts/' + name);
+							push(scripts, { name: substr(name, 0, length(name) - 3), size: (st != null) ? st.size : 0 });
+						}
 					}
 				}
 				return { scripts: scripts };
@@ -251,14 +285,59 @@ return {
 			args: { tool: '', args_json: '[]' },
 			call: function(request) {
 				let tool = request.args.tool;
-				if (!(tool in ['dns', 'ip', 'ping', 'speedtest', 'media']))
+				if (!(tool in ['dns', 'ip', 'ping', 'speedtest', 'media', 'trace', 'mrs', 'nat', 'age', 'iperf']))
 					return { error: 'bad tool' };
 				let argv = [];
 				let list = [];
 				try { list = json(request.args.args_json ?? '[]'); } catch (e) { list = []; }
 				for (let a in list)
-					argv.push(shellquote((type(a) == 'string') ? a : sprintf('%J', a)));
+					push(argv, shellquote((type(a) == 'string') ? a : sprintf('%J', a)));
 				return { text: run('/usr/bin/bettbox ' + tool + ' ' + join(' ', argv) + ' 2>&1') };
+			}
+		},
+		import_script_url: {
+			args: { url: '', name: '' },
+			call: function(request) {
+				let url = request.args.url ?? '';
+				if (!(match(url, /^https?:\/\/[A-Za-z0-9._~:\/?#@!$&()*+,;=%-]+$/)))
+					return { error: 'bad url' };
+				let name = request.args.name ?? '';
+				if (!length(name)) {
+					let base = replace(url, /^.*\//, '');
+					name = replace(base, /\?.*$/, '');
+					name = replace(name, /\.js$/, '');
+				}
+				if (!(type(name) == 'string' && length(name) <= 64 && match(name, /^[A-Za-z0-9_-]+$/)))
+					return { error: 'invalid script name' };
+				let body = '/tmp/bettbox-import.$$';
+				let cmd = sprintf('curl -sSL --fail -m 30 -o %s %s 2>/dev/null && grep -q "function main" %s && wc -c < %s',
+					shellquote(body), shellquote(url), shellquote(body), shellquote(body));
+				let out = run(cmd);
+				let size = int(trim(out));
+				if (type(size) != 'int' || size <= 0)
+					return { error: 'download failed or no main() in script' };
+				if (size > 512 * 1024)
+					return { error: 'script too large' };
+				let content = readfile(body) ?? '';
+				unlink(body);
+				if (length(content) == 0)
+					return { error: 'downloaded script is empty' };
+				writefile('/etc/bettbox/scripts/' + name + '.js', content);
+				return { ok: true, name: name, size: size };
+			}
+		},
+		backup_call: {
+			args: { action: '', file: '' },
+			call: function(request) {
+				let action = request.args.action;
+				if (!(action in ['create', 'restore', 'push', 'pull', 'list']))
+					return { error: 'bad action' };
+				let f = request.args.file ?? '';
+				if ((action == 'create' || action == 'restore') && !valid_path(f))
+					return { error: 'invalid file path' };
+				let cmd = '/usr/libexec/bettbox/backup.sh ' + action + ((f && (action == 'create' || action == 'restore')) ? ' ' + shellquote(f) : '');
+				let out = run(cmd + ' 2>&1');
+				return { ok: (match(out, /usage|failed|not configured|error/i) == null), text: out };
 			}
 		}
 	}

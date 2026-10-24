@@ -1,9 +1,10 @@
 'use strict';
 'require view';
 'require rpc';
+'require bettbox.core as Core';
 'require poll';
 
-var callApi = rpc.declare({ object: 'bettbox', method: 'api_proxy', params: [ 'method', 'path', 'body' ] });
+var callApi = function (method, path, body) { return Core.api(method, path, body); };
 
 function fmtBytes(n) {
 	if (n == null) return '-';
@@ -32,7 +33,7 @@ return view.extend({
 					E('button', {
 						'class': 'btn cbi-button-remove',
 						click: function () {
-							callApi('DELETE', '/connections/' + encodeURIComponent(c.id), null).then(self.refresh);
+							callApi('DELETE', '/connections/' + encodeURIComponent(c.id), '').then(self.refresh);
 						}
 					}, '✕')
 				])
@@ -40,7 +41,7 @@ return view.extend({
 		}
 
 		self.refresh = function () {
-			callApi('GET', '/connections', null).then(function (res) {
+			callApi('GET', '/connections', '').then(function (res) {
 				if (!res || !res.data) return;
 				var conns = res.data.connections || [];
 				conns.sort(function (a, b) {
@@ -62,16 +63,16 @@ return view.extend({
 			});
 		};
 
-		poll.add(self.refresh, 2);
+		poll.add(self.refresh, 4);
+		if (!poll.running) poll.start();
 		self.refresh();
 
 		return E([
 			E('div', { 'class': 'cbi-map' }, [
-				E('h2', {}, _('连接')),
 				E('div', { 'class': 'cbi-section' }, [
 					E('div', { 'class': 'cbi-section-descr' }, [
 						info, ' ',
-						E('button', { 'class': 'btn cbi-button-negative', click: function () { callApi('DELETE', '/connections', null).then(self.refresh); } }, _('关闭全部')),
+						E('button', { 'class': 'btn cbi-button-negative', click: function () { callApi('DELETE', '/connections', '').then(self.refresh); } }, _('关闭全部')),
 						' ',
 						E('button', { 'class': 'btn', click: function () { sortMode = (sortMode === 'traffic') ? 'time' : 'traffic'; self.refresh(); } }, _('排序: %s').format(sortMode === 'traffic' ? '流量' : '时间'))
 					]),

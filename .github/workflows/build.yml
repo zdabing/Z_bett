@@ -42,10 +42,26 @@ jobs:
       - name: Download OpenWrt 25.12 SDK
         working-directory: ${{ github.workspace }}
         run: |
-          BASE=https://downloads.openwrt.org/releases/25.12.0/${{ matrix.sdk_dir }}
-          SDK=$(curl -sL "$BASE/" | grep -o 'openwrt-sdk-25\.12\.0[^"]*\.tar\.zst' | head -1)
-          echo "SDK: $SDK"
-          curl -sL "$BASE/$SDK" -o sdk.tar.zst
+          VER=25.12.6
+          DIR=${{ matrix.sdk_dir }}
+          # Resolve the exact SDK filename from sha256sums (fixed-name fetch, no
+          # directory listing needed — listings 502 on the CDN intermittently)
+          # and fall back across mirrors.
+          for M in https://downloads.openwrt.org \
+                   https://mirrors.tuna.tsinghua.edu.cn/openwrt \
+                   https://mirror.nju.edu.cn/openwrt; do
+            LINE=$(curl -sL --fail -m 60 "$M/releases/$VER/$DIR/sha256sums" | grep 'openwrt-sdk-' | head -1) || LINE=""
+            [ -n "$LINE" ] || continue
+            SDK=$(echo "$LINE" | awk '{print $2}' | sed 's/^\*//')
+            HASH=$(echo "$LINE" | awk '{print $1}')
+            echo "SDK: $SDK (mirror $M)"
+            if curl -sL --fail -m 900 "$M/releases/$VER/$DIR/$SDK" -o sdk.tar.zst \
+               && echo "$HASH  sdk.tar.zst" | sha256sum -c -; then
+              break
+            fi
+            rm -f sdk.tar.zst
+          done
+          [ -f sdk.tar.zst ] || { echo "all mirrors failed"; exit 1; }
           tar axf sdk.tar.zst
           SDKDIR=$(echo openwrt-sdk-*)
           echo "SDKDIR=$SDKDIR" >> "$GITHUB_ENV"

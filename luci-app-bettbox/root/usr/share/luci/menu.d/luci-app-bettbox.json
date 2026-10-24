@@ -3,20 +3,55 @@
 		"title": "Bettbox",
 		"order": 55,
 		"icon": "bettbox.svg",
+		"action": { "type": "firstchild" },
 		"depends": {
 			"acl": [ "luci-app-bettbox" ],
 			"uci": { "bettbox": true }
-		},
-		"children": [
-			{ "title": "概览", "order": 1, "path": "bettbox/overview" },
-			{ "title": "代理", "order": 2, "path": "bettbox/proxies" },
-			{ "title": "连接", "order": 3, "path": "bettbox/connections" },
-			{ "title": "订阅", "order": 4, "path": "bettbox/profiles" },
-			{ "title": "脚本", "order": 5, "path": "bettbox/scripts" },
-			{ "title": "资源", "order": 6, "path": "bettbox/resources" },
-			{ "title": "工具箱", "order": 7, "path": "bettbox/toolbox" },
-			{ "title": "日志", "order": 8, "path": "bettbox/logs" },
-			{ "title": "设置", "order": 9, "path": "bettbox/settings" }
-		]
+		}
+	},
+	"admin/services/bettbox/overview": {
+		"title": "概览",
+		"order": 1,
+		"action": { "type": "view", "path": "bettbox/overview" }
+	},
+	"admin/services/bettbox/proxies": {
+		"title": "代理",
+		"order": 2,
+		"action": { "type": "view", "path": "bettbox/proxies" }
+	},
+	"admin/services/bettbox/connections": {
+		"title": "连接",
+		"order": 3,
+		"action": { "type": "view", "path": "bettbox/connections" }
+	},
+	"admin/services/bettbox/profiles": {
+		"title": "订阅",
+		"order": 4,
+		"action": { "type": "view", "path": "bettbox/profiles" }
+	},
+	"admin/services/bettbox/scripts": {
+		"title": "脚本",
+		"order": 5,
+		"action": { "type": "view", "path": "bettbox/scripts" }
+	},
+	"admin/services/bettbox/resources": {
+		"title": "资源",
+		"order": 6,
+		"action": { "type": "view", "path": "bettbox/resources" }
+	},
+	"admin/services/bettbox/toolbox": {
+		"title": "工具箱",
+		"order": 7,
+		"action": { "type": "view", "path": "bettbox/toolbox" }
+	},
+	"admin/services/bettbox/logs": {
+		"title": "日志",
+		"order": 8,
+		"action": { "type": "view", "path": "bettbox/logs" }
+	},
+	"admin/services/bettbox/settings": {
+		"title": "设置",
+		"order": 9,
+		"action": { "type": "view", "path": "bettbox/settings" }
 	}
 }

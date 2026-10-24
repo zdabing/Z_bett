@@ -15,8 +15,10 @@ PKG_LICENSE:=GPL-3.0
 # Engine: upstream mihomo (same base as Bettbox core/Clash.Meta). Bettbox's
 # private core IPC (toolbox actions, suspend, permission helpers) is replaced
 # on the router by ucode/shell against mihomo's REST API.
-PKG_SOURCE:=mihomo-$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://codeload.github.com/MetaCubeX/mihomo/tar.gz/refs/tags/v$(PKG_VERSION)
+# download.pl appends the source filename to each mirror URL, so use the
+# github archive path prefix (codeload URLs cannot take an appended name).
+PKG_SOURCE:=v$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL:=https://github.com/MetaCubeX/mihomo/archive/refs/tags/
 PKG_HASH:=e7c596b37ff27ec487d19b1920f73e0c97a78067ea35766530ee9659ade72711
 PKG_BUILD_DIR:=$(BUILD_DIR)/mihomo-$(PKG_VERSION)
 
