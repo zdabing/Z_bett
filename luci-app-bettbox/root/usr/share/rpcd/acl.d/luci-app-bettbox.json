@@ -11,10 +11,16 @@
 					"script_options",
 					"get_logs",
 					"api_proxy",
-					"toolbox_call"
+					"toolbox_call",
+					"get_network",
+					"get_resources",
+					"diagnostic_start",
+					"diagnostic_status"
 				]
 			},
-			"uci": [ "bettbox" ]
+			"uci": [
+				"bettbox"
+			]
 		},
 		"write": {
 			"ubus": {
@@ -29,10 +35,19 @@
 					"service_action",
 					"dashboard",
 					"geo_update",
-					"backup_call"
+					"backup_call",
+					"backup_file"
 				]
 			},
-			"uci": [ "bettbox" ]
+			"uci": [
+				"bettbox"
+			],
+			"file": {
+				"/tmp/bettbox-ui-backup.*": [
+					"read",
+					"write"
+				]
+			}
 		}
 	}
 }

@@ -2,82 +2,12 @@
 'require view';
 'require rpc';
 'require uci';
-'require ui';
-
-var callApply = rpc.declare({ object: 'bettbox', method: 'apply' });
-
-/* LuCI 25.12 removed ui.createHandlerBtn; shim it on top of createHandlerFn. */
-if (!ui.createHandlerBtn)
-	ui.createHandlerBtn = function(label, fn) {
-		return E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(null, fn) }, label);
-	};
-
-/* 行内矢量图标（Material 风格、描边跟随主题色） */
-var ICONS = {
-	power: '<path d="M12 3v8"/><path d="M6.3 6.5a8 8 0 1 0 11.4 0"/>',
-	tune: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
-	list: '<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>',
-	doc: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h6M9 16h6"/>',
-	globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
-	port: '<rect x="4" y="8" width="16" height="9" rx="1.5"/><path d="M8 17v3M12 17v3M16 17v3M8 11h.01M12 11h.01M16 11h.01"/>',
-	lan: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M12 12l-6 5M12 12l6 5"/>',
-	shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
-	server: '<rect x="4" y="4" width="16" height="6" rx="1"/><rect x="4" y="14" width="16" height="6" rx="1"/><path d="M8 7h.01M8 17h.01"/>',
-	tunnel: '<path d="M3 20v-6a9 9 0 0 1 18 0v6"/><path d="M8 20v-6a4 4 0 0 1 8 0v6"/>',
-	bolt: '<path d="M13 2L5 13h6l-2 9 8-11h-6z"/>',
-	eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.5"/>',
-	clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
-	map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
-	pulse: '<path d="M3 12h4l2-6 4 12 2-6h6"/>',
-	key: '<circle cx="8" cy="15" r="4"/><path d="M11 12L20 3M16 7l3 3"/>',
-	cloud: '<path d="M7 18a4.5 4.5 0 1 1 .8-8.9A6 6 0 0 1 19 11a3.5 3.5 0 0 1-1 7z"/>',
-	gauge: '<path d="M4 17a9 9 0 0 1 16 0"/><path d="M12 17l4.5-6"/><circle cx="12" cy="17" r="1.4"/>',
-	term: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10l3 2.5L7 15M12.5 15H17"/>',
-	lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'
-};
-
-function ico(name) {
-	var s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-	s.setAttribute('viewBox', '0 0 24 24');
-	s.setAttribute('width', '21'); s.setAttribute('height', '21');
-	s.setAttribute('fill', 'none');
-	s.setAttribute('stroke', 'currentColor');
-	s.setAttribute('stroke-width', '1.7');
-	s.setAttribute('stroke-linecap', 'round');
-	s.setAttribute('stroke-linejoin', 'round');
-	s.innerHTML = ICONS[name] || ICONS.list;
-	var w = document.createElement('span');
-	w.className = 'set-ico';
-	w.appendChild(s);
-	return w;
-}
-
-var PAGE_CSS = `
-.set-sec { background:var(--background-color-high,#fff); border:1px solid var(--border-color,#ddd); border-radius:12px; margin-bottom:1em; box-shadow:0 1px 3px rgba(0,0,0,.05); }
-.set-sec > h3 { margin:0; padding:.8em 1em .3em; font-size:.92em; color:var(--sub-color,#777); font-weight:600; }
-.set-row { display:flex; align-items:center; gap:.75em; padding:.6em 1em; border-top:1px solid var(--border-color-low,#eee); }
-.set-row:first-of-type { border-top:none; }
-.set-main { flex:1; min-width:0; }
-.set-title { font-size:.95em; }
-.set-sub { font-size:.75em; color:var(--sub-color,#999); }
-.set-ico { color:var(--primary,#2f7fd6); display:inline-flex; flex:none; }
-.set-ctl { flex:none; display:flex; align-items:center; gap:.4em; }
-.set-ctl .cbi-input-text { width:11em; }
-.set-ctl-wide { flex-direction:column; align-items:stretch; width:100%; }
-.set-ctl-wide .cbi-input-text, .set-ctl-wide textarea { width:100%; }
-.bb-switch { position:relative; display:inline-block; width:56px; height:32px; flex:none; }
-.bb-switch input { opacity:0; width:0; height:0; position:absolute; }
-.bb-switch .bb-slider { position:absolute; inset:0; background:#b0b3b8; border-radius:32px; transition:background .2s; cursor:pointer; }
-.bb-switch .bb-slider::before { content:''; position:absolute; width:26px; height:26px; left:3px; top:3px; background:#fff; border-radius:50%; transition:transform .2s; box-shadow:0 1px 4px rgba(0,0,0,.35); }
-.bb-switch input:checked + .bb-slider { background:var(--primary,#2f7fd6); }
-.bb-switch input:checked + .bb-slider::before { transform:translateX(24px); }
-`;
-
-/* 层级与上游 config/ 页对齐：常规/网络端口/控制面板/TUN/DNS/QUIC/嗅探/NTP/Geo/守护/Age/WebDAV/实验 */
+'require bettbox.ui as UI';
+var callApply=rpc.declare({object:'bettbox',method:'apply'}),callProfiles=rpc.declare({object:'bettbox',method:'get_profiles'}),commit=rpc.declare({object:'uci',method:'commit',params:['config']});
 var SCHEMA = [
 	{ section: 'config', title: _('常规'), opts: [
 		{ opt: 'enabled', kind: 'flag', icon: 'power', label: _('启动服务') },
-		{ opt: 'profile', kind: 'value', icon: 'list', label: _('当前订阅 (sid)') },
+		{ opt: 'profile', kind: 'value', icon: 'list', label: _('当前订阅') },
 		{ opt: 'mode', kind: 'list', icon: 'tune', label: _('运行模式'), list: [ ['rule', '规则 (Rule)'], ['global', '全局 (Global)'], ['direct', '直连 (Direct)'] ] },
 		{ opt: 'log_level', kind: 'list', icon: 'doc', label: _('日志级别'), list: [ ['silent'], ['error'], ['warning'], ['info'], ['debug'] ] },
 		{ opt: 'ipv6', kind: 'flag', icon: 'globe', label: _('IPv6') }
@@ -99,7 +29,7 @@ var SCHEMA = [
 		{ opt: 'test_url', kind: 'value', icon: 'gauge', label: _('测延迟 URL'), ph: 'https://www.gstatic.com/generate_204' }
 	] },
 	{ section: 'tun', title: _('TUN 虚拟网卡'), opts: [
-		{ opt: 'stack', kind: 'list', icon: 'tunnel', label: 'TUN 栈', list: [ ['mixed'], ['gvisor'], ['system'] ] },
+		{ opt: 'stack', kind: 'list', icon: 'tunnel', label: 'TUN 栈', sub: _('上游默认 mips'), list: [ ['mips'], ['mixed'], ['gvisor'], ['system'] ] },
 		{ opt: 'device', kind: 'value', icon: 'tunnel', label: _('设备名'), ph: 'bettbox' },
 		{ opt: 'auto_route', kind: 'flag', icon: 'map', label: 'auto-route' },
 		{ opt: 'auto_redirect', kind: 'flag', icon: 'map', label: 'auto-redirect' },
@@ -127,12 +57,6 @@ var SCHEMA = [
 		{ opt: 'enabled', kind: 'flag', icon: 'eye', label: _('启用流量嗅探') },
 		{ opt: 'override_destination', kind: 'flag', icon: 'eye', label: 'override-destination', sub: _('用嗅探结果覆盖目标地址') }
 	] },
-	{ section: 'ntp', title: _('NTP'), opts: [
-		{ opt: 'enabled', kind: 'flag', icon: 'clock', label: _('启用 NTP 校时') },
-		{ opt: 'server', kind: 'value', icon: 'clock', label: _('服务器'), ph: 'time.apple.com' },
-		{ opt: 'port', kind: 'value', icon: 'port', label: _('端口'), ph: '123' },
-		{ opt: 'interval', kind: 'value', icon: 'clock', label: _('间隔 (分钟)') }
-	] },
 	{ section: 'config', title: _('Geo 资源'), opts: [
 		{ opt: 'geo_auto_update', kind: 'flag', icon: 'map', label: _('自动更新 Geo') },
 		{ opt: 'geo_update_interval', kind: 'value', icon: 'clock', label: _('更新间隔 (小时)') },
@@ -158,104 +82,25 @@ var SCHEMA = [
 	] }
 ];
 
-function fieldFor(cfg, o) {
-	var val = cfg[o.opt];
-	if (o.kind === 'flag') {
-		var cb = E('input', { type: 'checkbox' });
-		cb.checked = (val == '1');
-		var sw = E('label', { 'class': 'bb-switch' }, [ cb, E('span', { 'class': 'bb-slider' }) ]);
-		return { el: sw, input: cb };
-	}
-	if (o.kind === 'list') {
-		var sel = E('select', { 'class': 'cbi-input-select' });
-		(o.list || []).forEach(function (item) {
-			sel.appendChild(E('option', { value: item[0] }, item[1] || item[0]));
-		});
-		sel.value = val || (o.list && o.list[0] && o.list[0][0]);
-		return { el: sel, input: sel };
-	}
-	if (o.kind === 'list-multi') {
-		var ta = E('textarea', { 'class': 'cbi-input-textarea', rows: 3, style: 'font-family:monospace' });
-		ta.value = Array.isArray(val) ? val.join('\n') : (val || '');
-		return { el: ta, input: ta };
-	}
-	var inp = E('input', { 'class': 'cbi-input-text' });
-	if (o.ph) inp.placeholder = o.ph;
-	if (o.pass) inp.type = 'password';
-	inp.value = (val == null) ? '' : val;
-	return { el: inp, input: inp };
+function fieldFor(cfg,o,profiles){
+	var value=cfg[o.opt],control;
+	if(o.kind==='flag'){control=E('button',{type:'button','class':'switch'+(value==='1'?'':' off'),role:'switch','aria-checked':String(value==='1'),'aria-label':o.label});control.checked=value==='1';control.addEventListener('click',function(){control.checked=!control.checked;control.classList.toggle('off',!control.checked);control.setAttribute('aria-checked',String(control.checked));control.dispatchEvent(new Event('change',{bubbles:true}));});return control;}
+	if(o.opt==='profile'){control=E('select',{'class':'field','aria-label':o.label},profiles.map(function(p){return E('option',{value:p.id},p.label||p.id);}));if(value&&!profiles.some(function(p){return p.id===value;}))control.appendChild(E('option',{value:value},value));control.value=value||'';return control;}
+	if(o.kind==='list'){control=E('select',{'class':'field','aria-label':o.label},(o.list||[]).map(function(item){return E('option',{value:item[0]},item[1]||item[0]);}));control.value=value||o.list[0][0];return control;}
+	if(o.kind==='list-multi'){control=E('textarea',{'class':'field',rows:3,'aria-label':o.label});control.value=Array.isArray(value)?value.join('\n'):value||'';return control;}
+	var numeric=/(?:port$|interval$|mtu$)/.test(o.opt);control=E('input',{'class':'field',type:o.pass?'password':numeric?'number':'text','aria-label':o.label});control.value=value==null?'':value;if(o.ph)control.placeholder=o.ph;if(numeric)control.min='0';return control;
 }
-
-function readField(el, o) {
-	if (o.kind === 'flag')
-		return el.checked ? '1' : '0';
-	if (o.kind === 'list-multi')
-		return el.value.split('\n').map(function (s) { return s.trim(); }).filter(function (s) { return s; });
-	return el.value;
-}
-
+function readField(control,o){if(o.kind==='flag')return control.checked?'1':'0';if(o.kind==='list-multi')return control.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);return control.value;}
+function category(sec){if(sec.section==='tun')return 'tun';if(sec.section==='dns')return 'dns';if(sec.section==='backup')return 'backup';if(sec.opts.some(function(o){return o.opt==='mixed_port';}))return 'network';if(sec.opts.some(function(o){return o.opt==='enabled'||o.opt==='watchdog';}))return 'general';return 'other';}
 return view.extend({
-	load: function () {
-		return uci.load('bettbox');
-	},
-
-	render: function () {
-		var self = this;
-		var inputs = [];
-
-		var saveBtn = E('button', { 'class': 'btn cbi-button-important', style: 'padding:.5em 1.6em' }, _('保存并应用'));
-		saveBtn.addEventListener('click', function () {
-			ui.showModal(_('正在保存…'), E('p', {}, _('请稍候')));
-			try {
-				inputs.forEach(function (it) {
-					var v = readField(it.input, it);
-					if (Array.isArray(v))
-						uci.set('bettbox', it.sec, it.opt, v.length ? v : []);
-					else
-						uci.set('bettbox', it.sec, it.opt, v);
-				});
-			} catch (e) {
-				ui.hideModal();
-				ui.addNotification(null, E('p', {}, _('保存失败：') + String(e.message || e)), 'error');
-				return;
-			}
-			uci.save().then(function () {
-				return rpc.declare({ object: 'uci', method: 'commit', params: ['config'] })('bettbox');
-			}).then(function () {
-				if (uci.get('bettbox', 'config', 'enabled') == '1')
-					return callApply();
-			}).then(function () {
-				ui.hideModal();
-				ui.addNotification(null, E('p', {}, _('配置已保存并应用')), 'info');
-			}).catch(function (e) {
-				ui.hideModal();
-				ui.addNotification(null, E('p', {}, _('应用失败：') + String(e && e.message ? e.message : e)), 'error');
-			});
-		});
-
-		var sections = SCHEMA.map(function (sec) {
-			var cfg = uci.get('bettbox', sec.section) || {};
-			var rows = sec.opts.map(function (o) {
-				var f = fieldFor(cfg, o);
-				inputs.push({ sec: sec.section, opt: o.opt, kind: o.kind, input: f.input });
-				var main = E('div', { 'class': 'set-main' }, [
-					E('div', { 'class': 'set-title' }, o.label)
-				].concat(o.sub ? [ E('div', { 'class': 'set-sub' }, o.sub) ] : []));
-				var ctl = E('div', { 'class': 'set-ctl' + (o.wide ? ' set-ctl-wide' : '') }, [ f.el ]);
-				return E('div', { 'class': 'set-row' }, [ ico(o.icon || 'list'), main, ctl ]);
-			});
-			return E('div', { 'class': 'set-sec' }, [ E('h3', {}, sec.title) ].concat(rows));
-		});
-
-		return E([
-			E('style', {}, PAGE_CSS),
-			E('div', { 'class': 'cbi-map' }, sections.concat([
-				E('div', { 'class': 'cbi-page-actions' }, [ saveBtn ])
-			]))
-		]);
-	},
-
-	handleSaveApply: null,
-	handleSave: null,
-	handleReset: null
+	load:function(){return Promise.all([uci.load('bettbox'),callProfiles()]);},
+	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['tun','TUN','route'],['dns','DNS','globe'],['backup','备份','layers'],['other','其他','grid']];
+		var state=E('strong',{},'当前配置');
+		function changed(){var count=inputs.filter(function(it){return JSON.stringify(readField(it.control,it.option))!==it.original;}).length;state.textContent=count?'有 '+count+' 项修改':'当前配置';}
+		SCHEMA.forEach(function(sec){var cfg=uci.get('bettbox',sec.section)||{},form=E('div',{'class':'settings-form'});sec.opts.forEach(function(o){var control=fieldFor(cfg,o,profiles),original=JSON.stringify(readField(control,o));inputs.push({section:sec.section,option:o,control:control,original:original});control.addEventListener('change',changed);control.addEventListener('input',changed);form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')},[E('div',{},[E('label',{'class':'setting-label'},o.opt==='profile'?'当前订阅':o.label)]),E('div',{'class':'setting-control'},control)]));});var panel=E('section',{'class':'panel settings-panel'},[E('div',{'class':'panel-head'},E('div',{},[E('h2',{},[UI.icon(category(sec)==='general'?'settings':category(sec)==='network'?'lan':category(sec)==='tun'?'route':category(sec)==='dns'?'globe':'grid'),document.createTextNode(sec.title)]) ])),form]);var cat=category(sec);panel.hidden=cat!==selected;sections.push({panel:panel,category:cat});content.appendChild(panel);});
+		var nav=E('aside',{'class':'panel settings-categories','aria-label':'设置类别'},categories.map(function(c){var b=E('button',{type:'button','class':'category-button'+(selected===c[0]?' active':''),'aria-pressed':String(selected===c[0])},[UI.icon(c[2]),E('span',{},c[1])]);b.addEventListener('click',function(){selected=c[0];Array.from(nav.children).forEach(function(x){x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});sections.forEach(function(s){s.panel.hidden=s.category!==selected;});});return b;}));
+		function save(){inputs.forEach(function(it){var value=readField(it.control,it.option);if(it.control.type==='number'&&value!==''&&!it.control.checkValidity())throw new Error('请检查 '+it.option.label);if(/port$/.test(it.option.opt)&&value!==''&&(+value<0||+value>65535))throw new Error('端口需要在 0–65535 之间');if(JSON.stringify(value)!==it.original)uci.set('bettbox',it.section,it.option.opt,value);});inputs.forEach(function(it){it.control.disabled=true;});state.textContent='正在保存并应用…';return uci.save().then(function(){return commit('bettbox');}).then(callApply).then(UI.checked).then(function(){inputs.forEach(function(it){it.original=JSON.stringify(readField(it.control,it.option));});state.textContent='设置已保存并应用';}).catch(function(err){state.textContent='应用失败';throw new Error('配置可能已保存：'+err.message);}).finally(function(){inputs.forEach(function(it){it.control.disabled=false;});});}
+		var bar=E('div',{'class':'save-bar'},[E('div',{},[state]),E('div',{'class':'button-row'},[UI.button('撤销',function(){window.location.reload();}),UI.button('保存并应用',save,'primary','save')])]);
+		return UI.page('settings','设置',[],[E('div',{'class':'settings-layout'},[nav,content]),bar]);
+	},handleSaveApply:null,handleSave:null,handleReset:null
 });

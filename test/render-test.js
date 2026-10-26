@@ -1,6 +1,7 @@
 // Harness: run render.uc (ucode) under Node with ucode builtins stubbed.
 'use strict';
 const fs = require('fs');
+const path = require('path');
 const vm = require('vm');
 const yaml = require('js-yaml');
 
@@ -102,7 +103,8 @@ const profileJson = JSON.stringify({
 		'GEOIP,CN,DIRECT',
 		'MATCH,🚀 节点选择'
 	],
-	dns: { enable: true, nameserver: ['119.29.29.29'], 'fake-ip-filter': ['*.lan'] }
+	dns: { enable: true, nameserver: ['119.29.29.29'], 'fake-ip-filter': ['*.lan'] },
+	hosts: { 'nas.lan': '10.0.0.194' }
 }, null, 0);
 
 const uciData = {
@@ -110,7 +112,7 @@ const uciData = {
 		'.type': 'core', '.name': 'config',
 		enabled: '1', profile: 'test1', mode: 'rule', log_level: 'info', ipv6: '0',
 		tcp_concurrent: '1', unified_delay: '1', keep_alive_interval: '30',
-		find_process_mode: 'off', global_ua: 'clash.meta/v1.19.33',
+		global_ua: 'clash.meta/v1.19.33',
 		allow_lan: '1', bind_address: '*',
 		mixed_port: '7893', tproxy_port: '7894', redir_port: '0', socks_port: '0', port: '0',
 		transparent_mode: 'tun', hijack_dnsmasq: '0',
@@ -124,14 +126,13 @@ const uciData = {
 	dns: { '.type': 'dns', '.name': 'dns', override: '1', listen: '0.0.0.0:1053', ipv6: '0', enhanced_mode: 'fake-ip', fake_ip_range: '198.18.0.1/16', respect_rules: '0', nameserver: ['https://223.5.5.5/dns-query', 'https://doh.pub/dns-query'], default_nameserver: ['223.5.5.5', '119.29.29.29'], fallback: ['https://1.1.1.1/dns-query'] },
 	quic: { '.type': 'quic', '.name': 'quic', block: '1', exclude_china: '1' },
 	sniffer: { '.type': 'sniffer', '.name': 'sniffer', enabled: '0', override_destination: '0' },
-	ntp: { '.type': 'ntp', '.name': 'ntp', enabled: '0', server: 'time.apple.com', port: '123', interval: '30', write_system: '0' },
 	experimental: { '.type': 'experimental', '.name': 'experimental', quic_gso: '1', quic_ecn: '0' },
 	test1: { '.type': 'subscription', '.name': 'test1', label: '测试订阅', url: 'https://example.com/sub', override_rules: JSON.stringify({ mode: 'prepend', rules: ['DOMAIN,example.net,DIRECT'] }) }
 };
 
 const files = { '/tmp/base.json': profileJson };
 const captured = { stdout: [], written: {} };
-const src = fs.readFileSync(process.argv[2] || 'bettbox/files/usr/libexec/bettbox/render.uc', 'utf8')
+const src = fs.readFileSync(process.argv[2] || path.join(__dirname, '../bettbox/files/usr/libexec/bettbox/render.uc'), 'utf8')
 	.replace(/^import .*$/gm, '')
 	.replace(/for \((let \w+) in /g, 'for ($1 of ');
 const sandbox = makeSandbox(files, uciData, ['/tmp/base.json', '/tmp/out.yaml', 'test1'], captured);
@@ -159,8 +160,12 @@ assert(parsed['tproxy-port'] === 7894, 'tproxy-port patched');
 assert(parsed['external-controller'] === '0.0.0.0:9097', 'controller bound 0.0.0.0 when allow_lan');
 assert(parsed['geodata-mode'] === false, 'geodata-mode false');
 assert(parsed.profile['store-selected'] === true, 'store-selected');
-assert(parsed.hosts['dns.msftncsi.com'][0] === '131.107.255.255', 'NCSI host injected');
+assert(parsed.hosts['dns.msftncsi.com'] === undefined, 'no Windows NCSI host injected');
+assert(parsed.hosts['nas.lan'] === '10.0.0.194', 'explicit profile hosts preserved');
+assert(parsed['find-process-mode'] === 'off', 'router process lookup disabled');
+assert(parsed.ntp === undefined, 'no duplicate core NTP client');
 assert(parsed.tun && parsed.tun.enable === true && parsed.tun['auto-redirect'] === true, 'tun section');
+assert(parsed.tun.stack === 'mixed', 'explicitly configured TUN stack is preserved');
 assert(parsed.dns['enhanced-mode'] === 'fake-ip' && Array.isArray(parsed.dns.nameserver), 'dns section');
 assert(parsed.experimental['quic-go-disable-gso'] === true, 'experimental gso');
 assert(parsed['geox-url'].mmdb.includes('bett-rules'), 'geox-url default from bett-rules');
@@ -198,6 +203,56 @@ const out2 = yaml.load(captured2.written['/tmp/out2.yaml']);
 assert(!out2['proxy-groups'].some(g => g.name === '🛑 广告拦截'), 'scenario2: disabled group removed');
 assert(out2.rules.includes('DOMAIN-SUFFIX,ads.example.com,PASS'), 'scenario2: rule targeting disabled group -> PASS');
 assert(!out2['disabled-groups'], 'scenario2: disabled-groups key deleted');
+
+// Legacy settings and app-oriented profiles must not re-enable retired features.
+const uciData3 = JSON.parse(JSON.stringify(uciData));
+uciData3.config.find_process_mode = 'always';
+uciData3.ntp = { enabled: '1', server: 'time.apple.com', write_system: '1' };
+const base3 = JSON.parse(profileJson);
+base3['find-process-mode'] = 'always';
+base3.ntp = { enable: true, 'write-to-system': true, server: 'time.apple.com' };
+base3.hosts['dns.msftncsi.com'] = ['192.0.2.1'];
+const captured3 = { stdout: [], written: {} };
+const sandbox3 = makeSandbox({ '/tmp/base3.json': JSON.stringify(base3) }, uciData3,
+	['/tmp/base3.json', '/tmp/out3.yaml', 'test1'], captured3);
+vm.createContext(sandbox3);
+vm.runInContext(src, sandbox3, { filename: 'render3.uc' });
+const out3 = yaml.load(captured3.written['/tmp/out3.yaml']);
+assert(out3['find-process-mode'] === 'off', 'legacy UCI/profile cannot enable process lookup');
+assert(out3.ntp === undefined, 'legacy UCI/profile cannot enable core NTP or clock writes');
+assert(out3.hosts['dns.msftncsi.com'][0] === '192.0.2.1', 'explicit user NCSI override preserved');
+assert(out3.tun.enable && out3.dns.enable, 'router TUN and DNS remain enabled');
+
+const uciData4 = JSON.parse(JSON.stringify(uciData));
+uciData4.dns.override = '0';
+uciData4.config.hijack_dnsmasq = '1';
+const base4 = JSON.parse(profileJson);
+delete base4.dns;
+base4.port = 8888;
+base4['socks-port'] = 8889;
+base4['redir-port'] = 8890;
+const captured4 = { stdout: [], written: {} };
+const sandbox4 = makeSandbox({ '/tmp/base4.json': JSON.stringify(base4) }, uciData4,
+	['/tmp/base4.json', '/tmp/out4.yaml', 'test1'], captured4);
+vm.createContext(sandbox4);
+vm.runInContext(src, sandbox4, { filename: 'render4.uc' });
+const out4 = yaml.load(captured4.written['/tmp/out4.yaml']);
+assert(out4.port === 0 && out4['socks-port'] === 0 && out4['redir-port'] === 0, 'zero ports override enabled subscription listeners');
+assert(out4.dns.nameserver.indexOf('system://') < 0, 'fallback DNS cannot loop back through dnsmasq');
+
+// Missing UCI values use the upstream Bettbox default; all four stacks round-trip.
+for (const stack of [undefined, 'mips', 'mixed', 'gvisor', 'system']) {
+	const stackUci = JSON.parse(JSON.stringify(uciData));
+	if (stack === undefined) delete stackUci.tun.stack;
+	else stackUci.tun.stack = stack;
+	const stackCaptured = { stdout: [], written: {} };
+	const stackSandbox = makeSandbox({ '/tmp/stack-base.json': profileJson }, stackUci,
+		['/tmp/stack-base.json', '/tmp/stack-out.yaml', 'test1'], stackCaptured);
+	vm.createContext(stackSandbox);
+	vm.runInContext(src, stackSandbox, { filename: 'render-stack.uc' });
+	const stackOut = yaml.load(stackCaptured.written['/tmp/stack-out.yaml']);
+	assert(stackOut.tun.stack === (stack || 'mips'), 'TUN stack renders ' + (stack || 'upstream default mips'));
+}
 console.log('all scenarios done');
 // round-trip again to ensure emitter output is stable-valid
 const yaml2 = require('js-yaml').dump(parsed);

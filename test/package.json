@@ -1,0 +1,17 @@
+{
+  "name": "bettbox-tests",
+  "private": true,
+  "description": "Source regressions and opt-in browser checks for Bettbox on OpenWrt",
+  "scripts": {
+    "test": "node core-test.js && node logs-test.js && node overview-exit-test.js && node render-test.js",
+    "test:browser": "node proxy-v4-test.cjs && node proxy-icons-test.cjs && node profiles-layout-test.cjs",
+    "test:router": "node ui-browser-test.cjs"
+  },
+  "license": "GPL-3.0",
+  "type": "commonjs",
+  "engines": { "node": ">=22" },
+  "devDependencies": {
+    "js-yaml": "5.5.0",
+    "playwright": "1.62.1"
+  }
+}

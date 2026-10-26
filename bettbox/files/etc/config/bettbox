@@ -1,4 +1,4 @@
-# Bettbox (mihomo) UCI schema — mirrors Bettbox app settings.
+# Bettbox (mihomo) UCI schema — router settings; host-app preferences are omitted.
 
 config core 'config'
 	option enabled '0'
@@ -10,8 +10,6 @@ config core 'config'
 	option tcp_concurrent '1'
 	option unified_delay '1'
 	option keep_alive_interval '30'
-	# off | always
-	option find_process_mode 'off'
 	option global_ua 'clash.meta/v1.19.33'
 	option allow_lan '1'
 	option bind_address '*'
@@ -52,8 +50,8 @@ config backup 'backup'
 	option filename 'bettbox-backup.tar'
 
 config tun 'tun'
-	# mixed | gvisor | system
-	option stack 'mixed'
+	# mips (upstream default) | mixed | gvisor | system
+	option stack 'mips'
 	option device 'bettbox'
 	option auto_route '1'
 	option auto_redirect '1'
@@ -86,13 +84,6 @@ config quic 'quic'
 config sniffer 'sniffer'
 	option enabled '0'
 	option override_destination '0'
-
-config ntp 'ntp'
-	option enabled '0'
-	option server 'time.apple.com'
-	option port '123'
-	option interval '30'
-	option write_system '0'
 
 config experimental 'experimental'
 	option quic_gso '1'

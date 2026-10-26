@@ -3,7 +3,7 @@
 //
 // bettbox config renderer: profile JSON (+ bettbox-forge output) + UCI ->
 // /var/run/bettbox/config.yaml, mirroring Bettbox's applyPatch semantics:
-//   - general/dns/tun/sniffer/ntp/experimental/geox/hosts patches
+//   - router general/dns/tun/sniffer/experimental/geox patches
 //   - loopback protection + QUIC-block prepend rules (exact upstream strings)
 //   - per-profile rule override (prepend/replace) and disabled groups -> PASS
 //   - profile.store-selected / store-fake-ip
@@ -209,7 +209,9 @@ let patch = {
 	'tcp-concurrent': (uci('config', 'tcp_concurrent') == '1'),
 	'unified-delay': (uci('config', 'unified_delay') == '1'),
 	'keep-alive-interval': num(uci('config', 'keep_alive_interval'), 30),
-	'find-process-mode': uci('config', 'find_process_mode') ?? 'off',
+	// LAN clients' application/process identities are unavailable on the router.
+	// Pin this off even if a subscription or legacy UCI option enables it.
+	'find-process-mode': 'off',
 	'global-ua': uci('config', 'global_ua') ?? 'clash.meta/v1.19.33',
 	'allow-lan': allow_lan,
 	'bind-address': bind_address,
@@ -219,25 +221,18 @@ let patch = {
 	profile: {
 		'store-selected': true,
 		'store-fake-ip': true
-	},
-	hosts: {
-		'dns.msftncsi.com': [ '131.107.255.255', 'fd3e:4f5a:5b81::1' ]
 	}
 };
 
 if (uci('config', 'secret'))
 	patch.secret = uci('config', 'secret');
 
-if (num(uci('config', 'mixed_port'), 0) > 0)
-	patch['mixed-port'] = num(uci('config', 'mixed_port'), 0);
-if (num(uci('config', 'tproxy_port'), 0) > 0)
-	patch['tproxy-port'] = num(uci('config', 'tproxy_port'), 0);
-if (num(uci('config', 'redir_port'), 0) > 0)
-	patch['redir-port'] = num(uci('config', 'redir_port'), 0);
-if (num(uci('config', 'socks_port'), 0) > 0)
-	patch['socks-port'] = num(uci('config', 'socks_port'), 0);
-if (num(uci('config', 'port'), 0) > 0)
-	patch.port = num(uci('config', 'port'), 0);
+// Zero explicitly disables an inbound, overriding any subscription value.
+patch['mixed-port'] = num(uci('config', 'mixed_port'), 0);
+patch['tproxy-port'] = num(uci('config', 'tproxy_port'), 0);
+patch['redir-port'] = num(uci('config', 'redir_port'), 0);
+patch['socks-port'] = num(uci('config', 'socks_port'), 0);
+patch.port = num(uci('config', 'port'), 0);
 
 let auth = filter(uci_list('config', 'authentication'), v => length(v) > 0);
 if (length(auth) > 0)
@@ -274,7 +269,7 @@ patch['geox-url'] = geox;
 if (uci('dns', 'override') == '1') {
 	let nameservers = filter(uci_list('dns', 'nameserver'), v => length(v) > 0);
 	if (length(nameservers) == 0)
-		nameservers = [ 'system://' ];
+		nameservers = [ '223.5.5.5', '119.29.29.29' ];
 	let dns = {
 		enable: true,
 		listen: uci('dns', 'listen') ?? '0.0.0.0:1053',
@@ -313,16 +308,17 @@ if (uci('dns', 'override') == '1') {
 		enable: true,
 		listen: '0.0.0.0:1053',
 		'enhanced-mode': 'redir-host',
-		nameserver: [ 'system://' ]
+		// dnsmasq may forward to us; using system:// here would form a loop.
+		nameserver: [ '223.5.5.5', '119.29.29.29' ]
 	};
 }
 
-// TUN — upstream injects a default tun block (route-exclude-address keeps
-// LAN/loopback out of the tunnel; bbr3 + icmp guard match the app defaults)
+// Router TUN: keep LAN/loopback out of the tunnel. Stack and forwarding
+// parameters are core networking features, not desktop application settings.
 if (mode == 'tun') {
 	patch.tun = {
 		enable: true,
-		stack: uci('tun', 'stack') ?? 'mixed',
+		stack: uci('tun', 'stack') ?? 'mips',
 		device: uci('tun', 'device') ?? 'bettbox',
 		'auto-route': (uci('tun', 'auto_route') != '0'),
 		'auto-redirect': (uci('tun', 'auto_redirect') != '0'),
@@ -357,16 +353,9 @@ if (uci('sniffer', 'enabled') == '1') {
 	};
 }
 
-// ntp
-if (uci('ntp', 'enabled') == '1') {
-	patch.ntp = {
-		enable: true,
-		server: uci('ntp', 'server') ?? 'time.apple.com',
-		port: num(uci('ntp', 'port'), 123),
-		interval: num(uci('ntp', 'interval'), 30),
-		'write-to-system': (uci('ntp', 'write_system') == '1')
-	};
-}
+// OpenWrt's system time service owns router clock synchronization. Do not
+// inherit an app/profile NTP client that could also write the system clock.
+delete base.ntp;
 
 // experimental
 patch.experimental = {

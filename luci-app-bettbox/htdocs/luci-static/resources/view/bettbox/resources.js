@@ -2,67 +2,20 @@
 'require view';
 'require rpc';
 'require ui';
-
-/* LuCI 25.12 removed ui.createHandlerBtn; shim it on top of createHandlerFn. */
-if (!ui.createHandlerBtn)
-	ui.createHandlerBtn = function(label, fn) {
-		return E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(null, fn) }, label);
-	};
-
-var callStatus = rpc.declare({ object: 'bettbox', method: 'get_status' });
-var callGeoUpdate = rpc.declare({ object: 'bettbox', method: 'geo_update' });
-
+'require bettbox.ui as UI';
+var getResources=rpc.declare({object:'bettbox',method:'get_resources'}),geoUpdate=rpc.declare({object:'bettbox',method:'geo_update'}),dashboard=rpc.declare({object:'bettbox',method:'dashboard',params:['action']}),backup=rpc.declare({object:'bettbox',method:'backup_call',params:['action','file']}),backupFile=rpc.declare({object:'bettbox',method:'backup_file',params:['action','file']}),getStatus=rpc.declare({object:'bettbox',method:'get_status'});
+function download(blob,name){var url=URL.createObjectURL(blob),a=E('a',{href:url,download:name});document.body.appendChild(a);a.click();a.remove();window.setTimeout(function(){URL.revokeObjectURL(url);},5000);}
 return view.extend({
-	load: function () {
-		return callStatus();
-	},
-
-	render: function (st) {
-		var dashTarget = '';
-		if (st.controller) {
-			var port = st.controller.split(':')[1] || '9097';
-			dashTarget = 'http://' + (window.location.hostname || '') + ':' + port + '/ui/';
-		}
-
-		return E([
-			E('div', { 'class': 'cbi-map' }, [
-				E('div', { 'class': 'cbi-section' }, [
-					E('h3', {}, _('GeoData 资源 (GeoSite / GeoIP / ASN)')),
-					E('div', {}, [
-						ui.createHandlerBtn(_('强制更新 Geo'), function () {
-							return callGeoUpdate().then(function () {
-								ui.addNotification(null, E('p', {}, _('已删除本地 Geo 文件并重启内核，内核会重新下载')), 'info');
-							});
-						})
-					])
-				]),
-				E('div', { 'class': 'cbi-section' }, [
-					E('h3', {}, _('控制面板 (zashboard)')),
-					E('div', {}, [
-						ui.createHandlerBtn(_('安装 / 更新面板'), function () {
-							ui.showModal(_('正在下载 zashboard…'));
-							return rpc.declare({ object: 'bettbox', method: 'dashboard', params: [ 'action' ] })('install')
-								.then(function (res) {
-									ui.hideModal();
-									ui.addNotification(null, E('pre', {}, res.text || (res.ok ? 'OK' : 'failed')), res.ok ? 'info' : 'error');
-									window.location.reload();
-								});
-						}),
-						' ',
-						st.external_ui ? E('a', { 'class': 'btn', href: dashTarget, target: '_blank', rel: 'noopener' }, _('打开面板')) : null
-					])
-				]),
-				E('div', { 'class': 'cbi-section' }, [
-					E('h3', {}, _('备份与恢复')),
-					E('div', { 'class': 'cbi-section-descr' }, _('用 SSH 执行：') + E('br', {}),
-						E('code', {}, 'bettbox backup create /tmp/bettbox.tar  / bettbox backup restore /tmp/bettbox.tar')),
-					E('div', { 'class': 'cbi-section-descr' }, _('包含：UCI 配置、订阅 profile、覆写脚本、规则文件。'))
-				])
-			])
-		]);
-	},
-
-	handleSaveApply: null,
-	handleSave: null,
-	handleReset: null
+	load:function(){return Promise.all([getResources(),getStatus()]);},
+	render:function(data){var resources=data[0]||{},status=data[1]||{},list=E('div'),message=E('div',{'class':'bb-operation-state','role':'status'});
+		function draw(){list.replaceChildren.apply(list,(resources.files||[]).map(function(r){var info=r.info||{};return E('div',{'class':'resource-row'},[E('div',{'class':'resource-file'},[E('div',{'class':'file-icon'},UI.icon('file')),E('div',{},[E('strong',{},r.name),E('small',{},r.file)])]),E('div',{'class':'resource-meta'},[UI.tag(r.installed?'已安装':'未下载',r.installed?'':'neutral'),info.modified?E('small',{},new Date(info.modified*1000).toLocaleString()):document.createTextNode('')]),E('div',{'class':'resource-meta mono'},r.installed?UI.bytes(info.size):'—')]);}));}
+		function refresh(){return getResources().then(function(result){resources=result;draw();});}
+		function update(){message.textContent='正在请求核心更新 Geo 数据…';return geoUpdate().then(UI.checked).then(function(){message.textContent='Geo 数据已更新';return refresh();}).catch(function(err){message.textContent='更新失败，保留现有资源：'+err.message;throw err;});}
+		function exportBackup(){var file;message.textContent='正在创建备份…';return backupFile('prepare','').then(UI.checked).then(function(res){file=res.file;return backup('create',file);}).then(UI.checked).then(function(){return fetch(L.env.cgi_base+'/cgi-download',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'sessionid='+encodeURIComponent(L.env.sessionid)+'&path='+encodeURIComponent(file)});}).then(function(res){if(!res.ok)throw new Error('备份下载失败：HTTP '+res.status);if((res.headers.get('content-type')||'').indexOf('json')>=0)throw new Error('下载接口拒绝了备份文件');return res.blob();}).then(function(blob){download(blob,'bettbox-backup-'+new Date().toISOString().slice(0,10)+'.tar');message.textContent='备份已创建并下载';}).finally(function(){if(file)return backupFile('remove',file);});}
+		function restoreDialog(){var file=E('input',{'class':'field',type:'file',accept:'.tar,application/x-tar'}),result=E('p',{'class':'small muted'},'');UI.modal('恢复备份',[E('p',{},'恢复将替换 Bettbox 配置和归档中的订阅、脚本、规则，并按配置启停服务。建议先导出当前备份。'),UI.field('本地备份文件',file,'tar 格式，最大 64MB。'),result],[UI.button('上传并恢复',function(){var f=file.files&&file.files[0],remote;if(!f)throw new Error('请选择备份文件');if(f.size>64*1024*1024)throw new Error('备份不能超过 64MB');result.textContent='正在上传…';return backupFile('prepare','').then(UI.checked).then(function(res){remote=res.file;var form=new FormData();form.append('sessionid',L.env.sessionid);form.append('filename',remote);form.append('filedata',f);return fetch(L.env.cgi_base+'/cgi-upload',{method:'POST',credentials:'same-origin',body:form});}).then(function(res){if(!res.ok)throw new Error('上传失败：HTTP '+res.status);return res.json();}).then(function(reply){if(reply.failure)throw new Error(reply.message||reply.failure);result.textContent='归档已上传，正在校验并应用…';return backup('restore',remote);}).then(UI.checked).then(function(){ui.hideModal();window.location.reload();}).catch(function(err){result.textContent='恢复失败：'+err.message+'。若失败发生在应用阶段，配置可能已经写入，请检查服务状态。';throw err;}).finally(function(){if(remote)return backupFile('remove',remote);});},'danger','refresh'),UI.button('取消',ui.hideModal)]);}
+		function panelInstall(){message.textContent='正在安装 / 更新面板…';return dashboard('install').then(UI.checked).then(function(){window.location.reload();}).catch(function(err){message.textContent='面板安装失败：'+err.message;throw err;});}
+		var open=UI.button('打开面板',function(){var ctl=status.controller||'',port=ctl.substring(ctl.lastIndexOf(':')+1)||'9097',host=window.location.hostname;if(host.indexOf(':')>=0&&host.charAt(0)!=='[')host='['+host+']';window.open('http://'+host+':'+port+'/ui/','_blank','noopener');},'','arrow');open.disabled=!resources.dashboard;
+		var geo=E('section',{'class':'panel'},[E('div',{'class':'panel-head'},E('div',{},[E('h2',{},[UI.icon('globe'),document.createTextNode('Geo 数据')])])),list]);draw();
+		return UI.page('resources','资源',[UI.button('更新 Geo 数据',update,'primary','refresh')],[message,E('div',{'class':'stack'},[geo,E('div',{'class':'grid-two'},[UI.panel('控制面板','grid',[E('p',{'class':'small muted'},resources.dashboard?'已安装':'未安装'),E('div',{'class':'button-row'},[open,UI.button('安装 / 更新',panelInstall,'','refresh')])]),UI.panel('配置备份','layers',[E('div',{'class':'button-row'},[UI.button('导出备份',exportBackup,'','download'),UI.button('恢复备份',restoreDialog,'','refresh')])])])])]);
+	},handleSaveApply:null,handleSave:null,handleReset:null
 });

@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=bettbox
 PKG_VERSION:=1.19.33
-PKG_RELEASE:=1
+PKG_RELEASE:=3
 
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0
@@ -93,6 +93,7 @@ define Package/bettbox/postinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
 	[ -f /etc/config/bettbox ] || exit 0
+	sh /usr/libexec/bettbox/router-settings.sh || exit 1
 	if /etc/init.d/bettbox enabled; then
 		/usr/bin/bettbox apply 2>/dev/null || true
 		/etc/init.d/bettbox restart 2>/dev/null || true

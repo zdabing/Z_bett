@@ -5,273 +5,72 @@
 'require uci';
 'require ui';
 'require bettbox.core as Core';
+'require bettbox.ui as UI';
 
-/* LuCI 25.12 removed ui.createHandlerBtn; shim it on top of createHandlerFn. */
-if (!ui.createHandlerBtn)
-	ui.createHandlerBtn = function(label, fn) {
-		return E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(null, fn) }, label);
-	};
-
-var callStatus = rpc.declare({ object: 'bettbox', method: 'get_status' });
-var callService = rpc.declare({ object: 'bettbox', method: 'service_action', params: [ 'action' ] });
-var callApply = rpc.declare({ object: 'bettbox', method: 'apply' });
-
-function fmtSpeed(bps) {
-	if (bps == null) return '-';
-	var u = [ 'B/s', 'KB/s', 'MB/s', 'GB/s' ], i = 0;
-	while (bps >= 1000 && i < u.length - 1) { bps /= 1000; i++; }
-	return bps.toFixed(i ? 1 : 0) + ' ' + u[i];
+var callStatus=rpc.declare({object:'bettbox',method:'get_status'});
+var callNetwork=rpc.declare({object:'bettbox',method:'get_network'});
+var callService=rpc.declare({object:'bettbox',method:'service_action',params:['action']});
+var commit=rpc.declare({object:'uci',method:'commit',params:['config']});
+function svg(tag,attrs){var el=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attrs||{}).forEach(function(k){el.setAttribute(k,attrs[k]);});return el;}
+function traffic(upload,download,available){
+	var total=upload+download,up=total?upload/total*100:0,down=total?100-up:0,ring=svg('svg',{viewBox:'0 0 128 128',role:'img','aria-label':available?(total?'上传 '+up.toFixed(1)+'%，下载 '+down.toFixed(1)+'%':'暂无累计流量'):'核心未运行'});
+	ring.appendChild(svg('circle',{'class':'traffic-track',cx:64,cy:64,r:51}));
+	if(total&&available){var g=svg('g',{transform:'rotate(-90 64 64)'});g.appendChild(svg('circle',{'class':'download-arc',cx:64,cy:64,r:51,pathLength:100,'stroke-dasharray':down+' '+up,'stroke-dashoffset':-up}));g.appendChild(svg('circle',{'class':'upload-arc',cx:64,cy:64,r:51,pathLength:100,'stroke-dasharray':up+' '+down}));ring.appendChild(g);}
+	var sum=available?UI.bytes(total).split(' '):['—',''];return E('div',{'class':'traffic-body'},[E('div',{'class':'traffic-donut'},[ring,E('div',{'class':'traffic-total'},[E('small',{},'累计总量'),E('strong',{},sum[0]),E('span',{},sum[1]||'')])]),E('div',{'class':'traffic-legend'},[['up','上传',upload,up,'upload'],['down','下载',download,down,'download']].map(function(row){var value=available?UI.bytes(row[2]).split(' '):['—',''];return E('div',{'class':'traffic-entry '+row[4]},[E('div',{'class':'traffic-entry-label'},[E('i'),document.createTextNode(row[1]),E('span',{},total&&available?row[3].toFixed(1)+'%':'—')]),E('div',{'class':'traffic-value'},[UI.icon(row[0]),E('strong',{},value[0]),E('small',{},value[1]||'')])]);}))]);
 }
-
-function fmtBytes(n) {
-	if (n == null) return '-';
-	var u = [ 'B', 'KB', 'MB', 'GB', 'TB' ], i = 0;
-	while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-	return n.toFixed(i ? 2 : 0) + ' ' + u[i];
-}
-
-function sparkline(samples, color) {
-	if (!samples || samples.length < 2) return null;
-	var w = 200, h = 34, max = Math.max.apply(null, samples) || 1;
-	var pts = samples.map(function (v, i) {
-		return (i * w / (samples.length - 1)).toFixed(1) + ',' + (h - v / max * h).toFixed(1);
-	}).join(' ');
-	return E('svg', { width: w, height: h, style: 'vertical-align:middle' }, [
-		E('polyline', { points: pts, fill: 'none', stroke: color || 'var(--primary, #2f7fd6)', 'stroke-width': '1.5' })
-	]);
-}
-
-/* card grid styles (Bettbox home look, drawn with LuCI theme variables) */
-var CARD_CSS = `
-.bb-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:1em; margin-top:1em; }
-.bb-card { background:var(--background-color-high,#fff); border:1px solid var(--border-color,#ddd); border-radius:12px; padding:1em 1.1em; box-shadow:0 1px 3px rgba(0,0,0,.06); }
-.bb-card h3 { display:flex; align-items:center; gap:.45em; margin:0 0 .6em; font-size:.95em; color:var(--main-color,#404040); }
-.bb-card .bb-big { font-size:1.55em; font-weight:700; line-height:1.25; font-variant-numeric:tabular-nums; }
-.bb-card .bb-sub { font-size:.8em; color:var(--sub-color,#888); }
-.bb-row { display:flex; justify-content:space-between; align-items:center; margin:.35em 0; }
-.bb-tools { display:grid; grid-template-columns:repeat(3,1fr); gap:.6em; }
-.bb-tool { display:flex; flex-direction:column; align-items:center; gap:.3em; padding:.7em .2em; border-radius:10px; background:var(--background-color-low,#f5f5f5); color:inherit; text-decoration:none; text-align:center; font-size:.78em; border:1px solid transparent; }
-.bb-tool:hover { border-color:var(--primary,#2f7fd6); }
-.bb-tool .bb-ico { font-size:1.5em; }
-.bb-chev { transition:transform .15s; display:inline-block; }
-.bb-group-collapsed .bb-chev { transform:rotate(-90deg); }
-.bb-group-collapsed .bb-group-body { display:none; }
-/* 滑动开关（与设置页同款尺寸） */
-.bb-switch { position:relative; display:inline-block; width:44px; height:25px; flex:none; }
-.bb-switch input { opacity:0; width:0; height:0; position:absolute; }
-.bb-switch .bb-slider { position:absolute; inset:0; background:#b0b3b8; border-radius:25px; transition:background .2s; cursor:pointer; }
-.bb-switch .bb-slider::before { content:''; position:absolute; width:19px; height:19px; left:3px; top:3px; background:#fff; border-radius:50%; transition:transform .2s; box-shadow:0 1px 3px rgba(0,0,0,.35); }
-.bb-switch input:checked + .bb-slider { background:var(--primary,#2f7fd6); }
-.bb-switch input:checked + .bb-slider::before { transform:translateX(19px); }
-.bb-switch input:disabled + .bb-slider { opacity:.55; cursor:wait; }
-.bb-main-row { display:flex; align-items:center; gap:.8em; padding:.2em 0 .6em; }
-.bb-main-row .bb-main-label { font-size:1.05em; font-weight:600; }
-`;
-
-var TOOL_LINKS = [
-	[ '🚀', '网速测试', 'toolbox' ],
-	[ '🧭', '路由追踪', 'toolbox' ],
-	[ '🌍', 'IP 全能查', 'toolbox' ],
-	[ '🔍', 'MRS 速查', 'toolbox' ],
-	[ '📘', 'DNS 查询', 'toolbox' ],
-	[ '🛰️', 'NAT 检测', 'toolbox' ],
-	[ '📶', '本地 Ping', 'toolbox' ],
-	[ '📐', 'iPerf3', 'toolbox' ],
-	[ '🔐', 'Age 加解密', 'toolbox' ],
-	[ '🎬', '连通性测试', 'toolbox' ],
-	[ '📝', 'JS 脚本', 'scripts' ],
-	[ '📡', '订阅', 'profiles' ]
-];
-
 return view.extend({
-	upHist: [], downHist: [],
-
-	load: function () {
-		return Promise.all([ callStatus(), uci.load('bettbox') ]);
-	},
-
-	render: function (data) {
-		var self = this;
-		var st = data[0] || {};
-
-		var style = E('style', {}, CARD_CSS);
-
-		var enabledCb = E('input', { type: 'checkbox' });
-		enabledCb.checked = (uci.get('bettbox', 'config', 'enabled') == '1');
-		enabledCb.addEventListener('change', function () {
-			var on = enabledCb.checked;
-			enabledCb.disabled = true;
-			ui.showModal(on ? _('正在启动服务…') : _('正在停止服务…'), E('p', {}, _('请稍候')));
-			uci.set('bettbox', 'config', 'enabled', on ? '1' : '0');
-			uci.save().then(function () {
-				return rpc.declare({ object: 'uci', method: 'commit', params: ['config'] })('bettbox');
-			}).then(function () {
-				return callService(on ? 'start' : 'stop');
-			}).then(function () {
-				return new Promise(function (res) { window.setTimeout(res, 2500); });
-			}).then(function () { ui.hideModal(); window.location.reload(); })
-			.catch(function () { ui.hideModal(); window.location.reload(); });
-		});
-
-		var statusChip = E('span', { 'class': 'label ' + (st.running ? 'label-success' : 'label-important'), id: 'bb-state' },
-			st.running ? _('运行中') : _('已停止'));
-
-		var modeSel = E('select', { 'class': 'cbi-input-select', style: 'min-width:7em' }, [
-			E('option', { value: 'rule' }, '规则'),
-			E('option', { value: 'global' }, '全局'),
-			E('option', { value: 'direct' }, '直连')
-		]);
-		modeSel.value = st.mode || 'rule';
-		modeSel.addEventListener('change', function () {
-			var m = modeSel.value;
-			Promise.all([
-				Core.put('/configs', { mode: m }),
-				uci.set('bettbox', 'config', 'mode', m), uci.save()
-			]);
-		});
-
-		var speedUp = E('span', { 'class': 'bb-big' }, '-');
-		var speedDown = E('span', { 'class': 'bb-big' }, '-');
-		var chartUp = E('div', { id: 'bb-chart-up' });
-		var chartDown = E('div', { id: 'bb-chart-down' });
-
-		var connBig = E('div', { 'class': 'bb-big' }, '-');
-		var memBig = E('div', { 'class': 'bb-big' }, '-');
-		var totalBig = E('div', { 'class': 'bb-big' }, '-');
-		var exitBig = E('div', { 'class': 'bb-big', style: 'font-size:1.05em' }, '—');
-
-		function refreshStatus() {
-			callStatus().then(function (s) {
-				statusChip.textContent = s.running ? _('运行中') : _('已停止');
-				statusChip.className = 'label ' + (s.running ? 'label-success' : 'label-important');
-				modeSel.value = s.mode || 'rule';
-			}).catch(function () { });
+	load:function(){return Promise.all([callStatus(),callNetwork(),uci.load('bettbox')]);},
+	render:function(data){
+		var st=data[0]||{},net=data[1]||{},last=null,busy=false,lastStatus=0,lastProxy=0;
+		var note=E('div',{'class':'bb-update-note','role':'status'}),stateTag=UI.tag(st.running?'运行中':'已停止',st.running?'':'neutral'),serviceTitle=E('span',{},st.running?'Bettbox 正在运行':'Bettbox 已停止');
+		var meta=E('div',{'class':'service-meta'},'Mihomo · '+(st.transparent_mode||'tun').toUpperCase()+' / '+(net.stack||'mips'));
+		var serviceSwitch=E('button',{type:'button','class':'switch'+(st.enabled?'':' off'),role:'switch','aria-checked':String(!!st.enabled),'aria-label':'启动服务'});
+		serviceSwitch.addEventListener('click',function(){var on=!st.enabled;serviceSwitch.disabled=true;uci.set('bettbox','config','enabled',on?'1':'0');uci.save().then(function(){return commit('bettbox');}).then(function(){return callService(on?'start':'stop');}).then(UI.checked).then(refreshStatus).catch(UI.error).finally(function(){serviceSwitch.disabled=false;});});
+		var modes=E('div',{'class':'segmented','aria-label':'运行模式'});
+		[['rule','规则'],['global','全局'],['direct','直连']].forEach(function(m){var b=E('button',{type:'button','class':st.mode===m[0]?'active':'','aria-pressed':String(st.mode===m[0])},m[1]);b.addEventListener('click',function(){var old=st.mode;Array.from(modes.children).forEach(function(x){x.disabled=true;});(st.running?Core.patch('/configs',{mode:m[0]}):Promise.resolve()).then(function(){uci.set('bettbox','config','mode',m[0]);return uci.save();}).then(function(){return commit('bettbox');}).then(refreshStatus).catch(function(err){uci.set('bettbox','config','mode',old);if(st.running)Core.patch('/configs',{mode:old}).catch(function(){});UI.error(err);}).finally(function(){Array.from(modes.children).forEach(function(x){x.disabled=false;});});});b.dataset.mode=m[0];modes.appendChild(b);});
+		var stats={},metrics=E('section',{'class':'panel metric-grid overview-metrics'},[['down','下行速度','实时下载'],['up','上行速度','实时上传'],['link','活动连接','当前核心会话数'],['chip','内核内存','Mihomo 进程占用']].map(function(m){var value=E('div',{'class':'stat'},'—');stats[m[0]]=value;return E('div',{'class':'metric'},[E('div',{'class':'label'},[UI.icon(m[0]),document.createTextNode(m[1])]),value]);}));
+		var trafficSlot=E('div',{},traffic(0,0,false));
+		var trafficPanel=E('section',{'class':'panel traffic-card'},[E('div',{'class':'panel-head'},E('h2',{},[UI.icon('traffic'),document.createTextNode('流量统计')])),trafficSlot]);
+		var exitParts={},exitJobs={},proxyGeneration=0,exitBodies=E('div',{'class':'exit-grid'});
+		['direct','proxy'].forEach(function(via){var ip=E('span',{'class':'ip-address network-unknown'},'未检测'),country=E('div',{'class':'country'},'—'),org=E('div',{'class':'asn'},'—'),node=E('span',{},via==='direct'?'直连 DIRECT':'当前代理出口'),status=E('span',{'class':'muted'},'未检测');exitParts[via]={ip:ip,country:country,org:org,node:node,status:status};exitBodies.appendChild(E('div',{'class':'exit-block'},[E('div',{'class':'exit-kind'},[E('i',{'class':'dot'}),document.createTextNode(via==='direct'?'直连出口':'代理出口')]),E('div',{'class':'ip-row'},[ip,UI.button('复制',function(){if(ip.dataset.ip)return UI.copy(ip.dataset.ip);},'text small','copy')]),country,org,E('div',{'class':'exit-node'},[node,status])]));});
+		function stopProxyExit(){
+			proxyGeneration++;
+			var p=exitParts.proxy;
+			p.ip.textContent='未启用';p.ip.classList.add('network-unknown');delete p.ip.dataset.ip;
+			p.country.textContent='—';p.org.textContent='—';p.status.textContent='代理未运行';p.status.title='';
 		}
-
-		Core.stream('/traffic', function (t) {
-			if (t == null) return;
-			speedUp.textContent = fmtSpeed(t.up);
-			speedDown.textContent = fmtSpeed(t.down);
-			self.upHist.push(t.up || 0); if (self.upHist.length > 40) self.upHist.shift();
-			self.downHist.push(t.down || 0); if (self.downHist.length > 40) self.downHist.shift();
-			var cu = document.getElementById('bb-chart-up'), cd = document.getElementById('bb-chart-down');
-			if (cu) { cu.innerHTML = ''; var s1 = sparkline(self.upHist); if (s1) cu.appendChild(s1); }
-			if (cd) { cd.innerHTML = ''; var s2 = sparkline(self.downHist, '#2e9e5b'); if (s2) cd.appendChild(s2); }
-		});
-		Core.stream('/memory', function (m) {
-			if (m != null) memBig.textContent = fmtBytes(m.inuse);
-		});
-
-		var lastDl = null, lastUl = null;
-		function pollConn() {
-			Core.get('/connections').then(function (res) {
-				var c = res && res.data;
-				if (!c) return;
-				var dl = c.downloadTotal || 0, ul = c.uploadTotal || 0;
-				connBig.textContent = String(c.connections ? c.connections.length : 0);
-				totalBig.textContent = fmtBytes(dl) + ' ↓ / ' + fmtBytes(ul) + ' ↑';
-				lastDl = dl; lastUl = ul;
-			}).catch(function () { });
+		function checkExit(via){
+			if(via==='proxy'&&!st.running){stopProxyExit();return Promise.resolve();}
+			if(exitJobs[via])return exitJobs[via];
+			var p=exitParts[via],generation=proxyGeneration;
+			function current(){return via!=='proxy'||(st.running&&generation===proxyGeneration);}
+			p.status.textContent='检测中…';p.status.title='';if(!p.ip.dataset.ip)p.ip.textContent='检测中…';
+			var task=Promise.resolve().then(function(){return UI.job('exit',[via]);}).then(function(res){
+				if(!current())return;
+				var info=JSON.parse(res.text);if(!info.ip)throw new Error('未返回出口 IP');
+				p.ip.textContent=info.ip;p.ip.classList.remove('network-unknown');p.ip.dataset.ip=info.ip;
+				p.country.textContent=[info.country||info.country_code,info.region,info.city].filter(Boolean).join(' · ')||'地区未知';
+				p.org.textContent=info.organization_name||info.organization||'运营商未知';p.status.textContent='更新于 '+new Date().toLocaleTimeString();
+			}).catch(function(err){
+				if(!current())return;
+				p.status.textContent='检测失败';if(!p.ip.dataset.ip)p.ip.textContent='查询失败';p.status.title=err.message;
+			}).finally(function(){
+				delete exitJobs[via];
+				// A stop/start during an in-flight query needs a fresh result.
+				if(via==='proxy'&&st.running&&generation!==proxyGeneration)return checkExit('proxy');
+			});exitJobs[via]=task;return task;
 		}
-		poll.add(pollConn, 2);
-		pollConn();
-		if (!poll.running) poll.start();
-
-		/* current exit node (默认代理 group chain), icon from the profile YAML */
-		Core.get('/proxies').then(function (res) {
-			var ps = res && res.data && res.data.proxies;
-			if (!ps) return;
-			var g = ps['默认代理'] || ps['PROXY'] || ps['Proxy'];
-			if (g && g.now) {
-				var cur = g.now, hops = [cur], seen = {};
-				while (ps[cur] && ps[cur].now && !seen[cur] && hops.length < 5) {
-					seen[cur] = true;
-					cur = ps[cur].now;
-					hops.push(cur);
-				}
-				exitBig.textContent = '';
-				if (g.icon)
-					exitBig.appendChild(E('img', { src: g.icon, width: 22, height: 22, style: 'vertical-align:-4px; object-fit:contain; margin-right:.3em', onerror: 'this.style.display="none"' }));
-				exitBig.appendChild(document.createTextNode(hops.join(' → ')));
-				exitBig.title = hops.join(' → ');
-			}
-		}).catch(function () { });
-
-		var applyBtn = ui.createHandlerBtn(_('应用配置'), function () {
-			return ui.showModal(_('正在渲染并热更新配置…'), E('p', {}, _('请稍候'))),
-				callApply().then(function (res) {
-					ui.hideModal();
-					ui.addNotification(null, E('p', {}, (res && res.ok) ? _('配置已应用') : _('应用失败：') + (res ? res.text : '')),
-						(res && res.ok) ? 'info' : 'error');
-					refreshStatus();
-				});
-		});
-		var dashBtn = st.external_ui ?
-			E('a', { 'class': 'btn', href: 'http://' + (window.location.hostname || '') + ':' + (st.controller || '127.0.0.1:9097').split(':')[1] + '/ui/', target: '_blank', rel: 'noopener' }, _('控制面板')) : null;
-
-		var toolsGrid = E('div', { 'class': 'bb-tools' });
-		TOOL_LINKS.forEach(function (t) {
-			toolsGrid.appendChild(E('a', { 'class': 'bb-tool', href: L.url('admin', 'services', 'bettbox', t[2]) }, [
-				E('span', { 'class': 'bb-ico' }, t[0]),
-				E('span', {}, t[1])
-			]));
-		});
-
-		var body = E([
-			style,
-			E('div', { 'class': 'cbi-map' }, [
-				E('div', { 'class': 'bb-grid' }, [
-					E('div', { 'class': 'bb-card' }, [
-						E('h3', {}, [ '⚡ ', _('启动') ]),
-						E('div', { 'class': 'bb-main-row' }, [
-							E('span', { 'class': 'bb-main-label' }, _('启动服务')),
-							statusChip,
-							E('label', { 'class': 'bb-switch', style: 'margin-left:auto' }, [ enabledCb, E('span', { 'class': 'bb-slider' }) ])
-						]),
-						E('div', { 'class': 'bb-row' }, [ _('运行模式'), modeSel ]),
-						E('div', { 'class': 'bb-sub', style: 'margin-top:.5em' },
-							_('透明代理：') + (st.transparent_mode || 'tun') + ' · mihomo')
-					]),
-					E('div', { 'class': 'bb-card' }, [
-						E('h3', {}, [ '🚀 ', _('网速 (实时)') ]),
-						E('div', { 'class': 'bb-row' }, [ E('span', {}, _('↑ 上行')), speedUp ]),
-						chartUp,
-						E('div', { 'class': 'bb-row' }, [ E('span', {}, _('↓ 下行')), speedDown ]),
-						chartDown
-					]),
-					E('div', { 'class': 'bb-card' }, [
-						E('h3', {}, [ '🔀 ', _('当前出口') ]),
-						exitBig,
-						E('div', { 'class': 'bb-sub', style: 'margin-top:.4em' }, ' ')
-					]),
-					E('div', { 'class': 'bb-card' }, [
-						E('h3', {}, [ '🔌 ', _('活动连接') ]),
-						connBig,
-						E('div', { 'class': 'bb-sub' }, _('实时会话数'))
-					]),
-					E('div', { 'class': 'bb-card' }, [
-						E('h3', {}, [ '🧠 ', _('内核内存') ]),
-						memBig,
-						E('div', { 'class': 'bb-sub' }, _('mihomo 进程占用'))
-					]),
-					E('div', { 'class': 'bb-card' }, [
-						E('h3', {}, [ '📊 ', _('本次累计流量') ]),
-						totalBig,
-						E('div', { 'class': 'bb-sub' }, _('内核启动以来的代理流量'))
-					])
-				]),
-				E('div', { 'class': 'bb-card', style: 'margin-top:1em' }, [
-					E('h3', {}, [ '🧰 ', _('工具') ]),
-					toolsGrid
-				]),
-				E('div', { 'class': 'cbi-page-actions' }, [ applyBtn ].concat(dashBtn ? [ dashBtn ] : []))
-			])
-		]);
-
-		return body;
-	},
-
-	handleSaveApply: null,
-	handleSave: null,
-	handleReset: null
+		function checkExits(){return Promise.all([checkExit('direct'),checkExit('proxy')]);}
+		var networkPanel=E('section',{'class':'panel network-card'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.icon('globe'),document.createTextNode('网络检查')])]),UI.button('检测',checkExits,'small','refresh')]),exitBodies]);
+		var lan=net.lan||{},lanAddr=lan.address||'—';function row(k,v){return E('div',{'class':'definition-row'},[E('dt',{},k),E('dd',{'class':'right mono'},String(v||'—'))]);}
+		var lanPanel=UI.panel('内网 IP','lan',[E('div',{'class':'lan-primary'},[E('div',{},[E('div',{'class':'ip-address'},lanAddr),E('div',{'class':'tiny muted'},(lan.device||'LAN')+' / '+(lan.prefix||24))]),UI.button('复制',function(){return UI.copy(lanAddr);},'text small','copy')]),E('dl',{'class':'definition-list'},[row('局域网代理',net.mixed_port?lanAddr+':'+net.mixed_port:'未开启'),row('LAN DNS',lanAddr),row('WAN 接口',net.wan&&net.wan.device)])]);lanPanel.classList.add('lan-card');
+		var sites=[['baidu','百','百度','baidu.com'],['google','G','Google','gstatic.com'],['youtube','▷','YouTube','youtube.com'],['github','gh','GitHub','github.com'],['netflix','N','Netflix','netflix.com'],['openai','◎','OpenAI','openai.com']],resultNodes={};
+		var siteGrid=E('div',{'class':'test-grid'},sites.map(function(s){var result=E('div',{'class':'test-result'},'未检测');resultNodes[s[0]]=result;return E('div',{'class':'test-row'},[E('div',{'class':'test-left'},[E('span',{'class':'site-icon'},s[1]),E('div',{},[E('div',{'class':'site-name'},s[2]),E('div',{'class':'site-domain'},s[3])])]),result]);}));
+		function checkSites(){Object.keys(resultNodes).forEach(function(id){resultNodes[id].textContent='检测中…';});return UI.job('connectivity',[]).then(function(res){var result=JSON.parse(res.text);(result.results||[]).forEach(function(s){var el=resultNodes[s.id];if(!el)return;var good=s.code===0&&s.http>=200&&s.http<400;el.className='test-result'+(good?'':' warn');el.replaceChildren(E('span',{},good?'可达':s.code===28?'超时':s.code===6?'解析失败':s.http?'HTTP '+s.http:'连接失败'),E('b',{},s.latency_ms>0?Math.round(s.latency_ms)+' ms':'—'));});}).catch(function(err){Object.keys(resultNodes).forEach(function(id){resultNodes[id].textContent='检测失败';});throw err;});}
+		var connectivity=E('section',{'class':'panel section-gap'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.icon('link'),document.createTextNode('连通性测试')])]),UI.button('开始检测',checkSites,'primary small','refresh')]),siteGrid]);
+		function refreshStatus(){return callStatus().then(function(s){var wasRunning=st.running,oldMode=st.mode;st=s;lastStatus=Date.now();stateTag.textContent=s.running?'运行中':'已停止';stateTag.className='tag '+(s.running?'':'neutral');serviceTitle.textContent=s.running?'Bettbox 正在运行':'Bettbox 已停止';serviceSwitch.classList.toggle('off',!s.enabled);serviceSwitch.setAttribute('aria-checked',String(!!s.enabled));Array.from(modes.children).forEach(function(b){b.classList.toggle('active',b.dataset.mode===s.mode);b.setAttribute('aria-pressed',String(b.dataset.mode===s.mode));});if(!s.running&&wasRunning)stopProxyExit();else if(s.running&&(!wasRunning||oldMode!==s.mode)){proxyGeneration++;checkExit('proxy');}return s;});}
+		function refresh(){if(busy)return Promise.resolve();busy=true;return (Date.now()-lastStatus>10000?refreshStatus():Promise.resolve(st)).then(function(s){if(!s.running){last=null;Object.keys(stats).forEach(function(k){stats[k].textContent='—';});trafficSlot.replaceChildren(traffic(0,0,false));note.textContent='核心未运行';return;}return Core.get('/connections').then(function(res){var c=res.data||{},now=Date.now(),up=+c.uploadTotal||0,down=+c.downloadTotal||0;if(last&&now>last.time&&up>=last.up&&down>=last.down){stats.up.textContent=UI.speed((up-last.up)*1000/(now-last.time));stats.down.textContent=UI.speed((down-last.down)*1000/(now-last.time));}else{stats.up.textContent='采样中…';stats.down.textContent='采样中…';}last={up:up,down:down,time:now};stats.link.textContent=String((c.connections||[]).length);stats.chip.textContent=UI.bytes(st.memory_rss);trafficSlot.replaceChildren(traffic(up,down,true));note.textContent='';if(now-lastProxy>30000){lastProxy=now;Core.get('/proxies').then(function(p){var ps=p.data&&p.data.proxies||{},g=ps['默认代理']||ps.PROXY||ps.Proxy;if(g&&g.now)exitParts.proxy.node.textContent=g.now;}).catch(function(){});}});}).catch(function(err){note.textContent='暂时无法更新统计，保留上次结果：'+err.message;}).finally(function(){busy=false;});}
+		var service=E('section',{'class':'panel service'},[E('div',{'class':'service-main'},[E('div',{'class':'service-icon'},UI.icon('power')),E('div',{},[E('div',{'class':'service-title'},[serviceTitle,stateTag]),meta])]),E('div',{'class':'service-actions'},[modes,E('div',{'class':'service-toggle'},[document.createTextNode('启动服务'),serviceSwitch])])]);
+		var root=UI.page('overview','概览',[UI.button('刷新',refresh,'','refresh')],[service,metrics,note,E('div',{'class':'net-grid overview-network'},[trafficPanel,networkPanel,lanPanel]),connectivity]);poll.add(refresh,2);checkExits();refresh();return root;
+	},handleSaveApply:null,handleSave:null,handleReset:null
 });

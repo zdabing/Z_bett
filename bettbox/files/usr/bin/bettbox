@@ -12,6 +12,7 @@ usage: bettbox <command> [args]
     enable | disable                         autostart
   config
     apply                                    render + validate config
+    apply-service                            apply saved settings and service state
     live                                     apply and hot-reload the core
     status                                   quick status summary
   subscriptions
@@ -51,11 +52,15 @@ apply)
 live)
 	sh "$LIBEXEC/apply.sh" live
 	;;
+apply-service)
+	sh "$LIBEXEC/apply.sh" service
+	;;
 status)
-	if sh "$LIBEXEC/apply.sh" apply 2>/dev/null && [ -f /var/run/bettbox/config.yaml ]; then
+	. "$LIBEXEC/common.sh"
+	if [ -f "$BETTBOX_RUN/config.yaml" ]; then
 		echo "config: ok"
 	else
-		echo "config: failed"
+		echo "config: not rendered"
 	fi
 	echo "core: $(api_call GET /version 2>/dev/null || echo offline)"
 	echo "mode: $(uci -q get bettbox.config.mode)"
@@ -63,6 +68,10 @@ status)
 	;;
 update|update-all|cron|add|remove)
 	sh "$LIBEXEC/subscription.sh" "$cmd" "$@"
+	;;
+subscription|subscriptions)
+	# Accept commands written by older versions of cron.sh.
+	sh "$LIBEXEC/subscription.sh" "$@"
 	;;
 dns|ip|ping|speedtest|media|trace|mrs|nat|age|iperf)
 	sh "$LIBEXEC/toolbox.sh" "$cmd" "$@"

@@ -13,14 +13,18 @@ function shellquote(s) {
 	return sprintf("'%s'", replace(s, /'/g, "'\\''"));
 }
 
-function run(cmd) {
-	let fd = popen(cmd, 'r');
+function run_result(cmd) {
+	let fd = popen('timeout 55 sh -c ' + shellquote(cmd), 'r');
 	let out = '';
-	if (fd) {
-		out = fd.read('all') ?? '';
-		fd.close();
-	}
-	return out;
+	if (!fd)
+		return { ok: false, code: 127, text: 'could not execute command' };
+	out = fd.read('all') ?? '';
+	let code = fd.close();
+	return { ok: code == 0, code: code, text: out };
+}
+
+function run(cmd) {
+	return run_result(cmd).text;
 }
 
 function valid_sid(sid) {
@@ -37,19 +41,29 @@ function valid_path(p) {
 }
 
 function valid_controller_path(path) {
-	return type(path) == 'string' && length(path) <= 257 && match(path, /^\/[A-Za-z0-9_\/.?=&:%~-]*$/);
+	return type(path) == 'string' && length(path) <= 2048 && match(path, /^\/[A-Za-z0-9_\/.?=&:%~-]*$/);
 }
 
 function api_raw(method, path, body) {
 	if (!valid_controller_path(path))
 		return { status: 400, body: null, raw: 'bad path' };
+	let endpoint = split(path, '?')[0];
+	if (method == 'GET' && endpoint in ['/traffic', '/memory', '/logs'])
+		return { status: 400, body: null, raw: 'streaming endpoints cannot use RPC; use /connections snapshots' };
 	let ctx = cursor();
 	let hc = ctx.get('bettbox', 'config', 'external_controller') ?? '127.0.0.1:9097';
-	let port = split(hc, ':')[1] ?? '9097';
+	let parts = split(hc, ':');
+	let port = parts[length(parts) - 1] ?? '9097';
+	let host = substr(hc, 0, length(hc) - length(port) - 1);
+	if (host == '0.0.0.0' || host == '*' || !length(host)) host = '127.0.0.1';
+	if (host == '[::]') host = '[::1]';
 	let secret = ctx.get('bettbox', 'config', 'secret') ?? '';
 
-	let bf = '/tmp/bettbox-api.body';
-	let cf = '/tmp/bettbox-api.code';
+	let dir = trim(run('umask 077; mktemp -d /tmp/bettbox-api.XXXXXX'));
+	if (!match(dir, /^\/tmp\/bettbox-api\.[A-Za-z0-9]+$/))
+		return { status: 500, body: null, raw: 'could not create request workspace' };
+	let bf = dir + '/body';
+	let cf = dir + '/code';
 	// busybox timeout guard: a wedged curl inside rpcd blocks every ubus call
 	let cmd = sprintf('timeout %d curl -sS -m %d -o %s -w "%%{http_code}" -X %s -H %s',
 		(method == 'GET' ? 7 : 17),
@@ -57,13 +71,14 @@ function api_raw(method, path, body) {
 		shellquote(bf), method, shellquote('Authorization: Bearer ' + secret));
 	if (body != null && length(body) > 0)
 		cmd += sprintf(" -H 'Content-Type: application/json' --data-binary %s", shellquote(body));
-	cmd += sprintf(' %s > %s 2>/dev/null', shellquote('http://127.0.0.1:' + port + path), shellquote(cf));
+	cmd += sprintf(' %s > %s 2>/dev/null', shellquote('http://' + host + ':' + port + path), shellquote(cf));
 	system(cmd);
 
 	let status = int(trim(readfile(cf) ?? '')) ?? 0;
 	let raw = readfile(bf) ?? '';
 	unlink(cf);
 	unlink(bf);
+	system('rmdir ' + shellquote(dir));
 	let parsed = null;
 	try { parsed = json(raw); } catch (e) { parsed = null; }
 	return { status: status, body: parsed, raw: (parsed == null) ? raw : null };
@@ -98,25 +113,93 @@ function profile_list() {
 
 function status_obj() {
 	let ctx = cursor();
+	let service = null;
+	try { service = json(run('ubus -t 2 call service list ' + shellquote('{"name":"bettbox"}'))); } catch (e) {}
+	let pid=service?.bettbox?.instances?.core?.pid, rss=null;
+	if(type(pid)=='int' && pid>0){let m=match(readfile('/proc/'+pid+'/status')??'',/VmRSS:\s+([0-9]+) kB/);if(m)rss=int(m[1])*1024;}
 	/* instant by design: no internal curl here — views read live core state
 	   straight from the external-controller (bettbox.core module) */
 	return {
 		enabled: (ctx.get('bettbox', 'config', 'enabled') == '1'),
-		// busybox pgrep has no -q on all builds; redirect instead
-		running: (system('pgrep mihomo >/dev/null') == 0),
+		running: service?.bettbox?.instances?.core?.running == true,
 		secret: ctx.get('bettbox', 'config', 'secret') ?? '',
 		core: null,
+		memory_rss: rss,
 		mode: ctx.get('bettbox', 'config', 'mode') ?? 'rule',
 		profile: ctx.get('bettbox', 'config', 'profile') ?? '',
 		controller: ctx.get('bettbox', 'config', 'external_controller') ?? '127.0.0.1:9097',
+		allow_lan: ctx.get('bettbox', 'config', 'allow_lan') == '1',
 		transparent_mode: ctx.get('bettbox', 'config', 'transparent_mode') ?? 'tun',
 		external_ui: (ctx.get('bettbox', 'config', 'external_ui') == '1') && access('/usr/share/bettbox/ui/index.html'),
 		mixed_port: int(ctx.get('bettbox', 'config', 'mixed_port')) ?? 7893
 	};
 }
 
+function network_info() {
+	let lan = {}, wan = {};
+	try { lan = json(run('ubus -t 2 call network.interface.lan status')); } catch(e) {}
+	try { wan = json(run('ubus -t 2 call network.interface.wan status')); } catch(e) {}
+	let ctx=cursor(), gateway='';
+	for (let route in (wan.route ?? [])) if(route.target=='0.0.0.0') gateway=route.nexthop ?? '';
+	return { lan: { address: lan['ipv4-address']?.[0]?.address ?? '', prefix: lan['ipv4-address']?.[0]?.mask ?? 24, device: lan.l3_device ?? '', ipv6: lan['ipv6-prefix-assignment']?.[0]?.['local-address']?.address ?? '' }, wan: { up: wan.up == true, device: wan.l3_device ?? '', address: wan['ipv4-address']?.[0]?.address ?? '', gateway: gateway, dns: wan['dns-server'] ?? [] }, mixed_port: int(ctx.get('bettbox','config','mixed_port')) ?? 0, allow_lan: ctx.get('bettbox','config','allow_lan')=='1', stack: ctx.get('bettbox','tun','stack') ?? 'mips' };
+}
+
+function valid_job(id) { return type(id)=='string' && match(id,/^bettbox-job\.[A-Za-z0-9]+$/); }
+function diagnostic_start(request) {
+	let kind=request.args.kind, args=null;
+	if (!(kind in ['exit','connectivity','delay','toolbox'])) return {ok:false,error:'invalid diagnostic kind'};
+	try { args=json(request.args.args_json); } catch(e) {}
+	if(type(args)!='array'||length(args)>8) return {ok:false,error:'invalid diagnostic arguments'};
+	for(let arg in args) if(type(arg)!='string'||length(arg)>65536) return {ok:false,error:'invalid diagnostic argument'};
+	if(kind=='exit' && !(args[0] in ['direct','proxy'])) return {ok:false,error:'invalid exit mode'};
+	if(kind=='toolbox' && !(args[0] in ['dns','ip','ping','speedtest','media','trace','mrs','nat','age','iperf'])) return {ok:false,error:'invalid tool'};
+	let active=0;
+	for(let entry in (lsdir('/tmp') ?? [])){
+		let name=type(entry)=='string'?entry:entry?.name;
+		if(!valid_job(name))continue;
+		let dir='/tmp/'+name, st=stat(dir);
+		if(!st)continue;
+		if(time()-st.mtime>3600){for(let file in ['request','output','code','input'])unlink(dir+'/'+file);system('rmdir '+shellquote(dir)+' 2>/dev/null');}
+		else if(!access(dir+'/code') && time()-st.mtime<180)active++;
+	}
+	if(active>=3)return {ok:false,error:'已有三个诊断任务运行，请稍候'};
+	let dir=trim(run('umask 077; mktemp -d /tmp/bettbox-job.XXXXXX'));
+	let id=split(dir,'/')[2];
+	if(!valid_job(id))return {ok:false,error:'could not create diagnostic workspace'};
+	if(writefile(dir+'/request',sprintf('%J',{kind:kind,args:args}))==null)return {ok:false,error:'could not save diagnostic request'};
+	let cmd='(umask 077; ulimit -f 2048; timeout 160 ucode /usr/libexec/bettbox/diagnostic.uc '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1; echo $? > '+shellquote(dir+'/code')+') </dev/null >/dev/null 2>&1 &';
+	if(system(cmd)!=0)return {ok:false,error:'could not start diagnostic'};
+	return {ok:true,id:id};
+}
+
+function resource_info() {
+	let files=[];
+	for(let item in [{name:'GeoSite',file:'geosite.dat'},{name:'GeoIP / MMDB',file:'country.mmdb'},{name:'GeoIP DAT',file:'geoip.dat'},{name:'ASN',file:'ASN.mmdb'}]){
+		let found=null;
+		for(let path in ['/etc/bettbox/'+item.file,'/etc/bettbox/geo/'+item.file]){let st=stat(path);if(st){found={path:path,size:st.size,modified:st.mtime};break;}}
+		push(files,{name:item.name,file:item.file,installed:found!=null,info:found});
+	}
+	return {files:files,dashboard:access('/usr/share/bettbox/ui/index.html')};
+}
+
 return {
 	bettbox: {
+		get_network: {call:function(){return network_info();}},
+		get_resources: {call:function(){return resource_info();}},
+		backup_file: {args:{action:'',file:''},call:function(request){
+			if(request.args.action=='prepare'){let file=trim(run('umask 077; mktemp /tmp/bettbox-ui-backup.XXXXXX'));if(!match(file,/^\/tmp\/bettbox-ui-backup\.[A-Za-z0-9]+$/))return {ok:false,error:'could not create backup workspace'};return {ok:true,file:file};}
+			if(request.args.action=='remove'&&match(request.args.file??'',/^\/tmp\/bettbox-ui-backup\.[A-Za-z0-9]+$/)){unlink(request.args.file);return {ok:true};}
+			return {ok:false,error:'invalid backup workspace'};
+		}},
+		diagnostic_start: {args:{kind:'',args_json:'[]'},call:diagnostic_start},
+		diagnostic_status: {
+			args:{id:''},call:function(request){
+				let id=request.args.id;if(!valid_job(id))return {error:'invalid job id'};
+				let dir='/tmp/'+id;if(!access(dir+'/request'))return {error:'任务不存在或已过期'};
+				let code=access(dir+'/code')?int(trim(readfile(dir+'/code')??'')):null;
+				return {done:code!=null,ok:code==0,code:code,text:readfile(dir+'/output')??''};
+			}
+		},
 		get_status: {
 			call: function() {
 				return status_obj();
@@ -150,7 +233,7 @@ return {
 				if (!all && !valid_sid(request.args.sid))
 					return { error: 'invalid sid' };
 				let cmd = all ? '/usr/bin/bettbox update-all' : '/usr/bin/bettbox update ' + shellquote(request.args.sid);
-				return { ok: true, text: run(cmd + ' 2>&1') };
+				return run_result(cmd + ' 2>&1');
 			}
 		},
 		del_profile: {
@@ -159,6 +242,8 @@ return {
 				if (!valid_sid(request.args.sid))
 					return { error: 'invalid sid' };
 				let ctx = cursor();
+				if (ctx.get('bettbox', 'config', 'profile') == request.args.sid)
+					return { ok: false, error: 'select another profile before deleting the active profile' };
 				ctx.delete('bettbox', request.args.sid);
 				ctx.commit('bettbox');
 				unlink('/etc/bettbox/profiles/' + request.args.sid + '.yaml');
@@ -199,7 +284,8 @@ return {
 					return { error: 'invalid name' };
 				if (length(request.args.content) > 512 * 1024)
 					return { error: 'script too large' };
-				writefile('/etc/bettbox/scripts/' + request.args.name + '.js', request.args.content);
+				if (writefile('/etc/bettbox/scripts/' + request.args.name + '.js', request.args.content) == null)
+					return { ok: false, error: 'could not save script' };
 				return { ok: true };
 			}
 		},
@@ -236,7 +322,7 @@ return {
 			args: { method: 'GET', path: '/', body: '' },
 			call: function(request) {
 				let method = uc(request.args.method ?? 'GET');
-				if (!(method in ['GET', 'PUT', 'POST', 'DELETE']))
+				if (!(method in ['GET', 'PUT', 'PATCH', 'POST', 'DELETE']))
 					return { error: 'bad method' };
 				let res = api_raw(method, request.args.path ?? '/', request.args.body);
 				return { status: res.status, data: res.body, raw: res.raw };
@@ -244,9 +330,7 @@ return {
 		},
 		apply: {
 			call: function() {
-				let out = run('/usr/bin/bettbox apply 2>&1');
-				let ok = (system('/usr/bin/bettbox apply >/dev/null 2>&1') == 0);
-				return { ok: ok, text: out };
+				return run_result('/usr/bin/bettbox apply-service 2>&1');
 			}
 		},
 		service_action: {
@@ -255,8 +339,10 @@ return {
 				let action = request.args.action;
 				if (!(action in ['start', 'stop', 'restart', 'enable', 'disable']))
 					return { error: 'bad action' };
-				system('/etc/init.d/bettbox ' + action);
-				return { ok: true };
+				let cmd = '/etc/init.d/bettbox ' + action;
+				if (action == 'start' || action == 'restart')
+					cmd = '/etc/init.d/bettbox enable && ' + cmd;
+				return run_result(cmd + ' 2>&1');
 			}
 		},
 		dashboard: {
@@ -265,15 +351,15 @@ return {
 				let action = request.args.action;
 				if (!(action in ['install', 'remove']))
 					return { error: 'bad action' };
-				let out = run('/usr/libexec/bettbox/dashboard.sh ' + action + ' 2>&1');
-				return { ok: (match(out, /failed|malformed/) == null), text: out };
+				return run_result('/usr/libexec/bettbox/dashboard.sh ' + action + ' 2>&1');
 			}
 		},
 		geo_update: {
 			call: function() {
-				system('rm -f /etc/bettbox/geo/*');
-				system('/etc/init.d/bettbox restart');
-				return { ok: true };
+				let res = api_raw('POST', '/configs/geo', '');
+				return { ok: res.status >= 200 && res.status < 300,
+					text: res.status >= 200 && res.status < 300 ? 'Geo resources updated' :
+						'Geo update failed; check core logs', status: res.status };
 			}
 		},
 		get_logs: {
@@ -309,20 +395,27 @@ return {
 				}
 				if (!(type(name) == 'string' && length(name) <= 64 && match(name, /^[A-Za-z0-9_-]+$/)))
 					return { error: 'invalid script name' };
-				let body = '/tmp/bettbox-import.$$';
-				let cmd = sprintf('curl -sSL --fail -m 30 -o %s %s 2>/dev/null && grep -q "function main" %s && wc -c < %s',
+				let body = trim(run('umask 077; mktemp /tmp/bettbox-import.XXXXXX'));
+				if (!match(body, /^\/tmp\/bettbox-import\.[A-Za-z0-9]+$/))
+					return { error: 'could not create download workspace' };
+				let cmd = sprintf('curl -sSL --fail --max-filesize 524288 -m 30 -o %s %s 2>/dev/null && grep -q "function main" %s && wc -c < %s',
 					shellquote(body), shellquote(url), shellquote(body), shellquote(body));
 				let out = run(cmd);
 				let size = int(trim(out));
-				if (type(size) != 'int' || size <= 0)
+				if (type(size) != 'int' || size <= 0) {
+					unlink(body);
 					return { error: 'download failed or no main() in script' };
-				if (size > 512 * 1024)
+				}
+				if (size > 512 * 1024) {
+					unlink(body);
 					return { error: 'script too large' };
+				}
 				let content = readfile(body) ?? '';
 				unlink(body);
 				if (length(content) == 0)
 					return { error: 'downloaded script is empty' };
-				writefile('/etc/bettbox/scripts/' + name + '.js', content);
+				if (writefile('/etc/bettbox/scripts/' + name + '.js', content) == null)
+					return { ok: false, error: 'could not save script' };
 				return { ok: true, name: name, size: size };
 			}
 		},
@@ -336,8 +429,7 @@ return {
 				if ((action == 'create' || action == 'restore') && !valid_path(f))
 					return { error: 'invalid file path' };
 				let cmd = '/usr/libexec/bettbox/backup.sh ' + action + ((f && (action == 'create' || action == 'restore')) ? ' ' + shellquote(f) : '');
-				let out = run(cmd + ' 2>&1');
-				return { ok: (match(out, /usage|failed|not configured|error/i) == null), text: out };
+				return run_result(cmd + ' 2>&1');
 			}
 		}
 	}

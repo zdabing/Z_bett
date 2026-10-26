@@ -27,9 +27,10 @@ api_host_port() {
 	local hc
 	hc=$(uci_get bettbox.config.external_controller)
 	[ -n "$hc" ] || hc="127.0.0.1:9097"
-	local host="${hc%%:*}"
+	local host="${hc%:*}"
 	local port="${hc##*:}"
-	echo "127.0.0.1:${port}"
+	case "$host" in '0.0.0.0'|'*'|'') host=127.0.0.1 ;; '[::]') host='[::1]' ;; esac
+	echo "${host}:${port}"
 }
 
 api_secret() {
@@ -45,13 +46,13 @@ api_call() {
 	hp=$(api_host_port)
 	secret=$(api_secret)
 	if [ -n "$body" ]; then
-		curl -sS -m 8 -X "$method" \
+		curl -fsS --connect-timeout 3 -m 8 -X "$method" \
 			-H "Authorization: Bearer $secret" \
 			-H "Content-Type: application/json" \
 			-d "$body" \
 			"http://${hp}${path}"
 	else
-		curl -sS -m 8 -X "$method" \
+		curl -fsS --connect-timeout 3 -m 8 -X "$method" \
 			-H "Authorization: Bearer $secret" \
 			"http://${hp}${path}"
 	fi
@@ -60,7 +61,7 @@ api_call() {
 # Escape a string into a JSON literal (ucode based). json() only parses on
 # some ucode builds; serialization goes through sprintf %J.
 json_str() {
-	printf '%s' "$1" | ucode -e 'import { readfile } from "fs"; print(sprintf("%J", json(readfile("/dev/stdin"))))'
+	printf '%s' "$1" | ucode -e 'import { readfile } from "fs"; print(sprintf("%J", readfile("/dev/stdin")))'
 }
 
 profile_file() {

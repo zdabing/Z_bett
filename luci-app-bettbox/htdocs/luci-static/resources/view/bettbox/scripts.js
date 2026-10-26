@@ -2,171 +2,54 @@
 'require view';
 'require rpc';
 'require ui';
+'require bettbox.ui as UI';
 
-/* LuCI 25.12 removed ui.createHandlerBtn; shim it on top of createHandlerFn. */
-if (!ui.createHandlerBtn)
-	ui.createHandlerBtn = function(label, fn) {
-		return E('button', { 'class': 'cbi-button', 'click': ui.createHandlerFn(null, fn) }, label);
-	};
-
-var callList = rpc.declare({ object: 'bettbox', method: 'get_scripts' });
-var callGet = rpc.declare({ object: 'bettbox', method: 'get_script', params: [ 'name' ] });
-var callSave = rpc.declare({ object: 'bettbox', method: 'save_script', params: [ 'name', 'content' ] });
-var callDel = rpc.declare({ object: 'bettbox', method: 'del_script', params: [ 'name' ] });
-var callOpts = rpc.declare({ object: 'bettbox', method: 'script_options', params: [ 'name' ] });
-var callImportUrl = rpc.declare({ object: 'bettbox', method: 'import_script_url', params: [ 'url', 'name' ] });
-
-var TEMPLATE =
-	'// const Compatible_With_Bettbox = { ruleOptionsEnable: true, policyGroupOptions: [\'🚀 节点选择\'] };\n' +
-	'// const ruleOptionsEnable = { \'🚀 节点选择\': true };\n' +
-	'function main(config) {\n' +
-	'  // config.rules = [\'DOMAIN,example.com,DIRECT\', ...(config.rules || [])];\n' +
-	'  return config;\n' +
-	'}\n';
-
-function validName(n) {
-	return /^[A-Za-z0-9_-]{1,64}$/.test(n);
-}
-
+var listScripts=rpc.declare({object:'bettbox',method:'get_scripts'}),getScript=rpc.declare({object:'bettbox',method:'get_script',params:['name']}),saveScript=rpc.declare({object:'bettbox',method:'save_script',params:['name','content']}),delScript=rpc.declare({object:'bettbox',method:'del_script',params:['name']}),scriptOptions=rpc.declare({object:'bettbox',method:'script_options',params:['name']}),importURL=rpc.declare({object:'bettbox',method:'import_script_url',params:['url','name']});
+var TEMPLATE='// const Compatible_With_Bettbox = { ruleOptionsEnable: true };\nfunction main(config) {\n  return config;\n}\n';
+function validName(name){return /^[A-Za-z0-9_-]{1,64}$/.test(name);}
 return view.extend({
-	load: function () { return callList(); },
-
-	/* upstream editor.dart _ImportOptionsDialog: URL import / file import,
-	   plus direct paste in the editor itself. */
-	importDialog: function (scripts, ev) {
-		var self = this;
-
-		var fName = E('input', { 'class': 'cbi-input-text', style: 'width:100%', placeholder: 'my-script（可选，默认取 URL 文件名）' });
-		var fUrl = E('input', { 'class': 'cbi-input-text', style: 'width:100%', placeholder: 'https://example.com/override.js' });
-		var urlOut = E('pre', { style: 'min-height:2.2em; max-height:24em; overflow:auto; font-size:.85em' }, '');
-
-		var fFile = E('input', { type: 'file', accept: '.js,text/javascript', style: 'width:100%' });
-		var fileOut = E('pre', { style: 'min-height:2.2em; max-height:24em; overflow:auto; font-size:.85em' }, '');
-
-		function doImportUrl() {
-			var u = fUrl.value.trim();
-			if (!/^https?:\/\//.test(u)) { urlOut.textContent = '错误: 需要 http(s):// 链接'; return; }
-			urlOut.textContent = '…';
-			callImportUrl(u, fName.value.trim()).then(function (res) {
-				if (res && res.ok) {
-					ui.hideModal();
-					window.location.reload();
-				} else {
-					urlOut.textContent = '错误: ' + ((res && (res.error || res.text)) || '未知');
+	load:function(){return listScripts();},
+	render:function(data){var scripts=data.scripts||[],current='',tab='code',dirty=false,host=E('div'),body=E('textarea',{'class':'code-editor',rows:16,spellcheck:'false','aria-label':'脚本代码'}),filename=E('input',{'class':'field',placeholder:'my-script',value:''}),status=E('div',{'class':'bb-operation-state','role':'status'}),optionsHost=E('div',{'class':'panel-body'});body.value=TEMPLATE;body.addEventListener('input',function(){dirty=true;status.textContent='有未保存的修改';});
+		function save(){var name=filename.value.trim().replace(/\.js$/,'');if(!validName(name))throw new Error('文件名仅支持字母、数字、下划线和短横线');return saveScript(name,body.value).then(UI.checked).then(function(){dirty=false;current=name;status.textContent='脚本已保存；可在订阅中选用';if(!scripts.some(function(s){return s.name===name;})){scripts.push({name:name,size:body.value.length});draw();}});}
+		function load(name){if(dirty&&!window.confirm('有未保存的修改，确定切换脚本？'))return;return getScript(name).then(function(result){if(result.error)throw new Error(result.error);current=name;filename.value=name;body.value=result.content||'';dirty=false;status.textContent='';tab='code';draw();}).catch(UI.error);}
+		function extract(){if(dirty||!current){optionsHost.replaceChildren(E('p',{'class':'small muted'},'先保存脚本，再提取其可视化选项。'));return Promise.resolve();}optionsHost.replaceChildren(E('p',{'class':'small muted'},'正在提取…'));return scriptOptions(current).then(UI.checked).then(function(result){var opts=result.options||{},values=opts.options||opts.ruleOptionsEnable||{},keys=Object.keys(values);optionsHost.replaceChildren();if(!keys.length){optionsHost.appendChild(E('p',{},'此脚本未声明可视化开关。'));return;}keys.forEach(function(k){optionsHost.appendChild(E('div',{'class':'toggle-line'},[E('div',{},[E('strong',{},k),E('p',{},'默认值：'+String(values[k]))]),UI.tag(values[k]?'启用':'关闭',values[k]?'':'neutral')]));});}).catch(function(err){optionsHost.replaceChildren(E('p',{'class':'small'},'提取失败：'+err.message));});}
+		function remove(name){UI.modal('删除脚本',[E('p',{},'确定删除 '+name+'.js？引用该文件的订阅将无法使用此覆写。')],[UI.button('删除',function(){return delScript(name).then(UI.checked).then(function(){window.location.reload();});},'danger'),UI.button('取消',ui.hideModal)]);}
+		function draw(){var rail=E('aside',{'class':'panel rail script-rail'},[E('div',{'class':'rail-title'},'脚本文件 · '+scripts.length)]);scripts.forEach(function(s){var b=UI.button(s.name+'.js',function(){return load(s.name);},'rail-button'+(current===s.name?' active':''),'code');rail.appendChild(b);});
+			var tabs=E('div',{'class':'editor-tabs'});[['code','代码编辑'],['options','脚本选项']].forEach(function(t){var b=E('button',{type:'button','class':tab===t[0]?'active':''},t[1]);b.addEventListener('click',function(){tab=t[0];draw();if(tab==='options')extract();});tabs.appendChild(b);});
+			var actions=[UI.button('保存',save,'primary','save')];if(current)actions.push(UI.button('删除',function(){remove(current);},'text bb-delete','close'));
+			var editor=E('section',{'class':'panel'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.icon('code'),document.createTextNode(current?current+'.js':'新建脚本')])]),E('div',{'class':'button-row'},actions)]),E('div',{'class':'panel-body'},UI.field('文件名（不含 .js）',filename)),tabs,tab==='code'?body:optionsHost,status]);host.replaceChildren(E('div',{'class':'split script-layout'},[rail,editor]));
+		}
+		function create(name){if(dirty&&!window.confirm('放弃未保存的修改并新建脚本？'))return false;current='';filename.value=name||'';body.value=TEMPLATE;dirty=false;tab='code';status.textContent='';draw();return true;}
+		function addDialog(){
+			var mode='new',name=E('input',{'class':'field',placeholder:'my-script','aria-label':'文件名'}),url=E('input',{'class':'field',type:'url',placeholder:'https://…/script.js','aria-label':'脚本链接'}),file=E('input',{'class':'field',type:'file',accept:'.js,text/javascript','aria-label':'脚本文件'}),form=E('div',{'class':'bb-script-source-form'});
+			var confirm=UI.button('创建并编辑',function(){
+				var n=name.value.trim().replace(/\.js$/,'');
+				if(mode==='new'){
+					if(!validName(n))throw new Error('请输入有效的文件名');
+					if(scripts.some(function(s){return s.name===n;}))throw new Error('已存在同名脚本');
+					if(create(n))ui.hideModal();return;
 				}
-			});
+				if(mode==='file'){
+					var f=file.files&&file.files[0];if(!f)throw new Error('请选择脚本文件');
+					n=n||f.name.replace(/\.js$/,'');if(!validName(n))throw new Error('请输入有效的文件名');if(f.size>512*1024)throw new Error('文件不能超过 512KB');
+					return f.text().then(function(text){return saveScript(n,text);}).then(UI.checked).then(function(){window.location.reload();});
+				}
+				var address=url.value.trim();if(!/^https?:\/\//.test(address))throw new Error('请输入 http(s) 链接');
+				if(!n){try{n=new URL(address).pathname.split('/').pop().replace(/\.js$/,'');}catch(e){}}
+				if(!validName(n))throw new Error('请输入有效的文件名');
+				return importURL(address,n).then(UI.checked).then(function(){window.location.reload();});
+			},'primary','plus');
+			var sources=E('div',{'class':'bb-script-source',role:'tablist','aria-label':'添加方式'},[['new','新建'],['url','链接导入'],['file','文件导入']].map(function(item){
+				var button=E('button',{type:'button',role:'tab','class':item[0]===mode?'active':'','aria-selected':String(item[0]===mode)},item[1]);
+				button.addEventListener('click',function(){mode=item[0];drawSource();});return button;
+			}));
+			function drawSource(){
+				Array.from(sources.children).forEach(function(button,i){var active=['new','url','file'][i]===mode;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));});
+				form.replaceChildren.apply(form,(mode==='url'?[UI.field('脚本链接',url)]:mode==='file'?[UI.field('脚本文件',file)]:[]).concat([UI.field(mode==='new'?'文件名':'文件名（可选）',name)]));
+				confirm.querySelector('span').textContent=mode==='new'?'创建并编辑':'导入';
+			}
+			drawSource();UI.modal('添加脚本',[sources,form],[confirm,UI.button('取消',ui.hideModal)]);
 		}
-
-		function doImportFile() {
-			var f = fFile.files && fFile.files[0];
-			if (!f) { fileOut.textContent = '错误: 未选择文件'; return; }
-			var n = fName.value.trim() || f.name.replace(/\.js$/, '');
-			if (!validName(n)) { fileOut.textContent = '错误: 脚本名只能用字母数字下划线中划线'; return; }
-			fileOut.textContent = '…';
-			var rd = new FileReader();
-			rd.onload = function () {
-				callSave(n, String(rd.result)).then(function (res) {
-					if (res && res.error) { fileOut.textContent = '错误: ' + res.error; return; }
-					ui.hideModal();
-					window.location.reload();
-				});
-			};
-			rd.onerror = function () { fileOut.textContent = '错误: 文件读取失败'; };
-			rd.readAsText(f);
-		}
-
-		var body = E('div', {}, [
-			E('h4', {}, '通过 URL 导入'),
-			E('div', { style: 'margin-bottom:.3em' }, fUrl),
-			E('div', { style: 'margin-bottom:.3em' }, fName),
-			E('div', {}, [ ui.createHandlerBtn(_('导入'), doImportUrl) ]),
-			urlOut,
-			E('hr'),
-			E('h4', {}, '通过文件导入'),
-			E('div', { style: 'margin-bottom:.3em' }, fFile),
-			E('div', { style: 'margin-bottom:.3em' }, fName),
-			E('div', {}, [ ui.createHandlerBtn(_('导入'), doImportFile) ]),
-			fileOut
-		]);
-
-		ui.showModal(_('导入'), [
-			body,
-			E('div', { 'class': 'right' }, [
-				E('button', { 'class': 'btn', click: ui.createHandlerFn(null, ui.hideModal) }, _('关闭'))
-			])
-		]);
-	},
-
-	editor: function (name, scripts, ev) {
-		var self = this;
-		var fetching = !name ? Promise.resolve({ name: '', content: TEMPLATE }) : callGet(name);
-		fetching.then(function (s) {
-			var fName = E('input', { 'class': 'cbi-input-text', value: s.name || '', style: 'width:20em', placeholder: 'my-script' });
-			var fBody = E('textarea', { 'class': 'cbi-input-textarea', rows: 20, style: 'width:100%; font-family:monospace' });
-			fBody.value = s.content || '';
-			var optBox = E('pre', { style: 'max-height:16em; overflow:auto; background:var(--background-color-high,#f5f5f5); padding:.5em; font-size:.85em' }, '—');
-
-			var extract = ui.createHandlerBtn(_('提取开关 (bettbox-forge)'), function () {
-				return callOpts(fName.value).then(function (res) {
-					optBox.textContent = (res && res.ok) ? JSON.stringify(res.options, null, 2) : ('错误: ' + (res && res.error));
-				});
-			});
-
-			var save = ui.createHandlerBtn(_('保存'), function () {
-				var n = fName.value.trim().replace(/\.js$/, '');
-				if (!validName(n)) { alert(_('脚本名只能用字母数字下划线中划线')); return; }
-				return callSave(n, fBody.value).then(function (res) {
-					if (res && res.error) alert(res.error);
-					else { ui.hideModal(); window.location.reload(); }
-				});
-			});
-
-			ui.showModal(_('脚本: %s').format(name || _('新建')), [
-				E('div', {}, [ _('文件名'), ' ', fName, ' ', extract ]),
-				fBody,
-				E('h4', {}, _('提取到的开关 (Compatible_With_Bettbox 契约)')),
-				optBox,
-				E('div', { 'class': 'right' }, [
-					save, ' ',
-					E('button', { 'class': 'btn', click: ui.createHandlerFn(null, ui.hideModal) }, _('关闭'))
-				])
-			]);
-		});
-	},
-
-	render: function (data) {
-		var self = this;
-		var scripts = (data && data.scripts) || [];
-
-		var wrap = E('div', { 'class': 'cbi-map' }, [
-			E('div', { 'class': 'cbi-section' }, [
-				E('div', {}, [
-					ui.createHandlerBtn(_('新建脚本'), self.editor.bind(self, null, scripts)), ' ',
-					ui.createHandlerBtn(_('导入'), self.importDialog.bind(self, scripts))
-				])
-			])
-		]);
-
-		scripts.forEach(function (s) {
-			wrap.appendChild(E('div', { 'class': 'cbi-section' }, [
-				E('h3', {}, s.name + ' '),
-				E('div', {}, [
-					ui.createHandlerBtn(_('编辑'), self.editor.bind(self, s.name, scripts)), ' ',
-					E('button', { 'class': 'btn cbi-button-negative', click: ui.createHandlerFn(null, function () {
-						if (!confirm(_('删除脚本 %s？').format(s.name))) return;
-						callDel(s.name).then(function () { window.location.reload(); });
-					}) }, _('删除'))
-				])
-			]));
-		});
-
-		if (!scripts.length)
-			wrap.appendChild(E('p', {}, _('还没有脚本。可粘贴代码、从 URL 或本地文件导入；Bettbox 社区的覆写脚本可直接使用。')));
-
-		return wrap;
-	},
-
-	handleSaveApply: null,
-	handleSave: null,
-	handleReset: null
+		var root=UI.page('scripts','脚本',[UI.button('添加脚本',addDialog,'primary','plus')],[host]);draw();if(scripts.length)load(scripts[0].name);return root;
+	},handleSaveApply:null,handleSave:null,handleReset:null
 });

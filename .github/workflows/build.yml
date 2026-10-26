@@ -11,6 +11,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check router shell regressions
+        run: |
+          sh -n bettbox/files/usr/bin/bettbox
+          sh -n bettbox/files/usr/libexec/bettbox/cron.sh
+          sh -n bettbox/files/usr/libexec/bettbox/router-settings.sh
+          for script in bettbox/files/usr/libexec/bettbox/*.sh; do sh -n "$script" || exit 1; done
+          python3 test/cron-test.py
+          python3 test/router-settings-test.py
+          python3 test/shell-regression-test.py
+          node test/core-test.js
+          node test/logs-test.js
+          node test/overview-exit-test.js
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo check --locked --manifest-path bettbox-forge/Cargo.toml
       - run: cargo test --manifest-path bettbox-forge/Cargo.toml --no-run

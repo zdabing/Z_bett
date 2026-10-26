@@ -4,11 +4,21 @@
 # rust build output
 /bettbox-forge/target/
 
-# local test harness deps
+# local test harness dependencies and sessions
 /test/node_modules/
-/test/package-lock.json
-/test/package.json
 logs-x86.txt
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+*.bak
+*storage-state*.json
+*router-state*.json
+.env
+.env.*
+!.env.example
+Thumbs.db
+.DS_Store
 
 # build artifacts & local backups (never commit)
 /dist/

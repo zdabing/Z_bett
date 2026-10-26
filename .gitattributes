@@ -1,0 +1,6 @@
+# Keep router scripts executable by POSIX shells after a Windows checkout.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.apk binary

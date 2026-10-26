@@ -1,88 +1,28 @@
 'use strict';
 'require view';
-'require rpc';
-'require bettbox.core as Core';
 'require poll';
-
-var callApi = function (method, path, body) { return Core.api(method, path, body); };
-
-function fmtBytes(n) {
-	if (n == null) return '-';
-	var u = [ 'B', 'KB', 'MB', 'GB', 'TB' ], i = 0;
-	while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-	return n.toFixed(i ? 2 : 0) + ' ' + u[i];
-}
+'require ui';
+'require bettbox.core as Core';
+'require bettbox.ui as UI';
 
 return view.extend({
-	render: function () {
-		var self = this;
-		var sortMode = 'traffic';
-		var table = E('table', { 'class': 'table' });
-		var info = E('p', { 'class': 'monospace' });
-
-		function row(c) {
-			var meta = c.metadata || {};
-			var speed = ((c.download - (c._d || 0)) + (c.upload - (c._u || 0))) / 2;
-			c._d = c.download; c._u = c.upload;
-			return E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td left' }, [ meta.host || meta.destinationIP || '-', E('br', {}), E('small', {}, (meta.network || '') + ' ' + (meta.destinationPort || '')) ]),
-				E('td', { 'class': 'td left' }, [ (c.chains || []).join(' / '), E('br', {}), E('small', {}, c.rule || '') ]),
-				E('td', { 'class': 'td left monospace' }, fmtBytes(c.upload) + ' ↑ / ' + fmtBytes(c.download) + ' ↓'),
-				E('td', { 'class': 'td left monospace' }, fmtBytes(speed) + '/s'),
-				E('td', { 'class': 'td left' }, [
-					E('button', {
-						'class': 'btn cbi-button-remove',
-						click: function () {
-							callApi('DELETE', '/connections/' + encodeURIComponent(c.id), '').then(self.refresh);
-						}
-					}, '✕')
-				])
-			]);
+	render:function(){
+		var data=[],previous={},lastTime=0,paused=false,busy=false,filter='',protocol='',sort='traffic',pageNo=0,pageSize=30;
+		var list=E('div'),summary=E('div',{'class':'toolbar connection-summary'}),notice=E('div',{'class':'bb-update-note','role':'status'}),pager=E('div',{'class':'button-row'});
+		function target(c){var m=c.metadata||{};return m.host||m.destinationIP||'—';}
+		function detail(c){var m=c.metadata||{},rows=[['目标',target(c)],['目的地址',(m.destinationIP||'—')+':'+(m.destinationPort||'—')],['来源',(m.sourceIP||'—')+':'+(m.sourcePort||'—')],['协议',(m.network||'').toUpperCase()+' · '+(m.type||'')],['链路',(c.chains||[]).join(' → ')],['规则',(c.rule||'')+' '+(c.rulePayload||'')],['上传',UI.bytes(c.upload)],['下载',UI.bytes(c.download)],['速率',UI.speed(c._speed)],['开始时间',c.start?new Date(c.start).toLocaleString():'—']];UI.modal('连接详情',E('dl',{'class':'definition-list'},rows.map(function(r){return E('div',{'class':'definition-row'},[E('dt',{},r[0]),E('dd',{},String(r[1]))]);})),[UI.button('关闭此连接',function(){return Core.del('/connections/'+encodeURIComponent(c.id)).then(function(){ui.hideModal();return refresh();});},'danger','close'),UI.button('返回',ui.hideModal)]);}
+		function row(c){var m=c.metadata||{};return E('tr',{},[E('td',{},[E('div',{'class':'cell-title'},target(c)),E('div',{'class':'cell-meta'},(m.network||'').toUpperCase()+' · '+(m.destinationPort||''))]),E('td',{'class':'mono'},m.sourceIP||'—'),E('td',{},[E('div',{},(c.chains||[]).join(' → ')||'—'),E('div',{'class':'cell-meta'},c.rule||'')]),E('td',{'class':'mono'},'↓'+UI.bytes(c.download)+' / ↑'+UI.bytes(c.upload)),E('td',{'class':'mono'},UI.speed(c._speed)),E('td',{},UI.button('详情',function(){detail(c);},'bb-icon-only','chevron'))]);}
+		function card(c){var m=c.metadata||{};return E('article',{'class':'connection-card'},[E('div',{'class':'connection-top'},[E('div',{},[E('div',{'class':'cell-title'},target(c)),E('div',{'class':'cell-meta'},(m.network||'').toUpperCase()+' · '+(m.destinationPort||'')+' · 来自 '+(m.sourceIP||'—'))]),UI.button('详情',function(){detail(c);},'bb-icon-only','chevron')]),E('div',{'class':'cell-meta'},(c.chains||[]).join(' → ')||'—'),E('div',{'class':'connection-bottom'},[UI.tag(c.rule||'—','neutral'),E('span',{'class':'mono'},'↓'+UI.bytes(c.download)+' · '+UI.speed(c._speed))])]);}
+		function draw(){var filtered=data.filter(function(c){var m=c.metadata||{};return(!protocol||String(m.network).toLowerCase()===protocol)&&(!filter||[target(c),m.destinationIP,m.sourceIP,c.rule,(c.chains||[]).join(' ')].join(' ').toLowerCase().indexOf(filter)>=0);});filtered.sort(function(a,b){return sort==='time'?String(b.start).localeCompare(String(a.start)):((b.upload||0)+(b.download||0))-((a.upload||0)+(a.download||0));});var pages=Math.max(1,Math.ceil(filtered.length/pageSize));if(pageNo>=pages)pageNo=pages-1;var slice=filtered.slice(pageNo*pageSize,(pageNo+1)*pageSize);
+			if(!slice.length)list.replaceChildren(UI.empty('暂无符合条件的连接','可以清除筛选条件，或等待新连接。'));
+			else list.replaceChildren(E('section',{'class':'panel connection-table'},E('table',{'class':'data-table'},[E('thead',{},E('tr',{},['目标 / 协议','来源设备','链路 / 规则','流量','速率',''].map(function(h){return E('th',{},h);}))),E('tbody',{},slice.map(row))])),E('section',{'class':'panel connection-cards'},slice.map(card)));
+			var prev=UI.button('上一页',function(){pageNo--;draw();}),next=UI.button('下一页',function(){pageNo++;draw();});prev.disabled=pageNo===0;next.disabled=pageNo+1>=pages;pager.replaceChildren(prev,E('span',{'class':'small muted'},'第 '+(pageNo+1)+' / '+pages+' 页 · '+filtered.length+' 条'),next);
 		}
-
-		self.refresh = function () {
-			callApi('GET', '/connections', '').then(function (res) {
-				if (!res || !res.data) return;
-				var conns = res.data.connections || [];
-				conns.sort(function (a, b) {
-					if (sortMode === 'traffic') return (b.download + b.upload) - (a.download + a.upload);
-					return (b.start || '').localeCompare(a.start || '');
-				});
-				info.textContent = _('共 %d 个连接，总流量 ↓%s ↑%s').format(
-					conns.length,
-					fmtBytes(res.data.downloadTotal), fmtBytes(res.data.uploadTotal));
-				table.innerHTML = '';
-				table.appendChild(E('tr', { 'class': 'tr table-titles' }, [
-					E('th', { 'class': 'th left' }, _('目标')),
-					E('th', { 'class': 'th left' }, _('链路 / 规则')),
-					E('th', { 'class': 'th left' }, _('流量')),
-					E('th', { 'class': 'th left' }, _('速率')),
-					E('th', { 'class': 'th left' }, _('操作'))
-				]));
-				conns.slice(0, 300).forEach(function (c) { table.appendChild(row(c)); });
-			});
-		};
-
-		poll.add(self.refresh, 4);
-		if (!poll.running) poll.start();
-		self.refresh();
-
-		return E([
-			E('div', { 'class': 'cbi-map' }, [
-				E('div', { 'class': 'cbi-section' }, [
-					E('div', { 'class': 'cbi-section-descr' }, [
-						info, ' ',
-						E('button', { 'class': 'btn cbi-button-negative', click: function () { callApi('DELETE', '/connections', '').then(self.refresh); } }, _('关闭全部')),
-						' ',
-						E('button', { 'class': 'btn', click: function () { sortMode = (sortMode === 'traffic') ? 'time' : 'traffic'; self.refresh(); } }, _('排序: %s').format(sortMode === 'traffic' ? '流量' : '时间'))
-					]),
-					table
-				])
-			])
-		]);
-	},
-
-	handleSaveApply: null,
-	handleSave: null,
-	handleReset: null
+		function refresh(){if(paused||busy)return Promise.resolve();busy=true;return Core.get('/connections').then(function(res){var c=res.data||{},now=Date.now(),next={};data=(c.connections||[]).map(function(item){var count=(item.upload||0)+(item.download||0),old=previous[item.id];item._speed=old!=null&&now>lastTime?Math.max(0,count-old)*1000/(now-lastTime):0;next[item.id]=count;return item;});previous=next;lastTime=now;notice.textContent='';summary.replaceChildren(E('span',{},[E('strong',{},String(data.length)),document.createTextNode(' 个活动连接')]),E('span',{},'↓ '+UI.bytes(c.downloadTotal)),E('span',{},'↑ '+UI.bytes(c.uploadTotal)));draw();}).catch(function(err){notice.textContent='无法更新连接：'+err.message;if(!data.length)list.replaceChildren(UI.empty('核心未运行或连接不可用','检查服务状态后重试。'));}).finally(function(){busy=false;});}
+		var pause=UI.button('暂停',function(){paused=!paused;pause.querySelector('span').textContent=paused?'继续':'暂停';if(!paused)return refresh();},'','pause');
+		var closeAll=UI.button('关闭全部',function(){UI.modal('关闭全部连接',[E('p',{},'将关闭当前全部活动连接。设备上的请求可能中断并重新建立。')],[UI.button('确认关闭',function(){return Core.del('/connections').then(function(){ui.hideModal();return refresh();});},'danger'),UI.button('取消',ui.hideModal)]);},'danger','close');
+		var sortSelect=E('select',{'class':'field','aria-label':'连接排序'},[E('option',{value:'traffic'},'按流量排序'),E('option',{value:'time'},'按时间排序')]);sortSelect.addEventListener('change',function(){sort=sortSelect.value;pageNo=0;draw();});
+		var chips=E('div',{'class':'chips'});[['','全部'],['tcp','TCP'],['udp','UDP']].forEach(function(p){var b=E('button',{type:'button','class':'chip'+(!p[0]?' active':'')},p[1]);b.addEventListener('click',function(){protocol=p[0];Array.from(chips.children).forEach(function(x){x.classList.toggle('active',x===b);});pageNo=0;draw();});chips.appendChild(b);});
+		var root=UI.page('connections','连接',[pause,closeAll],[E('div',{'class':'toolbar'},[UI.search('搜索目标、来源 IP 或规则…',function(value){filter=value.toLowerCase();pageNo=0;draw();}),sortSelect,chips]),summary,notice,list,pager]);poll.add(refresh,4);refresh();return root;
+	},handleSaveApply:null,handleSave:null,handleReset:null
 });

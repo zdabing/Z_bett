@@ -3,6 +3,7 @@
 'require rpc';
 'require uci';
 'require ui';
+'require bettbox.ui as UI';
 
 /* LuCI 25.12 removed ui.createHandlerBtn; shim it on top of createHandlerFn. */
 if (!ui.createHandlerBtn)
@@ -17,6 +18,17 @@ var callAdd = rpc.declare({ object: 'bettbox', method: 'add_profile', params: [ 
 var callScripts = rpc.declare({ object: 'bettbox', method: 'get_scripts' });
 var callScriptOpts = rpc.declare({ object: 'bettbox', method: 'script_options', params: [ 'name' ] });
 var callApi = rpc.declare({ object: 'bettbox', method: 'api_proxy', params: [ 'method', 'path', 'body' ] });
+var callApply = rpc.declare({ object: 'bettbox', method: 'apply' });
+
+function checked(res) {
+	if (!res || !res.ok) throw new Error((res && (res.error || res.text)) || _('操作失败'));
+	return res;
+}
+
+function failed(err) {
+	ui.hideModal();
+	ui.addNotification(null, E('p', {}, String(err.message || err)), 'error');
+}
 
 function fmtBytes(n) {
 	if (n == null || n <= 0) return '-';
@@ -56,7 +68,7 @@ return view.extend({
 		fScript.value = p.script || '';
 		var fUseScript = E('input', { type: 'checkbox' }); fUseScript.checked = !!p.use_script;
 
-		var fAge = E('input', { 'class': 'cbi-input-text', value: p.age_identity || '', style: 'width:100%; font-family:monospace', placeholder: _('留空则使用全局密钥 (AGE-SECRET-KEY-…)') });
+		var fAge = E('input', { type: 'password', 'class': 'cbi-input-text', value: p.age_identity || '', style: 'width:100%; font-family:monospace', placeholder: _('留空则使用全局密钥 (AGE-SECRET-KEY-…)') });
 
 		var fOverride = E('textarea', { 'class': 'cbi-input-textarea', rows: 8, style: 'width:100%; font-family:monospace', placeholder: 'DOMAIN,example.com,DIRECT\nGEOIP,CN,DIRECT' });
 		try {
@@ -138,10 +150,11 @@ return view.extend({
 			else uci.unset('bettbox', sid, 'age_identity');
 			if (ov.rules.length) uci.set('bettbox', sid, 'override_rules', JSON.stringify(ov));
 			else uci.unset('bettbox', sid, 'override_rules');
-			uci.save().then(function () {
+			return uci.save().then(function () {
 				return rpc.declare({ object: 'uci', method: 'commit', params: ['config'] })('bettbox');
-			}).then(function () { ui.hideModal(); window.location.reload(); })
-			.catch(function () { ui.hideModal(); window.location.reload(); });
+			}).then(function () {
+				return uci.get('bettbox', 'config', 'profile') === sid ? callApply() : { ok: true };
+			}).then(checked).then(function () { ui.hideModal(); window.location.reload(); }).catch(failed);
 		}
 
 		body.appendChild(E('table', { 'class': 'table' }, [
@@ -157,81 +170,20 @@ return view.extend({
 			])
 		]));
 
-		ui.showModal(sid ? _('编辑订阅') : _('添加订阅'), [
-			body,
-			E('div', { 'class': 'right' }, [
-				ui.createHandlerBtn(_('保存'), save),
-				' ',
-				E('button', { 'class': 'btn', click: ui.createHandlerFn(null, ui.hideModal) }, _('取消'))
-			])
-		]);
+		UI.modal(sid ? _('编辑订阅') : _('添加订阅'), [body], [UI.button('保存',save,'primary','save'),UI.button('取消',ui.hideModal)]);
 	},
 
 	render: function (data) {
-		var self = this;
-		var profiles = (data[0] && data[0].profiles) || [];
-		var scripts = (data[1] && data[1].scripts) || [];
-		var active = uci.get('bettbox', 'config', 'profile') || '';
-
-		var wrap = E('div', { 'class': 'cbi-map' }, [
-			E('div', { 'class': 'cbi-section' }, [
-				E('div', { 'class': 'cbi-section-descr' }, [
-					ui.createHandlerBtn(_('添加订阅'), function () {
-						var url = prompt(_('订阅链接 (Clash YAML / age 加密)：'));
-						if (!url || !url.trim()) return Promise.resolve();
-						ui.showModal(_('正在下载订阅…'), E('p', {}, _('请稍候')));
-						return callAdd(url.trim(), '').then(function (res) {
-							ui.hideModal();
-							if (res && res.ok) window.location.reload();
-							else ui.addNotification(null, E('p', {}, _('添加失败：') + ((res && (res.error || res.text)) || '')), 'error');
-						});
-					}), ' ',
-					ui.createHandlerBtn(_('全部更新'), function () {
-						return callUpdate('', '1').then(function () { window.location.reload(); });
-					})
-				])
-			])
-		]);
-
-		profiles.forEach(function (p) {
-			var used = (p.sub_upload || 0) + (p.sub_download || 0);
-			var total = p.sub_total || 0;
-			var usage = total > 0 ? _(' 已用 %s / %s').format(fmtBytes(used), fmtBytes(total)) : '';
-			var ovInfo = '';
-			try {
-				var ov = JSON.parse(p.override_rules || 'null');
-				if (ov && ov.rules && ov.rules.length)
-					ovInfo = ' · 规则覆写: ' + (ov.mode == 'replace' ? '覆盖' : '附加') + ' ' + ov.rules.length + ' 条';
-			} catch (e) {}
-			wrap.appendChild(E('div', { 'class': 'cbi-section', style: p.id === active ? 'border-left:4px solid var(--primary,#2f7fd6)' : '' }, [
-				E('h3', {}, [ (p.id === active ? '✓ ' : '') + (p.label || p.id), ' ', E('small', {}, '[' + p.id + ']') ]),
-				E('div', { 'class': 'cbi-section-descr' },
-					_('流量：') + fmtBytes(p.sub_download) + ' ↓ / ' + fmtBytes(p.sub_upload) + ' ↑' + usage +
-					' · ' + _('到期：') + fmtExpire(p.sub_expire) +
-					' · ' + _('更新于：') + (p.last_update > 0 ? new Date(p.last_update * 1000).toLocaleString() : '-') +
-					(p.use_script ? ' · JS 覆写: ' + p.script : '') + ovInfo),
-				E('div', {}, [
-					ui.createHandlerBtn(p.id === active ? _('当前使用') : _('设为当前'), function () {
-						uci.set('bettbox', 'config', 'profile', p.id);
-						uci.save().then(function () { return rpc.declare({ object: 'uci', method: 'commit', params: ['config'] })('bettbox'); }).then(function () { window.location.reload(); });
-					}), ' ',
-					ui.createHandlerBtn(_('更新'), function () {
-						ui.showModal(_('正在更新…'));
-						return callUpdate(p.id, '0').then(function (res) { ui.hideModal(); ui.addNotification(null, E('pre', {}, res.text || ''), 'info'); window.location.reload(); });
-					}), ' ',
-					ui.createHandlerBtn(_('编辑'), self.editProfile.bind(self, p.id, profiles, scripts)), ' ',
-					E('button', { 'class': 'btn cbi-button-negative', click: ui.createHandlerFn(null, function () {
-						if (!confirm(_('删除订阅 %s？').format(p.label))) return;
-						callDel(p.id).then(function () { window.location.reload(); });
-					}) }, _('删除'))
-				])
-			]));
+		var self=this,profiles=(data[0]&&data[0].profiles)||[],scripts=(data[1]&&data[1].scripts)||[],active=uci.get('bettbox','config','profile')||'';
+		function add(){var name=E('input',{'class':'field',placeholder:'订阅名称（可选）'}),url=E('input',{'class':'field',type:'url',placeholder:'https://…'});UI.modal('添加订阅',[UI.field('名称',name),UI.field('订阅链接',url,'支持 Clash YAML 与 age 加密订阅。')],[UI.button('添加',function(){if(!/^(https?|file):\/\//.test(url.value.trim()))throw new Error('请输入有效的订阅链接');return callAdd(url.value.trim(),name.value.trim()).then(checked).then(function(){ui.hideModal();window.location.reload();});},'primary','plus'),UI.button('取消',ui.hideModal)]);}
+		var cards=E('div',{'class':'profile-grid'});
+		profiles.forEach(function(p){var used=(p.sub_upload||0)+(p.sub_download||0),total=p.sub_total||0,current=p.id===active;
+			var choose=UI.button(current?'当前使用':'选用',function(){uci.set('bettbox','config','profile',p.id);return uci.save().then(function(){return rpc.declare({object:'uci',method:'commit',params:['config']})('bettbox');}).then(callApply).then(checked).then(function(){window.location.reload();});},current?'soft':'');choose.disabled=current;
+			var remove=UI.button('删除',function(){UI.modal('删除订阅',[E('p',{},'确定删除“'+(p.label||p.id)+'”？此操作将移除该订阅配置。')],[UI.button('删除',function(){return callDel(p.id).then(checked).then(function(){window.location.reload();});},'danger'),UI.button('取消',ui.hideModal)]);},'text bb-delete','close');remove.disabled=current;
+			function info(label,value){return E('div',{},[E('span',{'class':'label'},label),E('span',{},value)]);}
+			cards.appendChild(E('article',{'class':'panel profile'+(current?' current':'')},[E('div',{'class':'profile-top'},[E('div',{},[E('h2',{'class':'profile-name',title:p.id},p.label||p.id)]),UI.tag(current?'当前使用':'未选用',current?'':'neutral')]),E('div',{'class':'usage-main'},[E('strong',{'class':total?'':'usage-empty'},total?UI.bytes(used):'未提供用量'),total?E('small',{},' / '+UI.bytes(total)):document.createTextNode('')]),E('div',{'class':'progress'},E('i',{style:'width:'+(total?Math.min(100,used/total*100):0)+'%'})),E('div',{'class':'profile-rows'},[info('下载 / 上传',UI.bytes(p.sub_download||0)+' / '+UI.bytes(p.sub_upload||0)),info('到期时间',p.sub_expire>0?fmtExpire(p.sub_expire):'未提供'),info('更新策略',p.auto_update?'每 '+p.update_interval+' 分钟':'手动更新'),info('覆写脚本',p.use_script?p.script||'—':'未启用'),info('上次更新',p.last_update>0?new Date(p.last_update*1000).toLocaleString():'未更新')]),E('div',{'class':'profile-actions'},[choose,UI.button('更新',function(){return callUpdate(p.id,'0').then(checked).then(function(){window.location.reload();});},'','refresh'),UI.button('编辑',self.editProfile.bind(self,p.id,profiles,scripts),'','edit'),remove])]));
 		});
-
-		if (!profiles.length)
-			wrap.appendChild(E('p', {}, _('还没有订阅。点击"添加订阅"，粘贴机场的 Clash 订阅链接。')));
-
-		return wrap;
+		return UI.page('profiles','订阅',[UI.button('更新全部',function(){return callUpdate('','1').then(checked).then(function(){window.location.reload();});},'','refresh'),UI.button('添加订阅',add,'primary','plus')],[profiles.length?cards:UI.empty('还没有订阅','添加订阅链接，或导入本地配置。',UI.button('添加订阅',add,'primary','plus'))]);
 	},
 
 	handleSaveApply: null,

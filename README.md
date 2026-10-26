@@ -3,10 +3,12 @@
 把 [Bettbox](https://github.com/appshubcc/Bettbox)（基于 Mihomo 内核的多平台代理客户端，FlClash 衍生）的功能搬到 **OpenWrt 25.12+** 路由器上：
 
 - **内核**：Mihomo（Go，`v1.19.33`，源码编译，`PROVIDES:=mihomo`）
-- **配置引擎**：`ucode` 渲染器 + `yq`（YAML⇄JSON），完全对齐 Bettbox 的 `applyPatch` 行为
+- **配置引擎**：`ucode` 渲染器 + `yq`（YAML⇄JSON），保留 Bettbox 的分流/覆写语义，移除终端专用配置（见[路由器设置核对](docs/ROUTER_SETTINGS.md)）
 - **JS 覆写引擎**：`bettbox-forge`（**Rust**，移植自上游 `plugins/code_forge/rust` 沙箱，脚本契约 100% 兼容）
 - **前端**：`luci-app-bettbox`（LuCI 客户端渲染 JS + ucode rpcd 后端）
 - **产物**：标准 OpenWrt feed，25.12 构建后输出 **.apk** 包（opkg 已在 25.12 被 APK 取代）
+
+九个页面统一使用浅绿视觉规范，支持 PC 流式布局与手机两行导航。实现、验证方式及限制见 [UI 实现记录](docs/UI_IMPLEMENTATION.md) 与 [UI 设计规范](docs/UI_DESIGN_SYSTEM.md)。
 
 ## 三个包
 
@@ -25,14 +27,15 @@
 | 透明代理（无 TUN 的传统模式） | nftables TPROXY/REDIR（fw4 并存，独立 `inet bettbox` 表） |
 | 智能守护 / 无感启停 | procd respawn + 健康看门狗（`bettbox.core.watchdog`）+ iface hotplug 重载 |
 | 一键禁用 QUIC（含"排除中国"变体） | 渲染时注入 `AND,((NETWORK,UDP),(DST-PORT,443)),REJECT` 规则，与上游 `state.dart` 逐字一致 |
-| 首页小组件（网速/连接/内存/模式/流量） | 概览页实时小组件（`/traffic` `/memory` `/connections` 轮询） |
-| 策略组 / 测延迟 / 切换节点 | 代理页（`/proxies`、`/group/:name/delay`），`profile.store-selected` 持久化选择 |
+| 首页小组件（网速/连接/内存/模式/流量） | 概览页 `/connections` 定时快照 + 进程 RSS；累计上传/下载环形统计、LAN IP、出口与连通性检测 |
+| 策略组 / 测延迟 / 切换节点 | V4 可折叠代理组、PC/手机布局、订阅图标、独立单测/组测/全部检测（全页限两路）；`/proxies` 与 `/proxies/:name/delay`，`profile.store-selected` 持久化选择 |
 | 订阅管理（自动更新/间隔/流量信息） | `uci bettbox.subscription` + cron，`subscription-userinfo` 头解析 |
 | **JS 覆写脚本（可视化开关/策略组映射）** | `bettbox-forge`：`main(config, customOptions)` 契约、`ruleOptionsEnable`、`Compatible_With_Bettbox.policyGroupOptions` 全兼容 |
 | 每订阅规则覆写（前置/替换） | `override_rules` JSON 选项，渲染时前置/替换 |
 | 分组开关（禁用策略组→规则改 PASS） | `disabled_groups`，渲染器重写规则为 `PASS`（同上游 `patch.go`） |
 | DNS 分流（fake-ip/redir-host、fallback、respect-rules） | DNS 设置页 → 渲染进 `dns:` 段 |
-| 嗅探 Sniffer / NTP / 实验选项(quic-gso) | 独立设置页，直通 mihomo 配置 |
+| 嗅探 Sniffer / 实验选项(quic-gso) | 设置页，直通 mihomo 配置 |
+| NTP 校时 | 交给 OpenWrt 系统时间服务；不提供重复的内核 NTP 设置 |
 | 工具箱（与上游 `lib/views/toolbox.dart` 十项对齐，官方命名） | |
 | 工具箱：网速测试 | Cloudflare `speed.cloudflare.com`（与上游 core/toolbox/speedtest.go 同源端点） |
 | 工具箱：路由追踪 | **规则匹配追踪**（上游 route_trace.go 语义）：按内核规则顺序求值，显示命中规则/策略链/出口节点；数据集规则（GEOSITE/GEOIP/RULE-SET）不做求值、如实标注 |
@@ -50,6 +53,8 @@
 | 控制面板（zashboard） | `bettbox dashboard install` 下载到 `/usr/share/bettbox/ui`，external-ui 入口 |
 | WebDAV 备份 / 日志导出 | `bettbox backup create/restore` 本地 tar + `backup push/pull/list` WebDAV 云备份（设置页配置 `bettbox.backup.*`）；日志页 logread 过滤导出 |
 | 托盘/热键/窗口/主题/测速动效/扫码导入 | N/A（路由器无桌面；主题跟随 LuCI） |
+
+已按上游 `1fb8806` 核对客户端设置：本机进程识别固定关闭，移除 Windows NCSI hosts 自动注入和重复的内核 NTP 配置；升级时清理旧 UCI 项。DNS、TUN、代理端口、LAN 访问及工具箱等路由功能保留。完整对应关系与理由见[路由器设置核对](docs/ROUTER_SETTINGS.md)。
 
 **依赖上游内核私有 Action 的功能**：Bettbox 的路由追踪、MRS 速查、NAT 检测、iperf、age、WebDAV 备份原本走它 Go 内核里的私有 IPC（`core/toolbox/*`），mihomo 的 REST API 不暴露这些。路由器端等价实现：路由追踪=规则匹配模拟（`trace_match.uc`，域名规则精确求值+数据集规则标注）、MRS 速查=geosite.dat 反查（`mrs_lookup.uc` 纯 ucode protobuf 解析，229k 条目约 16s）、NAT 检测=shell STUN（需带 `-u` 的 nc 或 ucode-mod-socket；缺失时降级为 WAN/公网 IP 对比并如实说明）、iperf/age=系统包、WebDAV=curl。已知偏差：STUN 锥型细分（Full-cone/Restricted）需服务端配合或 UDP 工具，当前仅对称型判定；MRS 的 GEOIP 侧（mmdb 反查）未实现，用「IP 全能查」替代。
 
@@ -98,7 +103,23 @@
 14. **LuCI menu.d 格式**：不存在 `children` 数组结构，每个子页面必须是独立顶级路径 + `"action": { "type": "view", "path": "..." }`，父节点用 `"action": { "type": "firstchild" }`；未知键会被静默忽略导致全站 404。另：25.12 的会话 cookie 名是 `sysauth_http`（path=/cgi-bin/luci/）。改 menu.d 后需删除 `/tmp/luci-indexcache*`。
 15. **LuCI 25.12 客户端视图 API 变化**：`ui.createHandlerBtn` 被移除（用 `ui.createHandlerFn` + `E('button', {click: …})` 垫片替代）；`E()` 只接受一个 data 参数，多出的变参或嵌套数组会被字符串化成 `[object HTMLDivElement]`，多个子节点必须扁平数组或 `concat`。
 16. **mihomo 流式 REST 端点**：`/traffic`、`/memory` 是无限流，REST 轮询会占满 curl 直到超时并把 rpcd/uwsgi 请求队列堵死（页面假死、uhttpd/nginx 被拖垮）。概览页改用一次性 `/connections` 快照做总流量差分算实时网速。
-17. **本机 Zen 主题 Web 栈**：nginx 的 ubus 模块（`/ubus/`）并发下报 `writev() failed (14: Bad address)` 并 crash loop，所有客户端 form.Map 视图（含官方防火墙/ddns 页）挂起。已切换为 uhttpd 直服 80/443（原生 ubus 代理），nginx 配置备份在 `/root/bettbox-backup/nginx-conf-backup`，可用 `/etc/init.d/nginx start` 随时切回。bettbox 设置页因此改写为轻量纯 DOM 渲染，不依赖 form.Map。
+17. **本机 Web 栈部署记录**：此前使用 Zen 主题的设备上，nginx 的 ubus 模块（`/ubus/`）并发下报 `writev() failed (14: Bad address)` 并 crash loop，客户端 form.Map 视图（含官方防火墙/ddns 页）挂起。已切换为 uhttpd 直服 80/443，nginx 配置备份在 `/root/bettbox-backup/nginx-conf-backup`。这条记录不代表已确认故障来自 Zen 主题源码。2026-10-25 再次排查发现 nginx、uhttpd 均未启用自启，设备凌晨重启后 80/443 无监听；启动并启用 uhttpd 后恢复。现存日志无法追溯禁用操作的来源。切换 Web 服务必须同时处理当前运行状态和开机自启，并验证登录及 RPC；仅执行 `start` 不能保证重启后可访问。两个实机测试脚本均检查至少一个 Web 服务处于运行且自启状态，并在出现失败项时返回非零退出码。
+18. **订阅定时任务命令不匹配**：旧版 `cron.sh` 写入 `bettbox subscription cron`，但 CLI 当时只支持 `bettbox cron`，实机执行旧命令返回 usage 和退出码 2，自动更新实际未执行。现统一生成 `*/10 * * * * /usr/bin/bettbox cron`，同时保留 `subscription`/`subscriptions` 兼容入口，并在 ensure/remove 时迁移或清理旧行、保留其他定时任务。`test/cron-test.py` 验证真实脚本的命令分发、迁移、幂等和清理最后一行；CI 构建前运行。日志里的 `USER ... cmd ...` 仅表示任务被启动，是否成功需结合实际退出码和订阅更新日志判断。
+
+本机已有 uhttpd 监听 80/443 配置时，从 nginx 切换到 uhttpd 的步骤如下（这是管理员部署操作，安装 Bettbox 包不会自动切换 Web 服务）：
+
+```sh
+/etc/init.d/nginx stop
+/etc/init.d/uhttpd start
+# 确认后台可登录、LuCI RPC 正常后，持久化切换：
+/etc/init.d/uhttpd enable
+/etc/init.d/nginx disable
+/etc/init.d/uhttpd running && /etc/init.d/uhttpd enabled
+```
+
+若 uhttpd 启动或后台验证失败，应立即执行 `/etc/init.d/uhttpd stop; /etc/init.d/nginx start` 恢复原服务，再排查配置。切回 nginx 前应先停止 uhttpd，避免争用端口；确认 nginx 后台正常后再启用 nginx 自启、关闭 uhttpd 自启。自启检查不替代受控重启后的验收。
+
+2026-10-25 的配置应用、控制器 API、透明代理、DNS 恢复、订阅元数据与备份检查结果，以及尚未解决的权限/并发风险，见 [路由器代码与日志检查报告](docs/ROUTER_AUDIT_2026-10-25.md)。报告区分已修复、实机验证与未完成项目，不替代生产转发和重启验收。
 
 ## 构建与安装
 
@@ -127,6 +148,8 @@ apk add --allow-untrusted ./bettbox-*.apk ./bettbox-forge-*.apk ./luci-app-bettb
 依赖链：`luci-app-bettbox` → `bettbox`(+mihomo 内核) → 内核模块（kmod-tun/kmod-nft-tproxy）、`curl`、`yq`、`ucode`、`firewall4`、`ca-bundle`、`unzip`、`ip-full`。
 
 ## 目录
+
+源码回归与浏览器检查的安装、运行方法见 [测试说明](test/README.md)；这些检查不编译安装包。
 
 ```
 bettbox/            核心包（内核+init+nft+订阅+渲染+工具箱）

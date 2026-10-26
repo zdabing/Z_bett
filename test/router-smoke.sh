@@ -1,7 +1,8 @@
 #!/bin/sh
 # router-smoke.sh — run ON the router: install packages + functional smoke test.
-# Non-invasive by default: transparent proxy stays off; a DIRECT-mode local
-# profile is used so nothing on the LAN is proxied.
+# For a disposable test router: installs packages, changes UCI/profile/service
+# state, and uses a DIRECT-mode fixture. Do not run on a live router as a
+# read-only diagnostic; back up configuration and plan restoration first.
 # shellcheck disable=SC3043
 
 PASS=0; FAIL=0
@@ -10,6 +11,18 @@ bad()  { FAIL=$((FAIL+1)); echo "FAIL: $1"; }
 check() { # check <desc> <cmd...>
 	local d="$1"; shift
 	if "$@" >/dev/null 2>&1; then ok "$d"; else bad "$d"; fi
+}
+
+web_service_ready() {
+	local service
+	for service in uhttpd nginx; do
+		[ -x "/etc/init.d/$service" ] || continue
+		if "/etc/init.d/$service" running >/dev/null 2>&1 &&
+			"/etc/init.d/$service" enabled >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
 }
 
 echo "=== install ==="
@@ -101,6 +114,7 @@ echo "=== watchdog ==="
 check "watchdog script present" test -f /usr/libexec/bettbox/watchdog.sh
 
 echo "=== rpcd/LuCI ==="
+check "Web service running and enabled for boot" web_service_ready
 /etc/init.d/rpcd restart >/dev/null 2>&1; sleep 2
 ubus list 2>/dev/null | grep -q '^bettbox$' && ok "ubus bettbox object registered" || bad "ubus bettbox object"
 if ubus call bettbox get_status 2>/dev/null | grep -q running; then ok "ubus get_status"; else bad "ubus get_status"; fi
@@ -118,3 +132,4 @@ echo ""
 echo "================================"
 echo "SMOKE RESULT: PASS=$PASS FAIL=$FAIL"
 echo "================================"
+[ "$FAIL" -eq 0 ]

@@ -1,6 +1,7 @@
 #!/bin/sh
-# Full-feature sweep for bettbox on the router. Read-mostly; the only state
-# change is a reversible uci value (watchdog_interval) restored afterwards.
+# Full-feature sweep for a disposable test router. Includes subscription
+# updates, backup/restore and UCI/service changes. Do not run on a live router
+# as a read-only diagnostic; back up configuration and plan restoration first.
 
 P=0; F=0
 ok()  { P=$((P+1)); echo "PASS: $1"; }
@@ -10,7 +11,20 @@ t()   { # t <name> <cmd...>
 	if "$@" >/dev/null 2>&1; then ok "$n"; else bad "$n"; fi
 }
 
+web_service_ready() {
+	local service
+	for service in uhttpd nginx; do
+		[ -x "/etc/init.d/$service" ] || continue
+		if "/etc/init.d/$service" running >/dev/null 2>&1 &&
+			"/etc/init.d/$service" enabled >/dev/null 2>&1; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 echo "===== 1. service & core ====="
+t "Web service running and enabled for boot" web_service_ready
 t "mihomo running" pgrep mihomo
 t "procd enabled" /etc/init.d/bettbox enabled
 t "TUN device up" ip link show bettbox
@@ -82,3 +96,4 @@ echo ""
 echo "=================================="
 echo "FULL SWEEP: PASS=$P FAIL=$F"
 echo "=================================="
+[ "$F" -eq 0 ]

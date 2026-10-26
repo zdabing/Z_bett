@@ -3,6 +3,7 @@
 # Render the active profile (+ UCI + JS overrides) into the runtime config.
 
 . /usr/libexec/bettbox/common.sh
+umask 077
 
 apply() {
 	local sid
@@ -62,11 +63,26 @@ apply() {
 # Bettbox's updateConfig; falls back to a service restart.
 apply_live() {
 	apply || return 1
+	if [ "$(uci_get bettbox.config.enabled)" != "1" ]; then
+		/etc/init.d/bettbox stop
+		return $?
+	fi
 	if [ -f "$BETTBOX_RUN/config.yaml" ] && api_call GET /version | grep -q version; then
-		api_call PUT /configs "{\"path\": \"$BETTBOX_RUN/config.yaml\", \"payload\": \"\", \"force\": true}" >/dev/null
+		api_call PUT /configs "{\"path\": \"$BETTBOX_RUN/config.yaml\", \"payload\": \"\", \"force\": true}" >/dev/null || return 1
 		return 0
 	fi
 	/etc/init.d/bettbox restart
+}
+
+apply_service() {
+	# Settings can change inbound ports, DNS, routing, or the enabled flag.
+	# A full service transition applies all of them, including stopping a core
+	# when the user switches it off. start_service performs rendering once.
+	if [ "$(uci_get bettbox.config.enabled)" = "1" ]; then
+		/etc/init.d/bettbox enable && /etc/init.d/bettbox restart
+	else
+		/etc/init.d/bettbox stop
+	fi
 }
 
 case "$1" in
@@ -76,7 +92,10 @@ apply)
 live)
 	apply_live
 	;;
+service)
+	apply_service
+	;;
 *)
-	die "usage: apply.sh apply|live"
+	die "usage: apply.sh apply|live|service"
 	;;
 esac

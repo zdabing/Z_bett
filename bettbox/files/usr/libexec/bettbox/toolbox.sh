@@ -94,23 +94,19 @@ media_unlock() {
 	local PARG
 	PARG=$(proxy_arg)
 	probe() {
-		# probe <name> <url-pattern> <expect-substring> [extract-cmd]
-		local name="$1" url="$2" expect="$3"
-		local code body
-		body=$(curl -sS -m 12 $PARG "$url" 2>/dev/null | head -c 4000)
-		code=$(curl -sS -m 12 $PARG -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)
-		if [ -n "$expect" ]; then
-			printf '%s: %s\n' "$name" "$(printf '%s' "$body" | grep -q "$expect" && echo "yes" || echo "no (HTTP $code)")"
-		else
-			printf '%s: HTTP %s\n' "$name" "$code"
-		fi
+		local name="$1" url="$2" code
+		code=$(curl -sS --connect-timeout 3 -m 8 $PARG -o /dev/null -w '%{http_code}' "$url" 2>/dev/null) || code=000
+		printf '%s: HTTP %s\n' "$name" "$code"
 	}
-	probe "Netflix" "https://www.netflix.com/title/80018499" "Netflix"
-	probe "Disney+" "https://www.disneyplus.com/" "disney"
-	probe "YouTube Premium" "https://www.youtube.com/premium" '"countryCode"'
-	probe "ChatGPT" "https://api.openai.com/compliance/cookie_requirements" '"unsupported_country"'
-	probe "Telegram" "https://web.telegram.org/k/" "200"
-	probe "Bilibili 港澳台" "https://api.bilibili.com/pgc/player/web/playurl?avID=182813555&cid=1063465251&qn=0&otype=json&ep_id=511408&fourk=1&fnver=0&fnval=16&module=bangumi" '"code":0'
+	# This is connectivity, not a subscription/region unlock guarantee.
+	# Run bounded probes together so one RPC cannot occupy rpcd for minutes.
+	probe "Netflix" "https://www.netflix.com/title/80018499" &
+	probe "Disney+" "https://www.disneyplus.com/" &
+	probe "YouTube Premium" "https://www.youtube.com/premium" &
+	probe "ChatGPT" "https://api.openai.com/compliance/cookie_requirements" &
+	probe "Telegram" "https://web.telegram.org/k/" &
+	probe "Bilibili 港澳台" "https://api.bilibili.com/pgc/player/web/playurl?avID=182813555&cid=1063465251&qn=0&otype=json&ep_id=511408&fourk=1&fnver=0&fnval=16&module=bangumi" &
+	wait
 }
 
 # ---------- 路由追踪 (rule-match trace, upstream core/toolbox/route_trace.go semantics) ----------

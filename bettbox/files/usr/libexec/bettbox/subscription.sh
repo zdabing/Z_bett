@@ -11,10 +11,10 @@ NOW=$(date +%s)
 set_userinfo() {
 	# $1 sid, $2 header value
 	local upload download total expire
-	upload=$(echo "$2" | tr ';' '\n' | sed -n 's/^upload=//p' | head -1)
-	download=$(echo "$2" | tr ';' '\n' | sed -n 's/^download=//p' | head -1)
-	total=$(echo "$2" | tr ';' '\n' | sed -n 's/^total=//p' | head -1)
-	expire=$(echo "$2" | tr ';' '\n' | sed -n 's/^expire=//p' | head -1)
+	upload=$(echo "$2" | tr ';' '\n' | sed -n 's/^[[:space:]]*upload[[:space:]]*=[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' | head -1)
+	download=$(echo "$2" | tr ';' '\n' | sed -n 's/^[[:space:]]*download[[:space:]]*=[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' | head -1)
+	total=$(echo "$2" | tr ';' '\n' | sed -n 's/^[[:space:]]*total[[:space:]]*=[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' | head -1)
+	expire=$(echo "$2" | tr ';' '\n' | sed -n 's/^[[:space:]]*expire[[:space:]]*=[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' | head -1)
 	uci -q set "bettbox.$sid.sub_upload=${upload:-0}"
 	uci -q set "bettbox.$sid.sub_download=${download:-0}"
 	uci -q set "bettbox.$sid.sub_total=${total:-0}"
@@ -79,7 +79,7 @@ update_one() {
 		return 1
 	fi
 
-	set_userinfo "$sid" "$(grep -i '^subscription-userinfo:' "$hdr" | head -1 | sed 's/^[Ss]ubscription-[Uu]ser[Ii]nfo: *//' | tr -d '\r')"
+	set_userinfo "$sid" "$(grep -i '^subscription-userinfo:' "$hdr" | head -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
 	rm -f "$hdr"
 
 	mv -f "$tmp" "$(profile_file "$sid")"
@@ -88,7 +88,7 @@ update_one() {
 	log "subscription $sid updated"
 
 	if [ "$(uci_get bettbox.config.profile)" = "$sid" ] && [ "$(uci_get bettbox.config.enabled)" = "1" ]; then
-		/usr/libexec/bettbox/apply.sh live
+		/usr/libexec/bettbox/apply.sh live || { log "subscription $sid downloaded but live apply failed"; return 1; }
 	fi
 	return 0
 }
@@ -99,16 +99,17 @@ update() {
 }
 
 update_all() {
-	local sid
+	local sid result=0
 	for sid in $(uci -q show bettbox | sed -n "s/^bettbox\.\([^.]*\)\.url=.*/\1/p"); do
-		update_one "$sid" || true
+		update_one "$sid" || result=1
 		sleep 2
 	done
+	return "$result"
 }
 
 # called from cron: refresh every auto_update subscription whose interval passed
 cron() {
-	local sid interval last
+	local sid interval last result=0
 	for sid in $(uci -q show bettbox | sed -n "s/^bettbox\.\([^.]*\)\.auto_update='1'/\1/p"); do
 		[ -n "$(uci_get bettbox.$sid.url)" ] || continue
 		interval=$(uci_get "bettbox.$sid.update_interval")
@@ -116,10 +117,11 @@ cron() {
 		last=$(uci_get "bettbox.$sid.last_update")
 		[ -n "$last" ] || last=0
 		if [ $((NOW - last)) -gt $((interval * 60)) ]; then
-			update_one "$sid" || true
+			update_one "$sid" || result=1
 			sleep 2
 		fi
 	done
+	return "$result"
 }
 
 add() {
@@ -151,6 +153,7 @@ add() {
 
 remove() {
 	[ -n "$1" ] || die "usage: subscription.sh remove <sid>"
+	[ "$(uci_get bettbox.config.profile)" != "$1" ] || die "select another profile before deleting the active profile"
 	uci -q delete "bettbox.$1"
 	uci commit bettbox
 	rm -f "$(profile_file "$1")"
