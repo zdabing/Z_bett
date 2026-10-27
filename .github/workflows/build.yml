@@ -112,6 +112,9 @@ jobs:
       - name: Register feed and install
         working-directory: ${{ env.SDKDIR }}
         run: |
+          # Creating feeds.conf with only our feed disables the SDK defaults.
+          # Keep the SDK-pinned base/packages/luci feeds and their toolchains.
+          cp feeds.conf.default feeds.conf
           echo "src-link bettbox $GITHUB_WORKSPACE/bettbox-feed" >> feeds.conf
           ./scripts/feeds update -a
           ./scripts/feeds install -a
