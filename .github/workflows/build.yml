@@ -139,7 +139,7 @@ jobs:
           for source in "$SOURCE_ROOT"/bettbox/files/usr/libexec/bettbox/*.uc \
                         "$SOURCE_ROOT"/luci-app-bettbox/root/usr/share/rpcd/ucode/bettbox.uc; do
             printf 'Checking %s\n' "$source"
-            staging_dir/host/bin/ucode -cno-interp,dynlink=fs,dynlink=uci \
+            staging_dir/hostpkg/bin/ucode -cno-interp,dynlink=fs,dynlink=uci \
               -o "ucode-checks/$(basename "$source").ucb" "$source"
           done
 
