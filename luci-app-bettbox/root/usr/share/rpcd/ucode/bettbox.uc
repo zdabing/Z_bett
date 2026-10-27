@@ -145,6 +145,61 @@ function network_info() {
 }
 
 function valid_job(id) { return type(id)=='string' && match(id,/^bettbox-job\.[A-Za-z0-9]+$/); }
+function create_job(kind, args) {
+	let service = kind == 'service' || kind == 'core' || kind == 'package', active=0;
+	for(let entry in (lsdir('/tmp') ?? [])){
+		let name=type(entry)=='string'?entry:entry?.name;
+		if(!valid_job(name))continue;
+		let dir='/tmp/'+name, st=stat(dir);
+		if(!st)continue;
+		if(time()-st.mtime>3600){for(let file in ['request','output','code','input','worker.uc','runner.sh'])unlink(dir+'/'+file);system('rmdir '+shellquote(dir)+' 2>/dev/null');}
+		else if(!access(dir+'/code') && time()-st.mtime<180){
+			let old=null;
+			try { old=json(readfile(dir+'/request')); } catch(e) {}
+			if(old?.kind!='service' && old?.kind!='core' && old?.kind!='package')active++;
+		}
+	}
+	if(!service && active>=3)return {ok:false,error:'已有三个诊断任务运行，请稍候'};
+	let dir=trim(run('umask 077; mktemp -d /tmp/bettbox-job.XXXXXX'));
+	let id=split(dir,'/')[2];
+	if(!valid_job(id))return {ok:false,error:'could not create diagnostic workspace'};
+	if(writefile(dir+'/request',sprintf('%J',{kind:kind,args:args}))==null)return {ok:false,error:'could not save diagnostic request'};
+	if(service && writefile('/var/run/bettbox-service.lock/job',id)==null)return {ok:false,error:'could not save service job'};
+	let limit=kind=='package'?2400:kind=='core'?1200:service?600:160;
+	if(kind=='package'){
+		let worker=readfile('/usr/libexec/bettbox/diagnostic.uc');
+		let script='#!/bin/sh\numask 077\ntimeout 2400 ucode '+shellquote(dir+'/worker.uc')+' '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1\nrc=$?\nprintf "%s\\n" "$rc" > '+shellquote(dir+'/code')+'\nexit "$rc"\n';
+		if(!worker||writefile(dir+'/worker.uc',worker)==null||writefile(dir+'/runner.sh',script)==null)return {ok:false,error:'无法保存独立更新任务'};
+		let definition={name:'bettbox-package-update',instances:{worker:{command:['/bin/sh',dir+'/runner.sh'],stdout:false,stderr:false}}};
+		if(system('ubus -t 5 call service set '+shellquote(sprintf('%J',definition))+' >/dev/null 2>&1')!=0)return {ok:false,error:'无法启动独立 APK 更新任务'};
+		return {ok:true,id:id,timeout_ms:2430000,reconnect:true};
+	}
+	// A diagnostic file-size limit must not be inherited by config/Geo writers.
+	let filelimit=service?'':'ulimit -f 2048; ';
+	let cmd='(umask 077; '+filelimit+'timeout '+limit+' ucode /usr/libexec/bettbox/diagnostic.uc '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1; echo $? > '+shellquote(dir+'/code')+') </dev/null >/dev/null 2>&1 &';
+	if(system(cmd)!=0)return {ok:false,error:'could not start diagnostic'};
+	return {ok:true,id:id,timeout_ms:(limit+30)*1000};
+}
+
+// Called ONLY by write-authorized apply/service_action/core_update RPCs. The
+// read-only diagnostic_start allowlist rejects service and core mutations.
+function service_job(action) {
+	let lock='/var/run/bettbox-service.lock', old=trim(readfile(lock+'/job')??''), st=stat(lock);
+	let ttl=650, oldRequest=null;
+	try { oldRequest=json(readfile('/tmp/'+old+'/request')); } catch(e) {}
+	if(oldRequest?.kind=='core')ttl=1250;
+	if(oldRequest?.kind=='package')ttl=2450;
+	if(st && ((valid_job(old) && access('/tmp/'+old+'/code')) || time()-st.mtime>ttl)){
+		unlink(lock+'/job'); system('rmdir '+shellquote(lock)+' 2>/dev/null');
+	}
+	if(system('umask 077; mkdir '+shellquote(lock)+' 2>/dev/null')!=0)
+		return {ok:false,error:'服务正在切换，请稍后重试'};
+	let core=action=='core-update'||action=='core-rollback';
+	let result=create_job(action=='package-update'?'package':core?'core':'service',[action=='package-update'?'update':core?substr(action,5):action]);
+	if(!result.ok){unlink(lock+'/job');system('rmdir '+shellquote(lock)+' 2>/dev/null');}
+	return result;
+}
+
 function diagnostic_start(request) {
 	let kind=request.args.kind, args=null;
 	if (!(kind in ['exit','connectivity','delay','toolbox'])) return {ok:false,error:'invalid diagnostic kind'};
@@ -153,23 +208,7 @@ function diagnostic_start(request) {
 	for(let arg in args) if(type(arg)!='string'||length(arg)>65536) return {ok:false,error:'invalid diagnostic argument'};
 	if(kind=='exit' && !(args[0] in ['direct','proxy'])) return {ok:false,error:'invalid exit mode'};
 	if(kind=='toolbox' && !(args[0] in ['dns','ip','ping','speedtest','media','trace','mrs','nat','age','iperf'])) return {ok:false,error:'invalid tool'};
-	let active=0;
-	for(let entry in (lsdir('/tmp') ?? [])){
-		let name=type(entry)=='string'?entry:entry?.name;
-		if(!valid_job(name))continue;
-		let dir='/tmp/'+name, st=stat(dir);
-		if(!st)continue;
-		if(time()-st.mtime>3600){for(let file in ['request','output','code','input'])unlink(dir+'/'+file);system('rmdir '+shellquote(dir)+' 2>/dev/null');}
-		else if(!access(dir+'/code') && time()-st.mtime<180)active++;
-	}
-	if(active>=3)return {ok:false,error:'已有三个诊断任务运行，请稍候'};
-	let dir=trim(run('umask 077; mktemp -d /tmp/bettbox-job.XXXXXX'));
-	let id=split(dir,'/')[2];
-	if(!valid_job(id))return {ok:false,error:'could not create diagnostic workspace'};
-	if(writefile(dir+'/request',sprintf('%J',{kind:kind,args:args}))==null)return {ok:false,error:'could not save diagnostic request'};
-	let cmd='(umask 077; ulimit -f 2048; timeout 160 ucode /usr/libexec/bettbox/diagnostic.uc '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1; echo $? > '+shellquote(dir+'/code')+') </dev/null >/dev/null 2>&1 &';
-	if(system(cmd)!=0)return {ok:false,error:'could not start diagnostic'};
-	return {ok:true,id:id};
+	return create_job(kind,args);
 }
 
 function resource_info() {
@@ -184,6 +223,23 @@ function resource_info() {
 
 return {
 	bettbox: {
+		package_info: {call:function(){
+			let result=run_result('/usr/bin/bettbox package status');if(!result.ok)return result;
+			try {return json(result.text);}catch(e){return {ok:false,error:'无法读取 APK 版本信息'};}
+		}},
+		package_check: {call:function(){return create_job('package-check',[]);}},
+		package_update: {call:function(){return service_job('package-update');}},
+		core_info: {call:function(){
+			let result=run_result('/usr/bin/bettbox core status');
+			if(!result.ok)return result;
+			try { return json(result.text); } catch(e) {return {ok:false,error:'无法读取核心信息'};}
+		}},
+		core_check: {call:function(){return create_job('core-check',[]);}},
+		core_update: {args:{action:''},call:function(request){
+			let action=request.args.action;
+			if(!(action in ['update','rollback']))return {ok:false,error:'invalid core action'};
+			return service_job('core-'+action);
+		}},
 		get_network: {call:function(){return network_info();}},
 		get_resources: {call:function(){return resource_info();}},
 		backup_file: {args:{action:'',file:''},call:function(request){
@@ -330,7 +386,7 @@ return {
 		},
 		apply: {
 			call: function() {
-				return run_result('/usr/bin/bettbox apply-service 2>&1');
+				return service_job('apply');
 			}
 		},
 		service_action: {
@@ -339,6 +395,7 @@ return {
 				let action = request.args.action;
 				if (!(action in ['start', 'stop', 'restart', 'enable', 'disable']))
 					return { error: 'bad action' };
+				if (action in ['start','stop','restart'])return service_job(action);
 				let cmd = '/etc/init.d/bettbox ' + action;
 				if (action == 'start' || action == 'restart')
 					cmd = '/etc/init.d/bettbox enable && ' + cmd;

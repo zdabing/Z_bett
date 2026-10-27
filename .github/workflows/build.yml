@@ -4,31 +4,59 @@ name: Build OpenWrt 25 packages
 # 上次自动构建的失败只是 downloads.openwrt.org CDN 502，不是代码问题。
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a stable APK update release after successful checks/builds
+        type: boolean
+        default: false
+      release_tag:
+        description: New release tag (vX.Y.Z or vX.Y.Z-rN), required when publishing
+        type: string
+        required: false
+
+permissions:
+  contents: read
 
 jobs:
   rust-check:
-    name: Rust forge (cargo check)
+    name: Source and QuickJS helper checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm ci --prefix test --ignore-scripts
+      - name: Validate requested release tag
+        if: inputs.publish
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 test/release-manifest.py validate-tag "$RELEASE_TAG"
       - name: Check router shell regressions
         run: |
           sh -n bettbox/files/usr/bin/bettbox
+          sh -n bettbox/files/etc/init.d/bettbox
           sh -n bettbox/files/usr/libexec/bettbox/cron.sh
           sh -n bettbox/files/usr/libexec/bettbox/router-settings.sh
           for script in bettbox/files/usr/libexec/bettbox/*.sh; do sh -n "$script" || exit 1; done
           python3 test/cron-test.py
           python3 test/router-settings-test.py
           python3 test/shell-regression-test.py
+          python3 test/service-lifecycle-test.py
+          python3 test/package-layout-test.py
+          python3 test/release-manifest-test.py
           node test/core-test.js
           node test/logs-test.js
           node test/overview-exit-test.js
+          node test/service-operation-test.js
+          node test/diagnostic-worker-test.js
+          node test/core-update-test.js
+          node test/package-update-test.js
+          node test/forge-contract-test.js
+          node test/render-test.js
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --locked --manifest-path bettbox-forge/Cargo.toml
-      - run: cargo test --manifest-path bettbox-forge/Cargo.toml --no-run
+      - run: cargo fmt --manifest-path bettbox/forge/Cargo.toml -- --check
+      - run: cargo test --locked --manifest-path bettbox/forge/Cargo.toml
 
   build:
     name: SDK ${{ matrix.target }} (.apk)
@@ -38,7 +66,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86/64
+          - target: x86_64
             sdk_dir: targets/x86/64
           - target: aarch64_generic
             sdk_dir: targets/armsr/armv8
@@ -94,13 +122,27 @@ jobs:
           make defconfig
           echo "CONFIG_PACKAGE_luci-app-bettbox=y" >> .config
           echo "CONFIG_PACKAGE_bettbox=y" >> .config
-          echo "CONFIG_PACKAGE_bettbox-forge=y" >> .config
           make defconfig
+
+      - name: Build native ucode validator
+        working-directory: ${{ env.SDKDIR }}
+        run: make package/ucode/host/compile V=s -j2
+
+      - name: Validate router ucode syntax
+        working-directory: ${{ env.SDKDIR }}
+        run: |
+          mkdir -p ucode-checks
+          SOURCE_ROOT="$GITHUB_WORKSPACE/bettbox-feed"
+          for source in "$SOURCE_ROOT"/bettbox/files/usr/libexec/bettbox/*.uc \
+                        "$SOURCE_ROOT"/luci-app-bettbox/root/usr/share/rpcd/ucode/bettbox.uc; do
+            printf 'Checking %s\n' "$source"
+            staging_dir/host/bin/ucode -cno-interp,dynlink=fs,dynlink=uci \
+              -o "ucode-checks/$(basename "$source").ucb" "$source"
+          done
 
       - name: Build packages
         working-directory: ${{ env.SDKDIR }}
         run: |
-          make package/bettbox-forge/compile V=s -j2 || exit 1
           make package/bettbox/compile V=s -j2 || exit 1
           make package/luci-app-bettbox/compile V=s -j2 || exit 1
 
@@ -108,10 +150,45 @@ jobs:
         working-directory: ${{ env.SDKDIR }}
         run: |
           mkdir -p out
-          find bin/packages -name '*bettbox*' -type f | xargs -I{} cp {} out/
+          find bin/packages -type f \( -name 'bettbox-[0-9]*.apk' -o -name 'luci-app-bettbox-[0-9]*.apk' \) -exec cp {} out/ \;
           ls -la out/
+
+      - name: Verify APK metadata and prepare update assets
+        working-directory: ${{ env.SDKDIR }}
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          export LD_LIBRARY_PATH="$PWD/staging_dir/host/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          python3 "$GITHUB_WORKSPACE/bettbox-feed/test/release-manifest.py" collect \
+            --target "$PACKAGE_TARGET" --apk-tool "$PWD/staging_dir/host/bin/apk" \
+            --input out --output release-out
 
       - uses: actions/upload-artifact@v4
         with:
           name: openwrt-25.12-${{ matrix.target }}
-          path: ${{ env.SDKDIR }}/out/
+          path: ${{ env.SDKDIR }}/release-out/
+
+  release:
+    name: Publish verified APK update feed
+    if: inputs.publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: openwrt-25.12-*
+          path: artifacts
+      - name: Assemble matching architecture releases
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 test/release-manifest.py assemble --tag "$RELEASE_TAG" --input artifacts --output release-assets
+      - name: Publish after GitHub checksum verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_COMMIT: ${{ github.sha }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: python3 test/release-manifest.py publish --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" --repository "$RELEASE_REPOSITORY" --input release-assets

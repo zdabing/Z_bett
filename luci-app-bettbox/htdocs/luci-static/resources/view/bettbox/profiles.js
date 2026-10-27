@@ -19,6 +19,7 @@ var callScripts = rpc.declare({ object: 'bettbox', method: 'get_scripts' });
 var callScriptOpts = rpc.declare({ object: 'bettbox', method: 'script_options', params: [ 'name' ] });
 var callApi = rpc.declare({ object: 'bettbox', method: 'api_proxy', params: [ 'method', 'path', 'body' ] });
 var callApply = rpc.declare({ object: 'bettbox', method: 'apply' });
+function applyProfile() { return callApply().then(UI.operation); }
 
 function checked(res) {
 	if (!res || !res.ok) throw new Error((res && (res.error || res.text)) || _('操作失败'));
@@ -153,7 +154,7 @@ return view.extend({
 			return uci.save().then(function () {
 				return rpc.declare({ object: 'uci', method: 'commit', params: ['config'] })('bettbox');
 			}).then(function () {
-				return uci.get('bettbox', 'config', 'profile') === sid ? callApply() : { ok: true };
+				return uci.get('bettbox', 'config', 'profile') === sid ? applyProfile() : { ok: true };
 			}).then(checked).then(function () { ui.hideModal(); window.location.reload(); }).catch(failed);
 		}
 
@@ -178,7 +179,7 @@ return view.extend({
 		function add(){var name=E('input',{'class':'field',placeholder:'订阅名称（可选）'}),url=E('input',{'class':'field',type:'url',placeholder:'https://…'});UI.modal('添加订阅',[UI.field('名称',name),UI.field('订阅链接',url,'支持 Clash YAML 与 age 加密订阅。')],[UI.button('添加',function(){if(!/^(https?|file):\/\//.test(url.value.trim()))throw new Error('请输入有效的订阅链接');return callAdd(url.value.trim(),name.value.trim()).then(checked).then(function(){ui.hideModal();window.location.reload();});},'primary','plus'),UI.button('取消',ui.hideModal)]);}
 		var cards=E('div',{'class':'profile-grid'});
 		profiles.forEach(function(p){var used=(p.sub_upload||0)+(p.sub_download||0),total=p.sub_total||0,current=p.id===active;
-			var choose=UI.button(current?'当前使用':'选用',function(){uci.set('bettbox','config','profile',p.id);return uci.save().then(function(){return rpc.declare({object:'uci',method:'commit',params:['config']})('bettbox');}).then(callApply).then(checked).then(function(){window.location.reload();});},current?'soft':'');choose.disabled=current;
+			var choose=UI.button(current?'当前使用':'选用',function(){uci.set('bettbox','config','profile',p.id);return uci.save().then(function(){return rpc.declare({object:'uci',method:'commit',params:['config']})('bettbox');}).then(applyProfile).then(checked).then(function(){window.location.reload();});},current?'soft':'');choose.disabled=current;
 			var remove=UI.button('删除',function(){UI.modal('删除订阅',[E('p',{},'确定删除“'+(p.label||p.id)+'”？此操作将移除该订阅配置。')],[UI.button('删除',function(){return callDel(p.id).then(checked).then(function(){window.location.reload();});},'danger'),UI.button('取消',ui.hideModal)]);},'text bb-delete','close');remove.disabled=current;
 			function info(label,value){return E('div',{},[E('span',{'class':'label'},label),E('span',{},value)]);}
 			cards.appendChild(E('article',{'class':'panel profile'+(current?' current':'')},[E('div',{'class':'profile-top'},[E('div',{},[E('h2',{'class':'profile-name',title:p.id},p.label||p.id)]),UI.tag(current?'当前使用':'未选用',current?'':'neutral')]),E('div',{'class':'usage-main'},[E('strong',{'class':total?'':'usage-empty'},total?UI.bytes(used):'未提供用量'),total?E('small',{},' / '+UI.bytes(total)):document.createTextNode('')]),E('div',{'class':'progress'},E('i',{style:'width:'+(total?Math.min(100,used/total*100):0)+'%'})),E('div',{'class':'profile-rows'},[info('下载 / 上传',UI.bytes(p.sub_download||0)+' / '+UI.bytes(p.sub_upload||0)),info('到期时间',p.sub_expire>0?fmtExpire(p.sub_expire):'未提供'),info('更新策略',p.auto_update?'每 '+p.update_interval+' 分钟':'手动更新'),info('覆写脚本',p.use_script?p.script||'—':'未启用'),info('上次更新',p.last_update>0?new Date(p.last_update*1000).toLocaleString():'未更新')]),E('div',{'class':'profile-actions'},[choose,UI.button('更新',function(){return callUpdate(p.id,'0').then(checked).then(function(){window.location.reload();});},'','refresh'),UI.button('编辑',self.editProfile.bind(self,p.id,profiles,scripts),'','edit'),remove])]));

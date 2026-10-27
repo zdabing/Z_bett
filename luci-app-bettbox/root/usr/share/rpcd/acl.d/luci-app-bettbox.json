@@ -4,6 +4,10 @@
 		"read": {
 			"ubus": {
 				"bettbox": [
+					"package_info",
+					"package_check",
+					"core_info",
+					"core_check",
 					"get_status",
 					"get_profiles",
 					"get_scripts",
@@ -25,6 +29,8 @@
 		"write": {
 			"ubus": {
 				"bettbox": [
+					"package_update",
+					"core_update",
 					"update_profile",
 					"add_profile",
 					"del_profile",

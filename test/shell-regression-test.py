@@ -99,6 +99,7 @@ class ShellTests(unittest.TestCase):
         common = (LIB / 'common.sh').read_text(encoding='utf-8')
         common = common.replace('BETTBOX_RUN=/var/run/bettbox', 'BETTBOX_RUN="' + self.run.as_posix() + '"')
         common = common.replace('BETTBOX_ETC=/etc/bettbox', 'BETTBOX_ETC="' + self.etc.as_posix() + '"')
+        common = common.replace('/usr/bin/mihomo', '"' + (self.bin / 'mihomo').as_posix() + '"')
         (self.folder / 'common.sh').write_text(common, encoding='utf-8', newline='\n')
         (self.etc / 'profiles/testsub.yaml').write_text('proxies: []\n')
 
@@ -159,6 +160,37 @@ class ShellTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls.read_text(), 'render\nstop\n')
 
+    def test_invalid_candidate_keeps_runtime_and_does_not_revalidate_for_logging(self):
+        (self.run / 'config.yaml').write_text('old-valid-config\n')
+        self.executable('mihomo', 'echo validate >> "$BETTBOX_TEST_CALLS"; echo invalid-profile >&2; exit 1')
+        result = self.execute('apply.sh', 'apply')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls.read_text().splitlines(), ['render', 'validate'])
+        self.assertIn('invalid-profile', result.stderr)
+        self.assertEqual((self.run / 'config.yaml').read_text(), 'old-valid-config\n')
+        self.assertEqual(list(self.run.glob('render.*')), [])
+
+    def test_geodata_fallback_has_two_attempts_and_reuses_captured_error(self):
+        (self.run / 'config.yaml').write_text('old-valid-config\n')
+        self.executable('ucode', 'echo "geodata-mode: true" > "$3"')
+        self.executable('mihomo', 'echo validate >> "$BETTBOX_TEST_CALLS"; echo unavailable-geodata >&2; exit 1')
+        result = self.execute('apply.sh', 'apply')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls.read_text().splitlines(), ['validate', 'validate'])
+        self.assertIn('unavailable-geodata', result.stderr)
+        self.assertEqual((self.run / 'config.yaml').read_text(), 'old-valid-config\n')
+
+    def test_apply_validates_selected_managed_core(self):
+        current = self.etc / 'core/current'
+        current.mkdir(parents=True)
+        managed = current / 'mihomo'
+        managed.write_text('#!/bin/sh\necho managed-validate >> "$BETTBOX_TEST_CALLS"\n', encoding='utf-8', newline='\n')
+        managed.chmod(0o755)
+        self.executable('mihomo', 'echo factory-validate >> "$BETTBOX_TEST_CALLS"; exit 1')
+        result = self.execute('apply.sh', 'apply')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls.read_text().splitlines(), ['render', 'managed-validate'])
+
     def test_http_401_is_not_reported_as_api_success(self):
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
@@ -202,6 +234,7 @@ echo proxies > "$output"''')
         rules = (self.folder / 'rules.nft').read_text()
         self.assertIn('redirect to :7895', rules)
         self.assertIn('chain redir_prerouting', rules)
+        self.assertLess(rules.index('ct direction reply return'), rules.index('meta l4proto tcp redirect'))
         self.assertNotIn('redirect to :7893', rules)
         self.assertEqual(rules.count('iifname != "br-lan" return'), 2)
         self.assertIn('fib daddr type local return', rules)
@@ -216,6 +249,8 @@ echo proxies > "$output"''')
         result = self.execute('firewall.sh', 'start')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn('ct state established,related return', (self.folder / 'rules.nft').read_text())
+        rules = (self.folder / 'rules.nft').read_text()
+        self.assertLess(rules.index('ct direction reply return'), rules.index('meta l4proto { tcp, udp } tproxy'))
         self.assertIn('chain proxy_prerouting', (self.folder / 'rules.nft').read_text())
         self.assertIn('ip -6 rule add fwmark 0x162 table 100', self.calls.read_text())
         self.assertIn('ip -6 route add local default dev lo table 100', self.calls.read_text())

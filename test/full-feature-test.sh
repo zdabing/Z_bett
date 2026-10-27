@@ -64,7 +64,7 @@ function main(config, customOptions) {
 EOF
 t "forge run + options merge" sh -c 'OPTS="{\"add-rule\":true}"; printf "{\"proxies\":[],\"rules\":[]}" > /tmp/ft.json; bettbox-forge run --script /etc/bettbox/scripts/feat-test.js --config /tmp/ft.json --options "$OPTS" --out /tmp/ft-out.json >/dev/null 2>&1; grep -q feature-test.example /tmp/ft-out.json'
 t "forge options extract" sh -c 'bettbox-forge options --script /etc/bettbox/scripts/feat-test.js | grep -q PROXY'
-t "forge loop-limit guard" sh -c 'printf "function main(c){while(1){}return c}" > /tmp/hang.js; printf "{}" > /tmp/hang-in.json; bettbox-forge run --script /tmp/hang.js --config /tmp/hang-in.json --out /tmp/hang-out.json 2>&1 >/dev/null | grep -q RuntimeLimitError'
+t "forge timeout guard" sh -c 'printf "function main(c){while(1){}return c}" > /tmp/hang.js; printf "{}" > /tmp/hang-in.json; bettbox-forge run --script /tmp/hang.js --config /tmp/hang-in.json --timeout 1 --out /tmp/hang-out.json >/dev/null 2>/tmp/hang-error; code=$?; [ "$code" = 124 ] && grep -q "\"kind\":\"Timeout\"" /tmp/hang-error'
 rm -f /tmp/hang.js /tmp/hang-out.js /tmp/hang-out.json /tmp/ft-out.json
 
 echo "===== 5. ubus backend methods ====="

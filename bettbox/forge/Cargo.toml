@@ -2,11 +2,11 @@
 name = "bettbox-forge"
 version = "1.19.7"
 edition = "2021"
-description = "Bettbox JS override script sandbox (boa port of upstream code_forge, QuickJS contract)"
+description = "Bettbox JS override helper (upstream rquickjs/QuickJS sandbox)"
 license = "GPL-3.0"
 
 [dependencies]
-boa_engine = "0.22"
+rquickjs = { version = "=0.12.0", default-features = false }
 serde_json = { version = "1", features = ["preserve_order"] }
 
 [profile.release]

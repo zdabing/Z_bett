@@ -3,6 +3,7 @@
 
 # rust build output
 /bettbox-forge/target/
+/bettbox/forge/target/
 
 # local test harness dependencies and sessions
 /test/node_modules/

@@ -27,10 +27,28 @@ if (request.kind == 'exit') {
 		command += ' ' + q(args[i]);
 	}
 	if (tool == 'age') command += ' < ' + q(dir + '/input');
+} else if (request.kind == 'service') {
+	if(length(args)!=1 || !(args[0] in ['start','stop','restart','apply']))die('bad service action');
+	command=args[0]=='apply'?'/usr/bin/bettbox apply-service':'/etc/init.d/bettbox '+args[0];
+	if(args[0]=='start'||args[0]=='stop')command='uci set bettbox.config.enabled='+q(args[0]=='start'?'1':'0')+' && uci commit bettbox && '+command;
+	if(args[0]=='start'||args[0]=='restart')command='/etc/init.d/bettbox enable && '+command;
+} else if(request.kind=='package' || request.kind=='package-check') {
+	if((request.kind=='package' && (length(args)!=1 || args[0]!='update')) || (request.kind=='package-check' && length(args)!=0))die('bad package action');
+	command='/usr/bin/bettbox package '+(request.kind=='package'?'update':'check');
+} else if(request.kind=='core' || request.kind=='core-check') {
+	let action=request.kind=='core-check'?'check':args[0];
+	if((request.kind=='core-check' && length(args)!=0) || (request.kind=='core' && (length(args)!=1 || !(action in ['update','rollback']))))die('bad core action');
+	command='/usr/bin/bettbox core '+action;
 } else die('bad diagnostic kind');
 let fd = popen(command + ' 2>&1', 'r');
 if (!fd) die('could not start diagnostic');
-let output = fd.read('all') ?? '';
+let output = '', chunk, truncated=false;
+while ((chunk=fd.read(4096)) != null && length(chunk)) {
+	output += chunk;
+	if(length(output)>1048576){output=substr(output,length(output)-1048576);truncated=true;}
+}
 let code = fd.close();
+if(chunk==null)die('could not read worker output');
+if(truncated && !(request.kind in ['service','core','package']))die('diagnostic output exceeded 1MB limit');
 print(output);
 exit(code == 0 ? 0 : 1);

@@ -5,7 +5,13 @@
 . /usr/libexec/bettbox/common.sh
 umask 077
 
-apply() {
+apply() (
+	# Each render owns its scratch files; a competing CLI request cannot replace
+	# a candidate while it is being validated. Publish only the validated result.
+	local work
+	mkdir -p "$BETTBOX_RUN" "$BETTBOX_STATE" || return 1
+	work=$(mktemp -d "$BETTBOX_RUN/render.XXXXXX") || return 1
+	trap 'rm -rf "$work"' EXIT
 	local sid
 	sid=$(uci_get bettbox.config.profile)
 	[ -n "$sid" ] || die "no profile selected (uci bettbox.config.profile)"
@@ -16,7 +22,7 @@ apply() {
 
 	mkdir -p "$BETTBOX_RUN" "$BETTBOX_STATE"
 
-	local base="$BETTBOX_RUN/base.json"
+	local base="$work/base.json"
 	yq -o=json -I=0 '.' "$src" > "$base" || die "profile is not valid YAML"
 
 	# JS override (Bettbox script contract) via bettbox-forge
@@ -25,9 +31,9 @@ apply() {
 		script=$(uci_get bettbox.$sid.script)
 		local script_file="$BETTBOX_SCRIPTS/$script.js"
 		if [ -f "$script_file" ] && command -v bettbox-forge >/dev/null; then
-			local opts out="$BETTBOX_RUN/scripted.json" err="$BETTBOX_RUN/forge.err"
+			local opts out="$work/scripted.json" err="$work/forge.err"
 			opts=$(uci_get bettbox.$sid.custom_options)
-			if bettbox-forge run --script "$script_file" --config "$base" \
+			if timeout 60 bettbox-forge run --script "$script_file" --config "$base" \
 				${opts:+--options "$opts"} --out "$out" 2> "$err"; then
 				cp "$out" "$base"
 			else
@@ -39,25 +45,30 @@ apply() {
 		fi
 	fi
 
-	local out="$BETTBOX_RUN/config.yaml.tmp"
+	local out="$work/config.yaml" validation="$work/validation.log" core
+	core=$(core_binary)
 	if ! ucode /usr/libexec/bettbox/render.uc "$base" "$out" "$sid"; then
 		rm -f "$out"
 		die "config render failed"
 	fi
 
 	# validate; retry once with geodata-mode off (upstream patchValidateConfig)
-	if ! timeout 120 mihomo -t -d "$BETTBOX_ETC" -f "$out" >/dev/null 2>&1; then
-		log "config validation failed, retrying with geodata-mode off"
-		sed -i 's/^geodata-mode: true$/geodata-mode: false/' "$out"
-		if ! timeout 120 mihomo -t -d "$BETTBOX_ETC" -f "$out" >/dev/null 2>&1; then
-			timeout 60 mihomo -t -d "$BETTBOX_ETC" -f "$out" 2>&1 | tail -5 >&2
-			rm -f "$out"
-			die "config validation failed"
+	if ! timeout 120 "$core" -t -d "$BETTBOX_ETC" -f "$out" >"$validation" 2>&1; then
+		if grep -q '^geodata-mode: true$' "$out"; then
+			log "config validation failed, retrying with geodata-mode off"
+			sed -i 's/^geodata-mode: true$/geodata-mode: false/' "$out"
+			if timeout 120 "$core" -t -d "$BETTBOX_ETC" -f "$out" >"$validation" 2>&1; then
+				mv -f "$out" "$BETTBOX_RUN/config.yaml"
+				return $?
+			fi
 		fi
+		tail -5 "$validation" >&2
+		rm -f "$out"
+		die "config validation failed"
 	fi
 
 	mv -f "$out" "$BETTBOX_RUN/config.yaml"
-}
+)
 
 # Hot-apply through the controller API when the core is running, like
 # Bettbox's updateConfig; falls back to a service restart.

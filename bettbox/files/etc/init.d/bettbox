@@ -7,35 +7,38 @@ STOP=10
 USE_PROCD=1
 NAME=bettbox
 RUN_DIR=/var/run/bettbox
+EXTRA_COMMANDS="core_switch"
+
+# APK hooks run with a deliberately preserved, private update environment.
+# Keep their implicit start/stop/enable calls from racing the updater, which
+# performs the one final state transition after both packages are verified.
+[ "$BETTBOX_SELF_UPDATE" != 1 ] || exit 0
+
+. /usr/libexec/bettbox/common.sh
 
 bettbox_render_config() {
 	/usr/bin/bettbox apply
 }
 
 start_service() {
+	BETTBOX_START_REQUESTED=0
+	BETTBOX_START_FAILED=0
 	[ "$(uci -q get bettbox.config.enabled)" = "1" ] || return 0
 
 	mkdir -p "$RUN_DIR" /etc/bettbox/profiles /etc/bettbox/scripts /etc/bettbox/geo /etc/bettbox/state
 
-	if ! bettbox_render_config; then
+	if [ "$BETTBOX_CONFIG_PREPARED" != 1 ] && ! bettbox_render_config; then
 		logger -t "$NAME" "config render failed, not starting core"
+		BETTBOX_START_FAILED=1
 		return 1
 	fi
-
-	if ! /usr/libexec/bettbox/firewall.sh start; then
-		logger -t "$NAME" "firewall setup failed, not starting core"
-		return 1
-	fi
-	if ! /usr/libexec/bettbox/dnsmasq.sh apply; then
-		/usr/libexec/bettbox/firewall.sh stop
-		logger -t "$NAME" "DNS setup failed, not starting core"
-		return 1
-	fi
-	/usr/libexec/bettbox/cron.sh ensure || logger -t "$NAME" "subscription scheduler setup failed"
+	BETTBOX_START_REQUESTED=1
+	rm -f "$RUN_DIR/ready"
 
 	procd_open_instance core
-	procd_set_param command /usr/bin/mihomo -d /etc/bettbox -f "$RUN_DIR/config.yaml"
+	procd_set_param command "$(core_binary)" -d /etc/bettbox -f "$RUN_DIR/config.yaml"
 	procd_set_param respawn 3600 5 0
+	procd_set_param term_timeout 5
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_set_param env GEOIP_DIR=/etc/bettbox/geo
@@ -49,14 +52,102 @@ start_service() {
 	fi
 }
 
+bettbox_core_pid() {
+	ubus -t 2 call service list '{"name":"bettbox"}' | ucode -e 'import { readfile } from "fs"; let s=json(readfile("/dev/stdin")); print(s?.bettbox?.instances?.core?.pid ?? "");'
+}
+
+bettbox_dns_ready() {
+	local port pid inode fd sockets=''
+	port=$(uci -q get bettbox.dns.listen | sed 's/.*://')
+	[ -n "$port" ] || port=1053
+	case "$port" in *[!0-9]*) return 1 ;; esac
+	[ "$port" -gt 0 ] && [ "$port" -le 65535 ] || return 1
+	port=$(printf '%04X' "$port")
+	pid=$(bettbox_core_pid)
+	case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+	# Match a socket owned by OUR procd core, not another DNS service on this port.
+	sockets=$(awk -v port=":$port" '$2 ~ (port "$") { print $10 }' /proc/net/udp 2>/dev/null)
+	if [ -r /proc/net/udp6 ]; then
+		sockets="$sockets $(awk -v port=":$port" '$2 ~ (port "$") { print $10 }' /proc/net/udp6 2>/dev/null)"
+	fi
+	for inode in $sockets; do
+		for fd in /proc/"$pid"/fd/*; do
+			[ "$(readlink "$fd" 2>/dev/null)" != "socket:[$inode]" ] || return 0
+		done
+	done
+	return 1
+}
+
+bettbox_uptime() {
+	local elapsed rest
+	read -r elapsed rest < /proc/uptime
+	printf '%s\n' "${elapsed%.*}"
+}
+
+bettbox_core_ready() {
+	local hp secret
+	hp=$(api_host_port)
+	secret=$(api_secret)
+	curl -fsS --connect-timeout 1 --max-time 1 -H "Authorization: Bearer $secret" \
+		"http://$hp/version" 2>/dev/null | grep -q '"version"' || return 1
+	bettbox_dns_ready
+}
+
+bettbox_release_network() {
+	local rc=0
+	rm -f "$RUN_DIR/ready"
+	/usr/libexec/bettbox/dnsmasq.sh restore || rc=1
+	/usr/libexec/bettbox/firewall.sh stop || rc=1
+	return "$rc"
+}
+
+bettbox_network_settings() {
+	local key value
+	for key in transparent_mode hijack_dnsmasq external_controller secret mixed_port tproxy_port redir_port port socks_port; do
+		value=$(uci -q get "bettbox.config.$key")
+		printf '%s=%s\n' "$key" "$value"
+	done
+	printf 'dns.listen=%s\n' "$(uci -q get bettbox.dns.listen)"
+}
+
+service_started() {
+	[ "$BETTBOX_START_REQUESTED" = 1 ] || return "${BETTBOX_START_FAILED:-0}"
+	local deadline ready=0
+	deadline=$(( $(bettbox_uptime) + 45 ))
+	while [ "$(bettbox_uptime)" -lt "$deadline" ]; do
+		if procd_running "$NAME" core && bettbox_core_ready; then ready=1; break; fi
+		sleep 1
+	done
+	if [ "$ready" = 1 ] &&
+		/usr/libexec/bettbox/firewall.sh start &&
+		/usr/libexec/bettbox/dnsmasq.sh apply; then
+		(umask 077; bettbox_network_settings > "$RUN_DIR/network-settings")
+		touch "$RUN_DIR/ready"
+		/usr/libexec/bettbox/cron.sh ensure || logger -t "$NAME" "subscription scheduler setup failed"
+		return 0
+	fi
+	logger -t "$NAME" "startup readiness or network takeover failed; releasing takeover"
+	printf '%s\n' 'startup readiness or network takeover failed; releasing takeover' >&2
+	if bettbox_release_network; then
+		procd_kill "$NAME"
+	else
+		logger -t "$NAME" "resolver restore failed; core kept available for recovery"
+	fi
+	return 1
+}
+
 stop_service() {
-	/usr/libexec/bettbox/firewall.sh stop
-	/usr/libexec/bettbox/dnsmasq.sh restore
+	# rc.common calls this BEFORE procd_kill. Do not kill the DNS provider if
+	# restoring the normal resolver failed; leave it available for a retry.
+	if ! bettbox_release_network; then
+		logger -t "$NAME" "network restore failed; keeping core alive, retry stop"
+		printf '%s\n' 'network restore failed; core retained, retry stop' >&2
+		exit 1
+	fi
 }
 
 reload_service() {
-	stop
-	start
+	restart
 }
 
 service_triggers() {
@@ -65,6 +156,78 @@ service_triggers() {
 }
 
 restart() {
+	[ "$(uci -q get bettbox.config.enabled)" = 1 ] || { stop; return $?; }
+	procd_lock
+	mkdir -p "$RUN_DIR"
+	local previous='' rc compatible=0
+	if [ -f "$RUN_DIR/config.yaml" ]; then
+		previous=$(mktemp "$RUN_DIR/previous.XXXXXX") || return 1
+		chmod 600 "$previous"
+		cp "$RUN_DIR/config.yaml" "$previous" || { rm -f "$previous"; return 1; }
+	fi
+	# UCI may already contain newly saved listener/routing options. Only an
+	# unchanged takeover contract can safely restart the previous runtime file.
+	if [ -f "$RUN_DIR/network-settings" ]; then
+		(umask 077; bettbox_network_settings > "$RUN_DIR/network-candidate")
+		cmp -s "$RUN_DIR/network-settings" "$RUN_DIR/network-candidate" && compatible=1
+		rm -f "$RUN_DIR/network-candidate"
+	fi
+	# Rendering/validation happens while the old instance still serves traffic.
+	if ! bettbox_render_config; then
+		rm -f "$previous"
+		logger -t "$NAME" "new config rejected; current core left running"
+		return 1
+	fi
+	BETTBOX_CONFIG_PREPARED=1
 	stop
 	start
+	rc=$?
+	if [ "$rc" != 0 ] && [ -n "$previous" ] && [ "$compatible" = 1 ]; then
+		logger -t "$NAME" "new core failed; restoring last validated runtime config"
+		cp "$previous" "$RUN_DIR/config.yaml" && start || logger -t "$NAME" "runtime rollback failed; network takeover remains released"
+	elif [ "$rc" != 0 ]; then
+		logger -t "$NAME" "no compatible runtime snapshot; takeover released, saved settings need correction"
+	fi
+	rm -f "$previous"
+	BETTBOX_CONFIG_PREPARED=0
+	return "$rc"
+}
+
+# Internal activation entry point. The download worker does not hold the procd
+# lock; all validation/stop/selector/start operations are serialized here.
+core_switch() {
+	[ "$#" = 1 ] || return 1
+	procd_lock
+	local target="$1" old previous active=0 rc
+	old=$(ucode /usr/libexec/bettbox/core-update.uc target current) || return 1
+	previous=$(ucode /usr/libexec/bettbox/core-update.uc target previous) || return 1
+	if procd_running "$NAME" core; then
+		[ "$(uci -q get bettbox.config.enabled)" = 1 ] || {
+			printf '%s\n' '核心仍在运行但配置已关闭，请先完成停止后再更新' >&2; return 1;
+		}
+		active=1
+		bettbox_render_config || return 1
+	fi
+	# Validate the exact file that would run, BEFORE interrupting the old core.
+	ucode /usr/libexec/bettbox/core-update.uc validate "$target" || return 1
+	stop
+	if ! ucode /usr/libexec/bettbox/core-update.uc select "$target"; then
+		ucode /usr/libexec/bettbox/core-update.uc restore "$old" "$previous"
+		[ "$active" != 1 ] || { BETTBOX_CONFIG_PREPARED=1; start; }
+		return 1
+	fi
+	rc=0
+	if [ "$active" = 1 ]; then
+		BETTBOX_CONFIG_PREPARED=1
+		start || rc=1
+	fi
+	if [ "$rc" != 0 ]; then
+		stop
+		if ucode /usr/libexec/bettbox/core-update.uc restore "$old" "$previous"; then
+			start || logger -t "$NAME" 'previous core recovery failed; check service state'
+		fi
+		printf '%s\n' '新核心启动失败，已尝试恢复上一核心；请检查服务状态' >&2
+	fi
+	BETTBOX_CONFIG_PREPARED=0
+	return "$rc"
 }

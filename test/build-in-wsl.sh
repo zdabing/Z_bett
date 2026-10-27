@@ -1,11 +1,12 @@
 #!/bin/bash
-# build-in-wsl.sh — build the three bettbox packages inside the OpenWrt SDK.
+# build-in-wsl.sh — build the two bettbox packages inside the OpenWrt SDK.
 # Logs to WSL-side file (no Windows pipe): ~/build/build.log
 set -o pipefail
 set -e
 # Sanitize PATH: Git Bash leaks Windows path components into WSL, and the
 # SDK's find refuses -execdir with a relative PATH entry ("insecure").
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+SOURCE_DIR=$(cd "$(dirname "$0")/.." && pwd)
 SDKDIR=$(ls -d "$HOME"/build/openwrt-sdk-* | head -1)
 cd "$SDKDIR"
 JOBS="${JOBS:-4}"
@@ -15,7 +16,7 @@ JOBS="${JOBS:-4}"
 # then refuses to load them. The copy gets sane modes; CI git checkouts are
 # unaffected.
 FEED_SRC="$HOME/feed-src"
-rsync -a --delete --exclude .git --exclude dist --exclude build /mnt/d/WorkSpace/Z_betta/ "$FEED_SRC/"
+rsync -a --delete --exclude .git --exclude bettbox-src --exclude dist --exclude build --exclude target --exclude node_modules "$SOURCE_DIR/" "$FEED_SRC/"
 find "$FEED_SRC" -type f -exec chmod 644 {} +
 find "$FEED_SRC" -type f \( -name '*.sh' -o -path '*files/usr/bin/*' -o -path '*files/etc/init.d/*' \) -exec chmod 755 {} +
 
@@ -37,28 +38,28 @@ else
 	# keep the bettbox feed symlink pinned to the (perm-fixed) local copy
 	sed -i "s#^src-link bettbox.*#src-link bettbox $FEED_SRC#" feeds.conf
 	./scripts/feeds update bettbox >> "$HOME/build/build.log" 2>&1
-	./scripts/feeds install bettbox bettbox-forge luci-app-bettbox >> "$HOME/build/build.log" 2>&1
+	./scripts/feeds install bettbox luci-app-bettbox >> "$HOME/build/build.log" 2>&1
 fi
 
 if [ ! -e package/feeds/bettbox/bettbox ]; then
 	echo "=== [3] feeds install ===" >> "$HOME/build/build.log"
 	./scripts/feeds install -a >> "$HOME/build/build.log" 2>&1
-	./scripts/feeds install bettbox bettbox-forge luci-app-bettbox >> "$HOME/build/build.log" 2>&1
+	./scripts/feeds install bettbox luci-app-bettbox >> "$HOME/build/build.log" 2>&1
 fi
 
 if ! grep -q '^CONFIG_PACKAGE_bettbox=y' .config 2>/dev/null; then
 	echo "=== [5] defconfig ===" >> "$HOME/build/build.log"
 	make defconfig >> "$HOME/build/build.log" 2>&1 || true
-	echo "CONFIG_PACKAGE_bettbox-forge=y" >> .config
 	echo "CONFIG_PACKAGE_bettbox=y" >> .config
 	echo "CONFIG_PACKAGE_luci-app-bettbox=y" >> .config
 	make defconfig >> "$HOME/build/build.log" 2>&1
 fi
 
-echo "=== [6] build bettbox-forge (rust) ===" >> "$HOME/build/build.log"
-make package/bettbox-forge/compile V=s -j"$JOBS" >> "$HOME/build/build.log" 2>&1 || { echo "STAGE6-FAILED" >> "$HOME/build/build.log"; exit 1; }
+# Refresh old SDK selections after the helper package was merged.
+sed -i '/^CONFIG_PACKAGE_bettbox-forge=/d' .config
+make defconfig >> "$HOME/build/build.log" 2>&1
 
-echo "=== [7] build bettbox (go) ===" >> "$HOME/build/build.log"
+echo "=== [7] build bettbox (go + rust/QuickJS) ===" >> "$HOME/build/build.log"
 make package/bettbox/compile V=s -j"$JOBS" >> "$HOME/build/build.log" 2>&1 || { echo "STAGE7-FAILED" >> "$HOME/build/build.log"; exit 1; }
 
 echo "=== [8] build luci-app-bettbox ===" >> "$HOME/build/build.log"

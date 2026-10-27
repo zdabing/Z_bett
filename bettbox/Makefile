@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=bettbox
 PKG_VERSION:=1.19.33
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0
@@ -22,9 +22,11 @@ PKG_SOURCE_URL:=https://github.com/MetaCubeX/mihomo/archive/refs/tags/
 PKG_HASH:=e7c596b37ff27ec487d19b1920f73e0c97a78067ea35766530ee9659ade72711
 PKG_BUILD_DIR:=$(BUILD_DIR)/mihomo-$(PKG_VERSION)
 
-PKG_BUILD_DEPENDS:=golang/host
+PKG_BUILD_DEPENDS:=golang/host rust/host
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
+PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./forge/tests
+RUST_PKG_LOCKED:=1
 
 GO_PKG:=github.com/metacubex/mihomo
 GO_PKG_BUILD_PKG:=$(GO_PKG)
@@ -32,7 +34,22 @@ GO_PKG_TAGS:=with_gvisor
 GO_PKG_LDFLAGS_X:=$(GO_PKG)/constant.Version=v$(PKG_VERSION) $(GO_PKG)/constant.BuildTime=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 include $(INCLUDE_DIR)/package.mk
+include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
 include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
+CARGO_PKG_VARS+=TARGET_AR="$(TARGET_AR)"
+
+# Preserve Go's configure hook and explicitly compose both compile helpers.
+# rquickjs 0.12 ships musl bindings for these two supported build targets.
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/.bettbox-forge
+	$(CP) ./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./forge/tests $(PKG_BUILD_DIR)/.bettbox-forge/
+endef
+
+define Build/Compile
+	$(call GoPackage/Build/Compile)
+	$(call Build/Compile/Cargo,.bettbox-forge)
+endef
 
 define Package/bettbox
   SECTION:=net
@@ -40,9 +57,11 @@ define Package/bettbox
   SUBMENU:=Web Servers/Proxies
   TITLE:=Bettbox core (mihomo engine) for OpenWrt
   URL:=https://github.com/appshubcc/Bettbox
-  DEPENDS:=$(GO_ARCH_DEPENDS) \
+  DEPENDS:=$(GO_ARCH_DEPENDS) @(aarch64||x86_64) \
 	+ca-bundle \
 	+curl \
+	+gzip \
+	+coreutils-sha256sum \
 	+yq \
 	+ucode \
 	+firewall4 \
@@ -51,7 +70,9 @@ define Package/bettbox
 	+kmod-nft-tproxy \
 	+kmod-nft-socket \
 	+unzip
-  PROVIDES:=mihomo clash-meta
+  # A versioned provide satisfies old LuCI/world dependencies and excludes
+  # simultaneous ownership by the former standalone bettbox-forge package.
+  PROVIDES:=mihomo clash-meta bettbox-forge
   CONFFILES:=/etc/config/bettbox
 endef
 
@@ -60,6 +81,7 @@ define Package/bettbox/description
   transparent proxy (TPROXY/REDIR/TUN), subscription management, Bettbox-style
   config patching (UCI -> rendered YAML, QUIC block, disabled groups,
   loopback protection) and the DNS/network toolbox.
+  Includes the independent bettbox-forge QuickJS script helper.
 endef
 
 define Package/bettbox/conffiles
@@ -69,6 +91,7 @@ endef
 define Package/bettbox/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/mihomo $(1)/usr/bin/mihomo
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/bin/bettbox-forge $(1)/usr/bin/bettbox-forge
 	$(INSTALL_BIN) ./files/usr/bin/bettbox $(1)/usr/bin/bettbox
 
 	$(INSTALL_DIR) $(1)/usr/libexec/bettbox
@@ -94,6 +117,7 @@ define Package/bettbox/postinst
 [ -n "$$IPKG_INSTROOT" ] || {
 	[ -f /etc/config/bettbox ] || exit 0
 	sh /usr/libexec/bettbox/router-settings.sh || exit 1
+	[ "$$BETTBOX_SELF_UPDATE" != 1 ] || exit 0
 	if /etc/init.d/bettbox enabled; then
 		/usr/bin/bettbox apply 2>/dev/null || true
 		/etc/init.d/bettbox restart 2>/dev/null || true
@@ -104,3 +128,9 @@ endef
 
 $(eval $(call GoBinPackage,$(PKG_NAME)))
 $(eval $(call BuildPackage,$(PKG_NAME)))
+
+# package-pack.mk initializes APK_INFO during BuildPackage. Append afterwards
+# so mkpkg receives this field; a generic REPLACES variable is not consumed.
+ifeq ($(CONFIG_USE_APK),y)
+  APK_INFO_bettbox += --info "replaces:bettbox-forge"
+endif

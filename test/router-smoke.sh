@@ -26,7 +26,8 @@ web_service_ready() {
 }
 
 echo "=== install ==="
-apk add --allow-untrusted /tmp/bettbox-forge-*.apk /tmp/bettbox-[0-9]*.apk /tmp/luci-app-bettbox-*.apk 2>&1 | tail -3
+# The compatibility name also loosens an old explicit forge world version/hash.
+apk add --allow-untrusted /tmp/bettbox-[0-9]*.apk /tmp/luci-app-bettbox-[0-9]*.apk bettbox-forge || exit 1
 
 echo "=== files ==="
 for f in /usr/bin/bettbox /usr/bin/bettbox-forge /usr/bin/mihomo \
@@ -41,7 +42,9 @@ done
 echo "=== versions ==="
 mihomo -v 2>/dev/null | head -1
 bettbox-forge version 2>&1 | head -1
-apk info bettbox bettbox-forge luci-app-bettbox 2>/dev/null | grep -E '^(bettbox|luci)'
+apk info bettbox luci-app-bettbox 2>/dev/null | grep -E '^(bettbox|luci)'
+owner=$(apk info --who-owns /usr/bin/bettbox-forge 2>/dev/null)
+case "$owner" in *bettbox-forge-[0-9]*) bad "forge still owned by standalone package" ;; *bettbox-[0-9]*) ok "forge owned by merged package" ;; *) bad "forge package ownership" ;; esac
 
 echo "=== forge smoke (JS override sandbox) ==="
 cat > /etc/bettbox/scripts/smoke.js <<'EOF'

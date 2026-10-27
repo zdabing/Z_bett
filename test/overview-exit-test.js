@@ -53,14 +53,18 @@ function find(root, predicate) {
 const hasClass = name => node => node.className.split(' ').includes(name);
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture(running) {
+function fixture(running, serviceTest = false) {
     let clock = 100000;
     const status = { enabled: running, running, mode: 'rule' };
-    const jobs = [], polls = [];
+    const jobs = [], polls = [], serviceCalls = [], operations = [], errors = [], writes = [];
     class Clock extends Date { static now() { return clock; } }
-    const rpc = { declare: spec => async () => spec.method === 'get_status' ? { ...status } : { ok: true } };
+    const rpc = { declare: spec => async action => {
+        if(spec.method==='get_status')return {...status};
+        if(spec.method==='service_action'){serviceCalls.push(action);return {ok:true,id:'bettbox-job.service'};}
+        return {ok:true};
+    }};
     const UI = {
-        tag: text => E('span', {}, text), icon: () => E('svg'),
+        tag: text => E('span', {class:'tag'}, text), icon: () => E('svg'),
         bytes: value => String(value || 0), speed: value => String(value),
         button: (label, handler) => {
             const node = E('button', {}, label);
@@ -70,12 +74,13 @@ function fixture(running) {
         page: (id, title, actions, content) => E('main', {}, [actions, content]),
         panel: (title, icon, content) => E('section', {}, content),
         checked: result => { assert.equal(result.ok, true); return result; },
-        error: err => { throw err; },
+        operation: result => { assert.equal(result.ok, true); return serviceTest ? new Promise((resolve,reject)=>operations.push({resolve,reject})) : result; },
+        error: err => { errors.push(err.message); },
         job: (kind, args) => new Promise((resolve, reject) => jobs.push({ kind, via: args[0], resolve, reject }))
     };
     const view = new Function('view', 'rpc', 'poll', 'uci', 'ui', 'Core', 'UI', 'E', 'L', 'document', 'Date', source)(
         { extend: value => value }, rpc, { add: callback => polls.push(callback) },
-        { load: async () => {}, get: () => '', set() {}, save: async () => {} }, {},
+        { load: async () => {}, get: () => '', set(...args) {writes.push(args);}, save: async () => {} }, {},
         { get: async () => ({ data: { connections: [], proxies: {} } }) }, UI, E,
         { url: () => '/' },
         { createElementNS: (namespace, tag) => E(tag), createTextNode: text => text }, Clock);
@@ -86,7 +91,9 @@ function fixture(running) {
         return { ip: find(block, hasClass('ip-address')), state: find(block, hasClass('muted')) };
     };
     return {
-        jobs, parts, status,
+        jobs, parts, status, serviceCalls, operations, errors, writes,
+        serviceSwitch: find(root, el => el.attrs.role==='switch'),
+        serviceState: find(root, hasClass('tag')),
         retry: () => find(root, el => el.tag === 'button' && el.textContent === '检测').click(),
         poll: async () => { clock += 11000; await polls[0](); await flush(); }
     };
@@ -156,5 +163,33 @@ function finish(job, ip) {
         finish(f.jobs[2], '203.0.113.8'); finish(f.jobs[3], '198.51.100.9'); await retry;
         assert.equal(f.parts('direct').ip.textContent, '203.0.113.8'); checks++;
     }
-    console.log('PASS: ' + checks + ' overview automatic exit checks');
+    {
+        const f=fixture(false,true); await flush();
+        f.serviceSwitch.listeners.click(); await flush();
+        assert.deepEqual(f.serviceCalls,['start']); checks++;
+        assert.deepEqual(f.writes,[],'service worker owns enabled state; rejected requests must not change UCI'); checks++;
+        assert.equal(f.serviceSwitch.disabled,true); checks++;
+        assert.equal(f.serviceState.textContent,'正在启动…'); checks++;
+        f.status.running=true;f.status.enabled=true;await f.poll();
+        assert.equal(f.serviceState.textContent,'正在启动…','process visibility is not operation completion'); checks++;
+        assert.equal(f.jobs.filter(j=>j.via==='proxy').length,0,'do not query the exit before readiness');checks++;
+        f.operations[0].resolve({ok:true});await flush();await flush();
+        assert.equal(f.serviceSwitch.disabled,false);checks++;
+        assert.equal(f.serviceState.textContent,'运行中');checks++;
+        assert.equal(f.jobs.filter(j=>j.via==='proxy').length,1,'query the exit after the service job finishes');checks++;
+    }
+    {
+        const f=fixture(true,true);await flush();
+        f.serviceSwitch.listeners.click();await flush();
+        assert.deepEqual(f.serviceCalls,['stop']);checks++;
+        f.status.enabled=false;
+        f.operations[0].reject(new Error('resolver restore failed; core retained'));await flush();await flush();
+        assert.match(f.errors[0],/restore failed/);checks++;
+        assert.equal(f.serviceState.textContent,'运行中');checks++;
+        assert.equal(f.serviceSwitch.disabled,false);checks++;
+        assert.equal(f.serviceSwitch.attrs['aria-checked'],'true','retained core remains visibly on');checks++;
+        f.serviceSwitch.listeners.click();await flush();
+        assert.deepEqual(f.serviceCalls,['stop','stop'],'a failed stop can be retried instead of starting a second core');checks++;
+    }
+    console.log('PASS: ' + checks + ' overview exit and service transition checks');
 })().catch(err => { console.error(err); process.exit(1); });

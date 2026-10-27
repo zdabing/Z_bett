@@ -73,6 +73,7 @@ table inet $TABLE {
 	chain proxy_prerouting {
 		type filter hook prerouting priority -90; policy accept;
 		iifname != "$lan" return
+		ct direction reply return
 		fib daddr type local return
 		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255/32 } return
 		ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
@@ -106,6 +107,7 @@ table inet $TABLE {
 	chain redir_prerouting {
 		type nat hook prerouting priority -90; policy accept;
 		iifname != "$lan" return
+		ct direction reply return
 		fib daddr type local return
 		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255/32 } return
 		ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return

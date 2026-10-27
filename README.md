@@ -4,18 +4,19 @@
 
 - **内核**：Mihomo（Go，`v1.19.33`，源码编译，`PROVIDES:=mihomo`）
 - **配置引擎**：`ucode` 渲染器 + `yq`（YAML⇄JSON），保留 Bettbox 的分流/覆写语义，移除终端专用配置（见[路由器设置核对](docs/ROUTER_SETTINGS.md)）
-- **JS 覆写引擎**：`bettbox-forge`（**Rust**，移植自上游 `plugins/code_forge/rust` 沙箱，脚本契约 100% 兼容）
+- **JS 覆写引擎**：`bettbox-forge`（Rust + rquickjs/QuickJS，随 `bettbox.apk` 安装，独立进程执行脚本）
 - **前端**：`luci-app-bettbox`（LuCI 客户端渲染 JS + ucode rpcd 后端）
 - **产物**：标准 OpenWrt feed，25.12 构建后输出 **.apk** 包（opkg 已在 25.12 被 APK 取代）
 
 九个页面统一使用浅绿视觉规范，支持 PC 流式布局与手机两行导航。实现、验证方式及限制见 [UI 实现记录](docs/UI_IMPLEMENTATION.md) 与 [UI 设计规范](docs/UI_DESIGN_SYSTEM.md)。
 
-## 三个包
+版本变更见 [更新日志](CHANGELOG.md)，本版安装与更新说明见 [v2026.10.27 发布说明](docs/releases/v2026.10.27.md)。
+
+## 两个包
 
 | 包 | 语言 | 说明 |
 |---|---|---|
-| `bettbox` | Go(内核)+sh/ucode | mihomo 内核、procd 服务、nft 透明代理、订阅管理、配置渲染、工具箱 |
-| `bettbox-forge` | **Rust** | JS 覆写脚本沙箱（QuickJS 契约的 boa 移植） |
+| `bettbox` | Go + Rust + sh/ucode | mihomo 内核、内置 QuickJS 脚本引擎、procd、nft 透明代理、订阅、配置渲染、工具箱 |
 | `luci-app-bettbox` | JS+ucode | LuCI 界面：概览/代理/订阅/连接/脚本/资源/工具箱/日志/设置 |
 
 ## 功能映射（Bettbox → OpenWrt）
@@ -30,7 +31,7 @@
 | 首页小组件（网速/连接/内存/模式/流量） | 概览页 `/connections` 定时快照 + 进程 RSS；累计上传/下载环形统计、LAN IP、出口与连通性检测 |
 | 策略组 / 测延迟 / 切换节点 | V4 可折叠代理组、PC/手机布局、订阅图标、独立单测/组测/全部检测（全页限两路）；`/proxies` 与 `/proxies/:name/delay`，`profile.store-selected` 持久化选择 |
 | 订阅管理（自动更新/间隔/流量信息） | `uci bettbox.subscription` + cron，`subscription-userinfo` 头解析 |
-| **JS 覆写脚本（可视化开关/策略组映射）** | `bettbox-forge`：`main(config, customOptions)` 契约、`ruleOptionsEnable`、`Compatible_With_Bettbox.policyGroupOptions` 全兼容 |
+| **JS 覆写脚本（可视化开关/策略组映射）** | 内置 `bettbox-forge`：保留 `main(config, customOptions)`、`ruleOptionsEnable`、`Compatible_With_Bettbox.policyGroupOptions` 接口；使用上游 rquickjs 执行/转换逻辑 |
 | 每订阅规则覆写（前置/替换） | `override_rules` JSON 选项，渲染时前置/替换 |
 | 分组开关（禁用策略组→规则改 PASS） | `disabled_groups`，渲染器重写规则为 `PASS`（同上游 `patch.go`） |
 | DNS 分流（fake-ip/redir-host、fallback、respect-rules） | DNS 设置页 → 渲染进 `dns:` 段 |
@@ -58,21 +59,17 @@
 
 **依赖上游内核私有 Action 的功能**：Bettbox 的路由追踪、MRS 速查、NAT 检测、iperf、age、WebDAV 备份原本走它 Go 内核里的私有 IPC（`core/toolbox/*`），mihomo 的 REST API 不暴露这些。路由器端等价实现：路由追踪=规则匹配模拟（`trace_match.uc`，域名规则精确求值+数据集规则标注）、MRS 速查=geosite.dat 反查（`mrs_lookup.uc` 纯 ucode protobuf 解析，229k 条目约 16s）、NAT 检测=shell STUN（需带 `-u` 的 nc 或 ucode-mod-socket；缺失时降级为 WAN/公网 IP 对比并如实说明）、iperf/age=系统包、WebDAV=curl。已知偏差：STUN 锥型细分（Full-cone/Restricted）需服务端配合或 UDP 工具，当前仅对称型判定；MRS 的 GEOIP 侧（mmdb 反查）未实现，用「IP 全能查」替代。
 
-## Rust 怎么选（本项目的取舍）
+## 脚本引擎与打包
 
-上游 Bettbox 本身就是 Flutter+Go+**Rust** 混合架构：`plugins/code_forge/rust`（rquickjs/QuickJS 沙箱跑覆写脚本）和 `services/helper`（提权助手）。移植时 Rust 边界保留、实现方式重选：
+2026-10-27 将原先独立的 Boa 包合入 `bettbox`，引擎迁移到与上游一致的 `rquickjs 0.12.0`（内含 QuickJS-NG）。Rust 源码在 `bettbox/forge/`，`/usr/bin/bettbox-forge` 仍是按需启动的独立程序，不嵌入 Mihomo，不常驻处理流量。路由器无需 Rust 工具链。
 
-1. **不重写内核**。分流/TUN/DNS 全部在 mihomo（Go）里，Rust 重写无收益。
-2. **Rust 只负责覆写沙箱**（`bettbox-forge`）——这是上游已经用 Rust 做过的决定，照抄边界。
-3. **引擎弃 rquickjs、改用纯 Rust 的 `boa_engine`**，原因：
-   - rquickjs-sys 不开 `bindgen` 时依赖**预生成绑定**，官方只覆盖 x86_64/aarch64/armv7-gnu/loongarch64/riscv64 等，**没有 mips/mipsel/armv7-musl** 等 OpenWrt 主流路由器架构；
-   - 开 `bindgen` 则每台构建机/SDK 都要装 libclang，对 OpenWrt buildbot 不现实；
-   - boa 纯 Rust，凡 `rust/host` 能编译的架构（官方 `RUST_ARCH_DEPENDS` 全集）都能出包，无任何宿主额外依赖；
-   - 覆写脚本是纯数据变换（对象/数组/正则），boa 的 ES2015+ 完全够用，脚本写法与 Bettbox 完全相同。
-4. **工具链**：官方 `packages` feed 的 `lang/rust`（1.94.0），`PKG_BUILD_DEPENDS:=rust/host` + `rust-package.mk` 的 `RustBinPackage` 宏，musl 动态链接（`-crt-static`，依赖 libc）。`Cargo.lock` 已提交并锁定（`RUST_PKG_LOCKED:=1`），CI 先跑 `cargo check --locked` 再进 SDK 构建。
-5. **沙箱限制的对齐与偏差**：上游 QuickJS 用 10s/128MB/512KB 栈硬限制；boa 无公开堆上限 API，改为「循环迭代上限 + 递归上限 + 看门狗线程硬超时（超时退出码 124）」，行为对用户一致（卡死脚本必被杀），内存上限这一条记录为已知偏差。
+脚本执行默认 10 秒、JS 堆分配上限 128MiB、栈 512KiB；选项提取 2 秒、32MiB。沿用上游输入转换、Promise 处理与日志限制，保留路由器版第二个 `customOptions` 参数。这些限制已写入源码；原生 Rust/QuickJS、SDK 编译及升级安装尚未在本轮执行，不以源码检查代替实测。
 
-## 验证情况
+构建目标限定 x86_64 和 aarch64，两者都有对应 musl 预生成绑定。`bettbox` 组合 Go/Rust 构建步骤，一次构建安装 Mihomo 和脚本 helper。旧包依赖由版本化 `PROVIDES:=bettbox-forge` 接续，APK 文件接管使用 `replaces` 元数据；不在安装钩子中调用 `apk del`。迁移、验收及已知边界见 [合包与 QuickJS 迁移说明](docs/FORGE_MIGRATION.md)。
+
+## 历史验证情况（此前 Boa / 三包版本）
+
+以下是真机历史记录，不代表本轮 QuickJS / 两包版本已经编译或部署。本轮新增检查与待验收项目见 [迁移说明](docs/FORGE_MIGRATION.md)。
 
 | 验证 | 方式 | 结果 |
 |---|---|---|
@@ -133,29 +130,36 @@ echo "src-link bettbox /path/to/Z_bett" >> feeds.conf
 ./scripts/feeds update bettbox && ./scripts/feeds install bettbox
 
 make defconfig
-make package/bettbox-forge/{clean,compile} V=s   # Rust（首次会拉 rust 工具链）
-make package/bettbox/compile V=s                 # Go 内核 + 脚本
+make package/bettbox/compile V=s                 # Go 内核 + Rust/QuickJS helper + 服务脚本
 make package/luci-app-bettbox/compile V=s        # LuCI
 # 产物: bin/packages/*/bettbox*.apk luci-app-bettbox*.apk
 ```
 
 设备端安装（APK）：
 
+从旧三包版本首次升级时，请使用 [迁移命令](docs/FORGE_MIGRATION.md#从旧三包版本升级) 同步处理旧 forge 的依赖约束；新安装只需下面两个 APK。
+
 ```sh
-apk add --allow-untrusted ./bettbox-*.apk ./bettbox-forge-*.apk ./luci-app-bettbox-*.apk
+apk add --allow-untrusted ./bettbox-[0-9]*.apk ./luci-app-bettbox-[0-9]*.apk
 ```
 
-依赖链：`luci-app-bettbox` → `bettbox`(+mihomo 内核) → 内核模块（kmod-tun/kmod-nft-tproxy）、`curl`、`yq`、`ucode`、`firewall4`、`ca-bundle`、`unzip`、`ip-full`。
+依赖链：`luci-app-bettbox` → `bettbox`(+mihomo 内核) → 内核模块（kmod-tun/kmod-nft-tproxy）、`curl`、`gzip`、`coreutils-sha256sum`、`yq`、`ucode`、`firewall4`、`ca-bundle`、`unzip`、`ip-full`。
 
 ## 目录
+
+启停顺序、异步任务与仍需真机验证的边界见 [启停流程优化](docs/SERVICE_LIFECYCLE.md)。
+
+资源页支持检查、独立更新和回退 Mihomo 核心，保留软件包自带核心；来源、架构支持、重启影响和验证范围见 [核心一键更新](docs/CORE_UPDATE.md)。
+
+资源页同时提供 Bettbox/LuCI 两个 APK 的检查与一键更新，配套手动 Release 发布清单、校验、安装预检查和配置备份；首次部署、发布流程与失败边界见 [APK 一键更新](docs/APK_UPDATE.md)。本轮只实现源码，未编译、安装或发布更新源。
 
 源码回归与浏览器检查的安装、运行方法见 [测试说明](test/README.md)；这些检查不编译安装包。
 
 ```
-bettbox/            核心包（内核+init+nft+订阅+渲染+工具箱）
-bettbox-forge/      Rust 覆写引擎（boa）
+bettbox/            核心包（内核+QuickJS helper+init+nft+订阅+渲染+工具箱）
+bettbox/forge/      内置脚本 helper 的 Rust 源码与测试（rquickjs/QuickJS）
 luci-app-bettbox/   LuCI 应用
 test/               辅助脚本：fetch-sdk.sh（SDK 下载）、build-in-wsl.sh（WSL 本地构建）、
                     export-artifacts.sh（导出 .apk）、router-smoke.sh（真机 34 项冒烟）
-.github/workflows/  CI（cargo check + 三目标 .apk 构建，SDK 下载带镜像回退）
+.github/workflows/  手动 CI（原生脚本引擎测试 + x86_64/ARM64 两目标 .apk 构建）
 ```

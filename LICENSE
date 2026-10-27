@@ -17,4 +17,5 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 Upstream components keep their own licenses:
   - Bettbox (feature reference): GPL-3.0  https://github.com/appshubcc/Bettbox
   - mihomo (engine):            GPL-3.0  https://github.com/MetaCubeX/mihomo
-  - boa (JS engine, Rust):      MIT/Apache-2.0  https://github.com/boa-dev/boa
+  - rquickjs (Rust binding):   MIT  https://github.com/DelSkayn/rquickjs
+  - QuickJS-NG (JS engine):    MIT  https://github.com/quickjs-ng/quickjs

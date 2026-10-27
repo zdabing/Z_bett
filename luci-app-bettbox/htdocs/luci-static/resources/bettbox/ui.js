@@ -32,7 +32,7 @@ function button(label,fn,kind,ico){
 }
 function mount(){
 	document.body.classList.add('bb-page');
-	if(!document.getElementById('bettbox-ui-css'))document.head.appendChild(E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261026-3'}));
+	if(!document.getElementById('bettbox-ui-css'))document.head.appendChild(E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261027-2'}));
 }
 function page(id,title,actions,content){
 	mount();var nav=E('nav',{'class':'main-nav','aria-label':'Bettbox 页面导航'},PAGES.map(function(p){return E('a',{'class':'nav-item'+(p[0]===id?' active':''),href:L.url('admin','services','bettbox',p[0]),'aria-current':p[0]===id?'page':null},[icon(p[2]),E('span',{},p[1])]);}));
@@ -48,5 +48,7 @@ function modal(title,body,actions){mount();return ui.showModal(title,[E('div',{'
 function field(label,control){return E('label',{'class':'bb-form-field'},[E('span',{'class':'input-label'},label),control]);}
 function search(placeholder,fn){var input=E('input',{type:'search','class':'field',placeholder:placeholder,'aria-label':placeholder});input.addEventListener('input',function(){fn(input.value);});return E('label',{'class':'search'},[icon('search'),input]);}
 function copy(text){if(navigator.clipboard && window.isSecureContext)return navigator.clipboard.writeText(text).then(function(){ui.addNotification(null,E('p',{},'已复制'),'info');});modal('复制地址',[E('input',{'class':'field',value:text,readonly:true})]);}
-function job(kind,args,onProgress){return startJob(kind,JSON.stringify(args||[])).then(checked).then(function(start){var until=Date.now()+185000;return new Promise(function(resolve,reject){function check(){getJob(start.id).then(function(res){if(res.error)throw new Error(res.error);if(onProgress)onProgress(res);if(res.done){if(res.ok)resolve(res);else reject(new Error(res.text||'诊断失败'));}else if(Date.now()>until)reject(new Error('任务仍在运行，请稍后重试查询'));else window.setTimeout(check,650);}).catch(reject);}check();});});}
-return baseclass.extend({icon:icon,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,mount:mount,pages:PAGES});
+function waitJob(id,budget,onProgress,reconnect){var until=Date.now()+budget,failedSince=null;return new Promise(function(resolve,reject){function check(){getJob(id).then(function(res){failedSince=null;if(res.error){reject(new Error(res.error));return;}if(onProgress)onProgress(res);if(res.done){if(res.ok)resolve(res);else reject(new Error(res.text||'后台任务失败'));}else if(Date.now()>until)reject(new Error('任务仍未完成，请刷新服务状态后确认结果'));else window.setTimeout(check,650);}).catch(function(err){if(!reconnect){reject(err);return;}if(failedSince===null)failedSince=Date.now();if(Date.now()>until||Date.now()-failedSince>=90000){var pending=new Error('连接中断，请刷新页面或重新登录后确认安装结果');pending.unconfirmed=true;reject(pending);}else window.setTimeout(check,1000);});}check();});}
+function job(kind,args,onProgress){return startJob(kind,JSON.stringify(args||[])).then(checked).then(function(start){return waitJob(start.id,185000,onProgress);});}
+function operation(result){checked(result);var budget=Number(result.timeout_ms)||630000;budget=Math.max(1000,Math.min(result.reconnect?2430000:1230000,budget));return result.id?waitJob(result.id,budget,null,result.reconnect===true):result;}
+return baseclass.extend({icon:icon,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,mount:mount,pages:PAGES});

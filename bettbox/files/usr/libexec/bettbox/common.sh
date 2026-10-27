@@ -8,6 +8,16 @@ BETTBOX_PROFILES=$BETTBOX_ETC/profiles
 BETTBOX_SCRIPTS=$BETTBOX_ETC/scripts
 BETTBOX_STATE=$BETTBOX_ETC/state
 
+# Managed updates never overwrite the package-owned executable.
+core_binary() {
+	if [ -e "$BETTBOX_ETC/core/current/mihomo" ] ||
+		{ [ -L "$BETTBOX_ETC/core/current" ] && [ "$(readlink "$BETTBOX_ETC/core/current")" != package ]; }; then
+		printf '%s\n' "$BETTBOX_ETC/core/current/mihomo"
+	else
+		printf '%s\n' /usr/bin/mihomo
+	fi
+}
+
 log() {
 	logger -t bettbox "$*"
 }

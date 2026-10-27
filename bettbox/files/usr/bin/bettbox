@@ -30,6 +30,8 @@ usage: bettbox <command> [args]
     age encrypt <pub>|decrypt <ident>     data on stdin
     iperf <host> [seconds]
   extras
+    core status | check | update | rollback   manage the independent Mihomo core
+    package status | check | update           update Bettbox and LuCI APKs
     dashboard install | remove               zashboard external-ui
     backup create <file> | restore <file>    local tar backup
     backup push | pull | list                WebDAV (configure bettbox.backup.*)
@@ -43,6 +45,14 @@ cmd="$1"
 shift
 
 case "$cmd" in
+package)
+	umask 077
+	exec ucode "$LIBEXEC/package-update.uc" "$@"
+	;;
+core)
+	umask 077
+	exec ucode "$LIBEXEC/core-update.uc" "$@"
+	;;
 start|stop|restart|reload|enable|disable)
 	/etc/init.d/bettbox "$cmd"
 	;;
