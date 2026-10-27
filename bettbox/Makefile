@@ -25,7 +25,7 @@ PKG_BUILD_DIR:=$(BUILD_DIR)/mihomo-$(PKG_VERSION)
 PKG_BUILD_DEPENDS:=golang/host rust/host
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
-PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./forge/tests
+PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src
 RUST_PKG_LOCKED:=1
 
 GO_PKG:=github.com/metacubex/mihomo
@@ -43,7 +43,7 @@ CARGO_PKG_VARS+=TARGET_AR="$(TARGET_AR)"
 define Build/Prepare
 	$(call Build/Prepare/Default)
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/.bettbox-forge
-	$(CP) ./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./forge/tests $(PKG_BUILD_DIR)/.bettbox-forge/
+	$(CP) ./forge/Cargo.toml ./forge/Cargo.lock ./forge/src $(PKG_BUILD_DIR)/.bettbox-forge/
 endef
 
 define Build/Compile

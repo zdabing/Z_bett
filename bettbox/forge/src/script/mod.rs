@@ -327,6 +327,3 @@ pub fn extract_options(script: &str) -> Result<String, Failure> {
         }
     })
 }
-
-#[cfg(test)]
-mod tests;

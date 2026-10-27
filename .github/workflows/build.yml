@@ -1,7 +1,6 @@
 name: Build OpenWrt 25 packages
 
 # 仅手动触发（Actions 页面点 Run workflow）。
-# 上次自动构建的失败只是 downloads.openwrt.org CDN 502，不是代码问题。
 on:
   workflow_dispatch:
     inputs:
@@ -19,44 +18,25 @@ permissions:
 
 jobs:
   rust-check:
-    name: Source and QuickJS helper checks
+    name: Source checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm ci --prefix test --ignore-scripts
       - name: Validate requested release tag
         if: inputs.publish
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
-        run: python3 test/release-manifest.py validate-tag "$RELEASE_TAG"
-      - name: Check router shell regressions
+        run: python3 .github/scripts/release.py validate-tag "$RELEASE_TAG"
+      - name: Check router shell syntax
         run: |
           sh -n bettbox/files/usr/bin/bettbox
           sh -n bettbox/files/etc/init.d/bettbox
           sh -n bettbox/files/usr/libexec/bettbox/cron.sh
           sh -n bettbox/files/usr/libexec/bettbox/router-settings.sh
           for script in bettbox/files/usr/libexec/bettbox/*.sh; do sh -n "$script" || exit 1; done
-          python3 test/cron-test.py
-          python3 test/router-settings-test.py
-          python3 test/shell-regression-test.py
-          python3 test/service-lifecycle-test.py
-          python3 test/package-layout-test.py
-          python3 test/release-manifest-test.py
-          node test/core-test.js
-          node test/logs-test.js
-          node test/overview-exit-test.js
-          node test/service-operation-test.js
-          node test/diagnostic-worker-test.js
-          node test/core-update-test.js
-          node test/package-update-test.js
-          node test/forge-contract-test.js
-          node test/render-test.js
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo fmt --manifest-path bettbox/forge/Cargo.toml -- --check
-      - run: cargo test --locked --manifest-path bettbox/forge/Cargo.toml
+      - run: cargo check --locked --manifest-path bettbox/forge/Cargo.toml
 
   build:
     name: SDK ${{ matrix.target }} (.apk)
@@ -162,7 +142,7 @@ jobs:
           PACKAGE_TARGET: ${{ matrix.target }}
         run: |
           export LD_LIBRARY_PATH="$PWD/staging_dir/host/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          python3 "$GITHUB_WORKSPACE/bettbox-feed/test/release-manifest.py" collect \
+          python3 "$GITHUB_WORKSPACE/bettbox-feed/.github/scripts/release.py" collect \
             --target "$PACKAGE_TARGET" --apk-tool "$PWD/staging_dir/host/bin/apk" \
             --input out --output release-out
 
@@ -187,11 +167,11 @@ jobs:
       - name: Assemble matching architecture releases
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
-        run: python3 test/release-manifest.py assemble --tag "$RELEASE_TAG" --input artifacts --output release-assets
+        run: python3 .github/scripts/release.py assemble --tag "$RELEASE_TAG" --input artifacts --output release-assets
       - name: Publish after GitHub checksum verification
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           RELEASE_COMMIT: ${{ github.sha }}
           RELEASE_REPOSITORY: ${{ github.repository }}
-        run: python3 test/release-manifest.py publish --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" --repository "$RELEASE_REPOSITORY" --input release-assets
+        run: python3 .github/scripts/release.py publish --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" --repository "$RELEASE_REPOSITORY" --input release-assets

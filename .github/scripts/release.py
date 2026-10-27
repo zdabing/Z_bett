@@ -17,12 +17,24 @@ TARGETS = ('x86_64', 'aarch64_generic')
 NAMES = ('bettbox', 'luci-app-bettbox')
 TAG = re.compile(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-r[0-9]+)?\Z')
 VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+\Z')
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def require(value, message):
     if not value:
         raise ValueError(message)
+
+
+def release_notes(tag):
+    changelog = (ROOT / 'CHANGELOG.md').read_text(encoding='utf-8')
+    heading = re.search(r'^## ' + re.escape(tag) + r'(?:[ \t]+[^\n]*)?$', changelog, re.M)
+    require(heading is not None, 'missing CHANGELOG entry for ' + tag)
+    body = changelog[heading.end():]
+    next_version = re.search(r'^## ', body, re.M)
+    if next_version:
+        body = body[:next_version.start()]
+    require(body.strip(), 'empty CHANGELOG entry for ' + tag)
+    return '# Bettbox ' + tag + '\n\n' + body.strip() + '\n'
 
 
 def run(args):
@@ -120,11 +132,12 @@ def publish(tag, commit, repository, directory):
     require(manifest.get('tag') == tag and manifest.get('schema') == 1, 'manifest tag mismatch')
     files = sorted(directory.glob('*.apk')) + [directory / 'bettbox-update.json']
     require(len(files) == 5, 'expected four architecture-qualified APKs and one update manifest')
-    notes = ROOT / 'docs/releases' / (tag + '.md')
-    require(notes.is_file() and notes.stat().st_size > 0, 'missing version-specific release notes: ' + tag)
+    notes_text = release_notes(tag)
     # Never clobber an existing release/tag: downloaded versions stay immutable.
     existing = subprocess.run(['gh', 'api', 'repos/' + repository + '/git/ref/tags/' + tag], capture_output=True, text=True)
     require(existing.returncode != 0 and '404' in existing.stderr, 'tag already exists or could not be checked')
+    notes = directory / 'release-notes.md'
+    notes.write_text(notes_text, encoding='utf-8')
     run(['gh', 'release', 'create', tag, '--repo', repository, '--draft', '--target', commit,
          '--title', 'Bettbox ' + tag, '--notes-file', str(notes)] + [str(path) for path in files])
     reference = json.loads(run(['gh', 'api', 'repos/' + repository + '/git/ref/tags/' + tag]))
@@ -159,7 +172,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.action == 'validate-tag':
         require(len(args.tag) < 64 and TAG.fullmatch(args.tag), 'release tag must be vX.Y.Z or vX.Y.Z-rN')
-        require((ROOT / 'docs/releases' / (args.tag + '.md')).is_file(), 'missing version-specific release notes')
+        release_notes(args.tag)
     elif args.action == 'collect':
         collect(args.target, args.apk_tool, args.input, args.output)
     elif args.action == 'assemble':
