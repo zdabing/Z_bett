@@ -38,7 +38,8 @@ def release_notes(tag):
 
 
 def run(args):
-    result = subprocess.run(args, check=True, capture_output=True, text=True, encoding='utf-8')
+    result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8')
+    require(result.returncode == 0, 'command failed: ' + ' '.join(map(str, args)) + '\n' + result.stderr[-8000:])
     return result.stdout
 
 

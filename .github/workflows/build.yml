@@ -136,12 +136,18 @@ jobs:
           find bin/packages -type f \( -name 'bettbox-[0-9]*.apk' -o -name 'luci-app-bettbox-[0-9]*.apk' \) -exec cp {} out/ \;
           ls -la out/
 
+      - name: Preserve built APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-apks-${{ matrix.target }}
+          path: ${{ env.SDKDIR }}/out/*.apk
+          if-no-files-found: error
+
       - name: Verify APK metadata and prepare update assets
         working-directory: ${{ env.SDKDIR }}
         env:
           PACKAGE_TARGET: ${{ matrix.target }}
         run: |
-          export LD_LIBRARY_PATH="$PWD/staging_dir/host/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           python3 "$GITHUB_WORKSPACE/bettbox-feed/.github/scripts/release.py" collect \
             --target "$PACKAGE_TARGET" --apk-tool "$PWD/staging_dir/host/bin/apk" \
             --input out --output release-out
