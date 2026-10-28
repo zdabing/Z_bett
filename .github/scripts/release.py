@@ -231,12 +231,19 @@ def publish(tag, commit, repository, directory):
     reference = json.loads(run(['gh', 'api', 'repos/' + repository + '/git/ref/tags/' + tag]))
     require(reference.get('object', {}).get('type') == 'commit' and reference['object'].get('sha') == commit,
             'release tag differs from build commit; release remains a draft')
+    # The by-tag REST endpoint only exposes published releases. Drafts must
+    # be found in the authenticated list and then addressed by numeric ID.
+    releases = json.loads(run(['gh', 'api', 'repos/' + repository + '/releases?per_page=100']))
+    drafts = [item for item in releases if item.get('draft') is True and item.get('tag_name') == tag
+              and item.get('target_commitish') == commit]
+    require(len(drafts) == 1 and type(drafts[0].get('id')) is int, 'could not identify the exact build draft')
+    endpoint = 'repos/' + repository + '/releases/' + str(drafts[0]['id'])
     expected = {path.name: (path.stat().st_size, 'sha256:' + sha(path)) for path in files}
     for attempt in range(4):
-        release = json.loads(run(['gh', 'api', 'repos/' + repository + '/releases/tags/' + tag]))
+        release = json.loads(run(['gh', 'api', endpoint]))
         assets = {asset['name']: (asset.get('size'), asset.get('digest')) for asset in release.get('assets', [])}
         if all(assets.get(name) == value for name, value in expected.items()):
-            run(['gh', 'release', 'edit', tag, '--repo', repository, '--draft=false', '--latest'])
+            run(['gh', 'api', '--method', 'PATCH', endpoint, '-F', 'draft=false', '-f', 'make_latest=true'])
             return
         if attempt < 3:
             time.sleep(2)
