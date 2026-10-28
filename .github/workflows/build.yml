@@ -12,9 +12,14 @@ on:
         description: New release tag (vX.Y.Z or vX.Y.Z-rN), required when publishing
         type: string
         required: false
+      reuse_run:
+        description: Optional previous run ID; reuse verified APK payloads only when product sources and build definitions match
+        type: string
+        required: false
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   rust-check:
@@ -22,6 +27,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify reusable build provenance
+        if: inputs.reuse_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE_RUN: ${{ inputs.reuse_run }}
+        run: python3 .github/scripts/release.py provenance --run-id "$REUSE_RUN"
       - name: Validate requested release tag
         if: inputs.publish
         env:
@@ -90,6 +101,7 @@ jobs:
           echo "SDKDIR=$SDKDIR" >> "$GITHUB_ENV"
 
       - name: Register feed and install
+        if: inputs.reuse_run == ''
         working-directory: ${{ env.SDKDIR }}
         run: |
           # Creating feeds.conf with only our feed disables the SDK defaults.
@@ -100,6 +112,7 @@ jobs:
           ./scripts/feeds install -a
 
       - name: Configure
+        if: inputs.reuse_run == ''
         working-directory: ${{ env.SDKDIR }}
         run: |
           make defconfig
@@ -108,10 +121,12 @@ jobs:
           make defconfig
 
       - name: Build native ucode validator
+        if: inputs.reuse_run == ''
         working-directory: ${{ env.SDKDIR }}
         run: make package/ucode/host/compile V=s -j2
 
       - name: Validate router ucode syntax
+        if: inputs.reuse_run == ''
         working-directory: ${{ env.SDKDIR }}
         run: |
           mkdir -p ucode-checks
@@ -124,17 +139,38 @@ jobs:
           done
 
       - name: Build packages
+        if: inputs.reuse_run == ''
         working-directory: ${{ env.SDKDIR }}
         run: |
           make package/bettbox/compile V=s -j2 || exit 1
           make package/luci-app-bettbox/compile V=s -j2 || exit 1
 
       - name: Collect artifacts
+        if: inputs.reuse_run == ''
         working-directory: ${{ env.SDKDIR }}
         run: |
           mkdir -p out
           find bin/packages -type f \( -name 'bettbox-[0-9]*.apk' -o -name 'luci-app-bettbox-[0-9]*.apk' \) -exec cp {} out/ \;
           ls -la out/
+
+      - name: Restore matching APK payloads
+        if: inputs.reuse_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: built-apks-${{ matrix.target }}
+          run-id: ${{ inputs.reuse_run }}
+          github-token: ${{ github.token }}
+          path: reused-apks
+
+      - name: Repackage and verify unchanged payloads
+        if: inputs.reuse_run != ''
+        working-directory: ${{ env.SDKDIR }}
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          sudo python3 "$GITHUB_WORKSPACE/bettbox-feed/.github/scripts/release.py" repack \
+            --target "$PACKAGE_TARGET" --apk-tool "$PWD/staging_dir/host/bin/apk" \
+            --input "$GITHUB_WORKSPACE/reused-apks" --output out
 
       - name: Preserve built APKs
         uses: actions/upload-artifact@v4

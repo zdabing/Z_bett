@@ -129,8 +129,9 @@ endef
 $(eval $(call GoBinPackage,$(PKG_NAME)))
 $(eval $(call BuildPackage,$(PKG_NAME)))
 
-# package-pack.mk initializes APK_INFO during BuildPackage. Append afterwards
-# so mkpkg receives this field; a generic REPLACES variable is not consumed.
-ifeq ($(CONFIG_USE_APK),y)
-  APK_INFO_bettbox += --info "replaces:bettbox-forge"
+# Stable 25.12 SDKs lack APK_INFO. Their deferred per-package APK argument
+# list accepts mkpkg options as well as scripts. Append after BuildPackage,
+# which initializes this list, and keep it scoped to Bettbox.
+ifneq ($(CONFIG_USE_APK),)
+  APK_SCRIPTS_bettbox += --info "replaces:bettbox-forge"
 endif
