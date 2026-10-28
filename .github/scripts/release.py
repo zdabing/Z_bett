@@ -220,9 +220,13 @@ def publish(tag, commit, repository, directory):
     # Never clobber an existing release/tag: downloaded versions stay immutable.
     existing = subprocess.run(['gh', 'api', 'repos/' + repository + '/git/ref/tags/' + tag], capture_output=True, text=True)
     require(existing.returncode != 0 and '404' in existing.stderr, 'tag already exists or could not be checked')
+    # Draft releases do not create Git refs. Establish the exact build ref
+    # first, then require it when creating the still-private release draft.
+    run(['gh', 'api', '--method', 'POST', 'repos/' + repository + '/git/refs',
+         '-f', 'ref=refs/tags/' + tag, '-f', 'sha=' + commit])
     notes = directory / 'release-notes.md'
     notes.write_text(notes_text, encoding='utf-8')
-    run(['gh', 'release', 'create', tag, '--repo', repository, '--draft', '--target', commit,
+    run(['gh', 'release', 'create', tag, '--repo', repository, '--draft', '--verify-tag', '--target', commit,
          '--title', 'Bettbox ' + tag, '--notes-file', str(notes)] + [str(path) for path in files])
     reference = json.loads(run(['gh', 'api', 'repos/' + repository + '/git/ref/tags/' + tag]))
     require(reference.get('object', {}).get('type') == 'commit' and reference['object'].get('sha') == commit,
