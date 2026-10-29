@@ -1,0 +1,76 @@
+From: Bettbox for OpenWrt contributors
+Subject: [PATCH] Return idle Go heap pages after config and periodically
+
+Replace the existing post-config GC with FreeOSMemory. Check every five
+minutes and reclaim only when at least 16 MiB of unreturned idle heap exists.
+No connections, DNS entries, TUN state or live application data are removed.
+
+--- a/hub/executor/executor.go
++++ b/hub/executor/executor.go
+@@ -23,6 +23,7 @@
+ 	"github.com/metacubex/mihomo/component/keepalive"
+ 	"github.com/metacubex/mihomo/component/profile"
+ 	"github.com/metacubex/mihomo/component/profile/cachefile"
++	"github.com/metacubex/mihomo/component/reclaimer"
+ 	"github.com/metacubex/mihomo/component/resolver"
+ 	"github.com/metacubex/mihomo/component/resource"
+ 	"github.com/metacubex/mihomo/component/sniffer"
+@@ -115,7 +116,7 @@
+ 	loadProvider(cfg.Providers)
+ 	updateProfile(cfg)
+ 	loadProvider(cfg.RuleProviders)
+-	runtime.GC()
++	reclaimer.AfterConfig()
+ 	tunnel.OnRunning()
+ 	updateUpdater(cfg)
+ 
+--- /dev/null
++++ b/component/reclaimer/reclaimer.go
+@@ -0,0 +1,47 @@
++// Package reclaimer returns unused Go heap pages to the operating system.
++package reclaimer
++
++import (
++	"runtime"
++	"runtime/debug"
++	"sync"
++	"time"
++)
++
++const (
++	checkInterval = 5 * time.Minute
++	minimumIdle   = 16 << 20
++)
++
++var startOnce sync.Once
++
++// AfterConfig replaces the existing post-configuration GC and starts one
++// process-local maintenance loop. It never closes connections or changes caches.
++func AfterConfig() {
++	debug.FreeOSMemory()
++	startOnce.Do(func() {
++		go func() {
++			ticker := time.NewTicker(checkInterval)
++			defer ticker.Stop()
++			for range ticker.C {
++				releaseIdle()
++			}
++		}()
++	})
++}
++
++func worthReleasing(idle, released uint64) bool {
++	return idle >= released && idle-released >= minimumIdle
++}
++
++func releaseIdle() bool {
++	var stats runtime.MemStats
++	runtime.ReadMemStats(&stats)
++	// Check pages already idle, without forcing a full GC every five minutes.
++	// Live heap, TUN buffers and application caches remain owned by their users.
++	if !worthReleasing(stats.HeapIdle, stats.HeapReleased) {
++		return false
++	}
++	debug.FreeOSMemory()
++	return true
++}

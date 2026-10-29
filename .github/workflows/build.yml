@@ -134,8 +134,14 @@ jobs:
           for source in "$SOURCE_ROOT"/bettbox/files/usr/libexec/bettbox/*.uc \
                         "$SOURCE_ROOT"/luci-app-bettbox/root/usr/share/rpcd/ucode/bettbox.uc; do
             printf 'Checking %s\n' "$source"
-            staging_dir/hostpkg/bin/ucode -cno-interp,dynlink=fs,dynlink=uci \
-              -o "ucode-checks/$(basename "$source").ucb" "$source"
+            target="ucode-checks/$(basename "$source").ucb"
+            if [ "$(basename "$source")" = script-store.uc ]; then
+              # Exports are legal only when compiled as an imported module.
+              printf "import { valid_script_name } from '%s';\n" "$source" > ucode-checks/script-store-wrapper.uc
+              source=ucode-checks/script-store-wrapper.uc
+            fi
+            staging_dir/hostpkg/bin/ucode -cno-interp,dynlink=fs,dynlink=uci,dynlink=/usr/libexec/bettbox/script-store.uc \
+              -o "$target" "$source"
           done
 
       - name: Build packages

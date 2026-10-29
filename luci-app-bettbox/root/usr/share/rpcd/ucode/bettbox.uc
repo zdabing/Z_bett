@@ -8,6 +8,7 @@
 
 import { access, lsdir, popen, readfile, stat, unlink, writefile } from 'fs';
 import { cursor } from 'uci';
+import { valid_script_name, valid_script_url, script_info, save_script_source, write_script, delete_script } from '/usr/libexec/bettbox/script-store.uc';
 
 function shellquote(s) {
 	return sprintf("'%s'", replace(s, /'/g, "'\\''"));
@@ -30,10 +31,6 @@ function run(cmd) {
 function valid_sid(sid) {
 	// no {n,m} quantifiers: older ucode regex builds reject them
 	return type(sid) == 'string' && length(sid) <= 64 && match(sid, /^[A-Za-z0-9_-]+$/);
-}
-
-function valid_name(name) {
-	return type(name) == 'string' && length(name) <= 64 && match(name, /^[A-Za-z0-9_-]+$/);
 }
 
 function valid_path(p) {
@@ -114,7 +111,8 @@ function profile_list() {
 function status_obj() {
 	let ctx = cursor();
 	let service = null;
-	try { service = json(run('ubus -t 2 call service list ' + shellquote('{"name":"bettbox"}'))); } catch (e) {}
+	let service_result = run_result('ubus -t 2 call service list ' + shellquote('{"name":"bettbox"}'));
+	try { if (service_result.ok) service = json(service_result.text); } catch (e) {}
 	let pid=service?.bettbox?.instances?.core?.pid, rss=null;
 	if(type(pid)=='int' && pid>0){let m=match(readfile('/proc/'+pid+'/status')??'',/VmRSS:\s+([0-9]+) kB/);if(m)rss=int(m[1])*1024;}
 	/* instant by design: no internal curl here — views read live core state
@@ -122,6 +120,7 @@ function status_obj() {
 	return {
 		enabled: (ctx.get('bettbox', 'config', 'enabled') == '1'),
 		running: service?.bettbox?.instances?.core?.running == true,
+		service_known: type(service) == 'object' && service.error == null,
 		secret: ctx.get('bettbox', 'config', 'secret') ?? '',
 		core: null,
 		memory_rss: rss,
@@ -314,8 +313,8 @@ return {
 					for (let ent in lsdir('/etc/bettbox/scripts')) {
 						let name = (type(ent) == 'string') ? ent : ent?.name;
 						if (name && match(name, /\.js$/)) {
-							let st = stat('/etc/bettbox/scripts/' + name);
-							push(scripts, { name: substr(name, 0, length(name) - 3), size: (st != null) ? st.size : 0 });
+							let info = script_info(substr(name, 0, length(name) - 3));
+							if (info != null) push(scripts, info);
 						}
 					}
 				}
@@ -325,7 +324,7 @@ return {
 		get_script: {
 			args: { name: '' },
 			call: function(request) {
-				if (!valid_name(request.args.name))
+				if (!valid_script_name(request.args.name))
 					return { error: 'invalid name' };
 				let path = '/etc/bettbox/scripts/' + request.args.name + '.js';
 				if (!access(path))
@@ -334,30 +333,32 @@ return {
 			}
 		},
 		save_script: {
-			args: { name: '', content: '' },
+			args: { name: '', content: '', create_only: '0' },
 			call: function(request) {
-				if (!valid_name(request.args.name))
+				if (!valid_script_name(request.args.name))
 					return { error: 'invalid name' };
-				if (length(request.args.content) > 512 * 1024)
-					return { error: 'script too large' };
-				if (writefile('/etc/bettbox/scripts/' + request.args.name + '.js', request.args.content) == null)
-					return { ok: false, error: 'could not save script' };
-				return { ok: true };
+				try {
+					let info = write_script(request.args.name, request.args.content, null, request.args.create_only == '1');
+					return { ok: true, script: info };
+				} catch (e) { return { ok: false, error: '' + e }; }
 			}
 		},
 		del_script: {
 			args: { name: '' },
 			call: function(request) {
-				if (!valid_name(request.args.name))
+				if (!valid_script_name(request.args.name))
 					return { error: 'invalid name' };
-				unlink('/etc/bettbox/scripts/' + request.args.name + '.js');
-				return { ok: true };
+				let used = false;
+				cursor().foreach('bettbox', 'subscription', (s) => { if (s.use_script == '1' && s.script == request.args.name) used = true; });
+				if (used) return { ok: false, error: '脚本仍被订阅使用，请先修改关联' };
+				try { delete_script(request.args.name); return { ok: true }; }
+				catch (e) { return { ok: false, error: '' + e }; }
 			}
 		},
 		script_options: {
 			args: { name: '' },
 			call: function(request) {
-				if (!valid_name(request.args.name))
+				if (!valid_script_name(request.args.name))
 					return { error: 'invalid name' };
 				let path = '/etc/bettbox/scripts/' + request.args.name + '.js';
 				if (!access(path))
@@ -438,42 +439,35 @@ return {
 				return { text: run('/usr/bin/bettbox ' + tool + ' ' + join(' ', argv) + ' 2>&1') };
 			}
 		},
+		set_script_source: {
+			args: { name: '', url: '' },
+			call: function(request) {
+				try { return { ok: true, script: save_script_source(request.args.name, request.args.url) }; }
+				catch (e) { return { ok: false, error: '' + e }; }
+			}
+		},
+		script_check: {
+			args: { name: '' },
+			call: function(request) {
+				if (!valid_script_name(request.args.name)) return { ok: false, error: '脚本名称无效' };
+				return create_job('script', ['check', request.args.name]);
+			}
+		},
+		script_update: {
+			args: { name: '', token: '' },
+			call: function(request) {
+				if (!valid_script_name(request.args.name) || !match(request.args.token ?? '', /^bettbox-script\.[A-Za-z0-9]+$/)) return { ok: false, error: '更新预览无效' };
+				return create_job('script', ['update', request.args.name, request.args.token]);
+			}
+		},
 		import_script_url: {
 			args: { url: '', name: '' },
 			call: function(request) {
-				let url = request.args.url ?? '';
-				if (!(match(url, /^https?:\/\/[A-Za-z0-9._~:\/?#@!$&()*+,;=%-]+$/)))
-					return { error: 'bad url' };
-				let name = request.args.name ?? '';
-				if (!length(name)) {
-					let base = replace(url, /^.*\//, '');
-					name = replace(base, /\?.*$/, '');
-					name = replace(name, /\.js$/, '');
-				}
-				if (!(type(name) == 'string' && length(name) <= 64 && match(name, /^[A-Za-z0-9_-]+$/)))
-					return { error: 'invalid script name' };
-				let body = trim(run('umask 077; mktemp /tmp/bettbox-import.XXXXXX'));
-				if (!match(body, /^\/tmp\/bettbox-import\.[A-Za-z0-9]+$/))
-					return { error: 'could not create download workspace' };
-				let cmd = sprintf('curl -sSL --fail --max-filesize 524288 -m 30 -o %s %s 2>/dev/null && grep -q "function main" %s && wc -c < %s',
-					shellquote(body), shellquote(url), shellquote(body), shellquote(body));
-				let out = run(cmd);
-				let size = int(trim(out));
-				if (type(size) != 'int' || size <= 0) {
-					unlink(body);
-					return { error: 'download failed or no main() in script' };
-				}
-				if (size > 512 * 1024) {
-					unlink(body);
-					return { error: 'script too large' };
-				}
-				let content = readfile(body) ?? '';
-				unlink(body);
-				if (length(content) == 0)
-					return { error: 'downloaded script is empty' };
-				if (writefile('/etc/bettbox/scripts/' + name + '.js', content) == null)
-					return { ok: false, error: 'could not save script' };
-				return { ok: true, name: name, size: size };
+				let url = request.args.url ?? '', name = request.args.name ?? '';
+				if (!valid_script_url(url)) return { ok: false, error: '脚本链接无效' };
+				if (!length(name)) name = replace(replace(replace(url, /^.*\//, ''), /[?#].*$/, ''), /\.js$/i, '');
+				if (!valid_script_name(name)) return { ok: false, error: '脚本名称无效' };
+				return create_job('script', ['import', name, url]);
 			}
 		},
 		backup_call: {

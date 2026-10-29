@@ -5,8 +5,9 @@
 
 var startJob = rpc.declare({ object: 'bettbox', method: 'diagnostic_start', params: ['kind', 'args_json'] });
 var getJob = rpc.declare({ object: 'bettbox', method: 'diagnostic_status', params: ['id'] });
-var PAGES = [ ['overview','概览','grid'], ['proxies','代理','route'], ['connections','连接','link'], ['profiles','订阅','file'], ['scripts','脚本','code'], ['resources','资源','layers'], ['toolbox','工具箱','terminal'], ['logs','日志','list'], ['settings','设置','settings'] ];
+var PAGES = [ ['overview','概览','grid'], ['proxies','代理','route'], ['connections','连接','link'], ['profiles','订阅','file'], ['resources','资源','layers'], ['toolbox','工具箱','terminal'], ['logs','日志','list'], ['settings','设置','settings'] ];
 var PATHS = {
+	eye:'<path d="M2 12c5-9 15-9 20 0-5 9-15 9-20 0Z"/><circle cx="12" cy="12" r="3"/>',
 	grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
 	route:'<path d="M4 6h15m-5-4 5 4-5 4M20 18H5m5-4-5 4 5 4"/>',link:'<path d="m10 8 3-3a5 5 0 0 1 7 7l-3 3m-3 1-3 3a5 5 0 0 1-7-7l3-3m1 7 8-8"/>',
 	file:'<path d="M6 3h9l4 4v14H6Z"/><path d="M14 3v5h5M9 13h7m-7 4h5"/>',code:'<path d="m8 5-6 7 6 7m8-14 6 7-6 7M14 3l-4 18"/>',layers:'<path d="m3 7 9-5 9 5-9 5Z"/><path d="m3 12 9 5 9-5m-18 5 9 5 9-5"/>',
@@ -32,7 +33,7 @@ function button(label,fn,kind,ico){
 }
 function mount(){
 	document.body.classList.add('bb-page');
-	if(!document.getElementById('bettbox-ui-css'))document.head.appendChild(E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261027-2'}));
+	if(!document.getElementById('bettbox-ui-css'))document.head.appendChild(E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261029-1'}));
 }
 function page(id,title,actions,content){
 	mount();var nav=E('nav',{'class':'main-nav','aria-label':'Bettbox 页面导航'},PAGES.map(function(p){return E('a',{'class':'nav-item'+(p[0]===id?' active':''),href:L.url('admin','services','bettbox',p[0]),'aria-current':p[0]===id?'page':null},[icon(p[2]),E('span',{},p[1])]);}));

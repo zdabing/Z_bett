@@ -1,0 +1,17 @@
+.bb-app .bb-script-version{border:1px solid var(--bb-line);background:var(--subtle);border-radius:var(--bb-control-radius);padding:16px 18px;min-width:0}
+.bb-app .bb-script-version-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;font-size:12px}
+.bb-app .bb-script-version-id{color:var(--bb-accent);min-width:0;max-width:100%;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bb-app .bb-script-version-message{margin:8px 0 12px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--secondary)}
+.bb-app .bb-script-version-facts{display:flex;gap:14px 24px;flex-wrap:wrap;font-size:12px;color:var(--secondary)}
+.bb-app .bb-script-version-facts strong{color:var(--ink)}
+.bb-app .bb-script-source-row{display:flex;align-items:center;gap:12px;margin-top:8px}
+.bb-app .bb-script-source-row>span{flex:1;min-width:0;overflow-wrap:anywhere}
+.bb-app .bb-script-source-row .btn{flex-shrink:0}
+.bb-app .bb-script-error{color:var(--bb-danger);font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:10px}
+.bb-app .bb-script-error:empty{display:none}
+.bb-app .script-layout .panel-head{flex-wrap:wrap}
+.bb-app .script-layout .panel-head h2{overflow-wrap:anywhere;min-width:0}
+.bb-app .script-layout .panel-head .button-row{flex-wrap:wrap}
+.bb-app .script-layout textarea.code-editor{display:block;width:100%;border:0;border-top:1px solid var(--bb-line);border-radius:0;resize:vertical}
+.bb-app .script-layout .bb-operation-state{padding:0 18px}
+@media(max-width:599px){.bb-app .bb-script-version{padding:13px}.bb-app .bb-script-version-head{gap:7px}.bb-app .bb-script-version-id{font-size:12px}.bb-app .bb-script-version-facts{gap:8px 18px}.bb-app .bb-script-source-row{align-items:flex-start}.bb-app .script-layout .panel-head>.button-row{width:100%}}

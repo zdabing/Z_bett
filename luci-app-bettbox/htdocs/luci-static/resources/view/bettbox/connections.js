@@ -1,28 +1,177 @@
 'use strict';
 'require view';
 'require poll';
+'require rpc';
 'require ui';
 'require bettbox.core as Core';
 'require bettbox.ui as UI';
 
+var getStatus = rpc.declare({ object: 'bettbox', method: 'get_status' });
+
 return view.extend({
-	render:function(){
-		var data=[],previous={},lastTime=0,paused=false,busy=false,filter='',protocol='',sort='traffic',pageNo=0,pageSize=30;
-		var list=E('div'),summary=E('div',{'class':'toolbar connection-summary'}),notice=E('div',{'class':'bb-update-note','role':'status'}),pager=E('div',{'class':'button-row'});
-		function target(c){var m=c.metadata||{};return m.host||m.destinationIP||'—';}
-		function detail(c){var m=c.metadata||{},rows=[['目标',target(c)],['目的地址',(m.destinationIP||'—')+':'+(m.destinationPort||'—')],['来源',(m.sourceIP||'—')+':'+(m.sourcePort||'—')],['协议',(m.network||'').toUpperCase()+' · '+(m.type||'')],['链路',(c.chains||[]).join(' → ')],['规则',(c.rule||'')+' '+(c.rulePayload||'')],['上传',UI.bytes(c.upload)],['下载',UI.bytes(c.download)],['速率',UI.speed(c._speed)],['开始时间',c.start?new Date(c.start).toLocaleString():'—']];UI.modal('连接详情',E('dl',{'class':'definition-list'},rows.map(function(r){return E('div',{'class':'definition-row'},[E('dt',{},r[0]),E('dd',{},String(r[1]))]);})),[UI.button('关闭此连接',function(){return Core.del('/connections/'+encodeURIComponent(c.id)).then(function(){ui.hideModal();return refresh();});},'danger','close'),UI.button('返回',ui.hideModal)]);}
-		function row(c){var m=c.metadata||{};return E('tr',{},[E('td',{},[E('div',{'class':'cell-title'},target(c)),E('div',{'class':'cell-meta'},(m.network||'').toUpperCase()+' · '+(m.destinationPort||''))]),E('td',{'class':'mono'},m.sourceIP||'—'),E('td',{},[E('div',{},(c.chains||[]).join(' → ')||'—'),E('div',{'class':'cell-meta'},c.rule||'')]),E('td',{'class':'mono'},'↓'+UI.bytes(c.download)+' / ↑'+UI.bytes(c.upload)),E('td',{'class':'mono'},UI.speed(c._speed)),E('td',{},UI.button('详情',function(){detail(c);},'bb-icon-only','chevron'))]);}
-		function card(c){var m=c.metadata||{};return E('article',{'class':'connection-card'},[E('div',{'class':'connection-top'},[E('div',{},[E('div',{'class':'cell-title'},target(c)),E('div',{'class':'cell-meta'},(m.network||'').toUpperCase()+' · '+(m.destinationPort||'')+' · 来自 '+(m.sourceIP||'—'))]),UI.button('详情',function(){detail(c);},'bb-icon-only','chevron')]),E('div',{'class':'cell-meta'},(c.chains||[]).join(' → ')||'—'),E('div',{'class':'connection-bottom'},[UI.tag(c.rule||'—','neutral'),E('span',{'class':'mono'},'↓'+UI.bytes(c.download)+' · '+UI.speed(c._speed))])]);}
-		function draw(){var filtered=data.filter(function(c){var m=c.metadata||{};return(!protocol||String(m.network).toLowerCase()===protocol)&&(!filter||[target(c),m.destinationIP,m.sourceIP,c.rule,(c.chains||[]).join(' ')].join(' ').toLowerCase().indexOf(filter)>=0);});filtered.sort(function(a,b){return sort==='time'?String(b.start).localeCompare(String(a.start)):((b.upload||0)+(b.download||0))-((a.upload||0)+(a.download||0));});var pages=Math.max(1,Math.ceil(filtered.length/pageSize));if(pageNo>=pages)pageNo=pages-1;var slice=filtered.slice(pageNo*pageSize,(pageNo+1)*pageSize);
-			if(!slice.length)list.replaceChildren(UI.empty('暂无符合条件的连接','可以清除筛选条件，或等待新连接。'));
-			else list.replaceChildren(E('section',{'class':'panel connection-table'},E('table',{'class':'data-table'},[E('thead',{},E('tr',{},['目标 / 协议','来源设备','链路 / 规则','流量','速率',''].map(function(h){return E('th',{},h);}))),E('tbody',{},slice.map(row))])),E('section',{'class':'panel connection-cards'},slice.map(card)));
-			var prev=UI.button('上一页',function(){pageNo--;draw();}),next=UI.button('下一页',function(){pageNo++;draw();});prev.disabled=pageNo===0;next.disabled=pageNo+1>=pages;pager.replaceChildren(prev,E('span',{'class':'small muted'},'第 '+(pageNo+1)+' / '+pages+' 页 · '+filtered.length+' 条'),next);
+	render: function() {
+		var active = [], closed = [], previous = {}, lastTime = 0, session = null;
+		var paused = false, inFlight = null, supported = null, state = 'loading';
+		var filter = '', protocol = '', scope = 'active', sort = 'traffic', pageNo = 0, pageSize = 30;
+		var totals = {}, detailRecord = null, detailBody = null, detailActions = null;
+		var list = E('div'), summary = E('div', { 'class': 'toolbar connection-summary' });
+		var notice = E('div', { 'class': 'bb-update-note', role: 'status' }), pager = E('div', { 'class': 'button-row' });
+		var tabs = E('div', { 'class': 'chips bb-connection-tabs', 'aria-label': '连接状态' }), tabButtons = {};
+
+		if (!document.getElementById('bettbox-connections-css'))
+			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261029-1' }));
+
+		function target(c) { var m = c.metadata || {}; return m.host || m.destinationIP || '—'; }
+		function date(value) { return value ? new Date(value).toLocaleString() : '—'; }
+		function isClosed(c) { return !!c.closed; }
+		function find(items, id) { return items.find(function(c) { return c.id === id; }); }
+		function updatedAfterAction() { return Promise.resolve(inFlight).then(function() { return refresh(true); }); }
+		function closeDetail() { detailRecord = detailBody = detailActions = null; ui.hideModal(); }
+		function updateDetail() {
+			if (!detailRecord || !document.body.contains(detailBody)) return;
+			var current = find(active, detailRecord.id), old = find(closed, detailRecord.id);
+			if (!current && !old) { closeDetail(); return; }
+			var c = current || old || detailRecord, m = c.metadata || {};
+			var rows = [['状态', current ? '活动' : isClosed(c) ? '已关闭' : '已结束'], ['目标', target(c)],
+				['目的地址', (m.destinationIP || '—') + ':' + (m.destinationPort || '—')], ['来源', (m.sourceIP || '—') + ':' + (m.sourcePort || '—')],
+				['协议', (m.network || '').toUpperCase() + ' · ' + (m.type || '')], ['链路', (c.chains || []).join(' → ')],
+				['规则', (c.rule || '') + ' ' + (c.rulePayload || '')], ['上传', UI.bytes(c.upload)], ['下载', UI.bytes(c.download)], ['开始时间', date(c.start)]];
+			if (isClosed(c)) rows.push(['关闭时间', date(c.closed)]);
+			else if (current) rows.push(['速率', UI.speed(c._speed)]);
+			detailRecord = c;
+			detailBody.replaceChildren(E('dl', { 'class': 'definition-list' }, rows.map(function(r) {
+				return E('div', { 'class': 'definition-row' }, [E('dt', {}, r[0]), E('dd', {}, String(r[1]))]);
+			})));
+			var actions = [];
+			if (current) actions.push(UI.button('关闭此连接', function() {
+				return Core.del('/connections/' + encodeURIComponent(c.id)).then(function() { closeDetail(); return updatedAfterAction(); });
+			}, 'danger', 'close'));
+			actions.push(UI.button('返回', closeDetail)); detailActions.replaceChildren.apply(detailActions, actions);
 		}
-		function refresh(){if(paused||busy)return Promise.resolve();busy=true;return Core.get('/connections').then(function(res){var c=res.data||{},now=Date.now(),next={};data=(c.connections||[]).map(function(item){var count=(item.upload||0)+(item.download||0),old=previous[item.id];item._speed=old!=null&&now>lastTime?Math.max(0,count-old)*1000/(now-lastTime):0;next[item.id]=count;return item;});previous=next;lastTime=now;notice.textContent='';summary.replaceChildren(E('span',{},[E('strong',{},String(data.length)),document.createTextNode(' 个活动连接')]),E('span',{},'↓ '+UI.bytes(c.downloadTotal)),E('span',{},'↑ '+UI.bytes(c.uploadTotal)));draw();}).catch(function(err){notice.textContent='无法更新连接：'+err.message;if(!data.length)list.replaceChildren(UI.empty('核心未运行或连接不可用','检查服务状态后重试。'));}).finally(function(){busy=false;});}
-		var pause=UI.button('暂停',function(){paused=!paused;pause.querySelector('span').textContent=paused?'继续':'暂停';if(!paused)return refresh();},'','pause');
-		var closeAll=UI.button('关闭全部',function(){UI.modal('关闭全部连接',[E('p',{},'将关闭当前全部活动连接。设备上的请求可能中断并重新建立。')],[UI.button('确认关闭',function(){return Core.del('/connections').then(function(){ui.hideModal();return refresh();});},'danger'),UI.button('取消',ui.hideModal)]);},'danger','close');
-		var sortSelect=E('select',{'class':'field','aria-label':'连接排序'},[E('option',{value:'traffic'},'按流量排序'),E('option',{value:'time'},'按时间排序')]);sortSelect.addEventListener('change',function(){sort=sortSelect.value;pageNo=0;draw();});
-		var chips=E('div',{'class':'chips'});[['','全部'],['tcp','TCP'],['udp','UDP']].forEach(function(p){var b=E('button',{type:'button','class':'chip'+(!p[0]?' active':'')},p[1]);b.addEventListener('click',function(){protocol=p[0];Array.from(chips.children).forEach(function(x){x.classList.toggle('active',x===b);});pageNo=0;draw();});chips.appendChild(b);});
-		var root=UI.page('connections','连接',[pause,closeAll],[E('div',{'class':'toolbar'},[UI.search('搜索目标、来源 IP 或规则…',function(value){filter=value.toLowerCase();pageNo=0;draw();}),sortSelect,chips]),summary,notice,list,pager]);poll.add(refresh,4);refresh();return root;
-	},handleSaveApply:null,handleSave:null,handleReset:null
+		function detail(c) {
+			detailRecord = c; detailBody = E('div'); detailActions = E('div', { 'class': 'button-row' });
+			UI.modal('连接详情', detailBody, [detailActions]); updateDetail();
+		}
+		function detailButton(c) {
+			var b = UI.button('详情', function() { detail(c); }, 'bb-icon-only', 'chevron');
+			b.setAttribute('aria-label', '查看 ' + target(c) + ' 的详情'); return b;
+		}
+		function status(c) { return UI.tag(isClosed(c) ? '已关闭' : '活动', isClosed(c) ? 'neutral' : ''); }
+		function rate(c) { return isClosed(c) ? E('time', { datetime: c.closed, title: date(c.closed) }, date(c.closed)) : UI.speed(c._speed); }
+		function row(c) {
+			var m = c.metadata || {};
+			return E('tr', { 'class': isClosed(c) ? 'bb-connection-closed' : '' }, [
+				E('td', {}, [E('div', { 'class': 'cell-title' }, target(c)), E('div', { 'class': 'cell-meta' }, (m.network || '').toUpperCase() + ' · ' + (m.destinationPort || ''))]),
+				E('td', { 'class': 'mono' }, m.sourceIP || '—'),
+				E('td', {}, [E('div', {}, (c.chains || []).join(' → ') || '—'), E('div', { 'class': 'cell-meta' }, c.rule || '')]),
+				E('td', { 'class': 'mono' }, '↓ ' + UI.bytes(c.download) + ' / ↑ ' + UI.bytes(c.upload)),
+				E('td', {}, [status(c), E('div', { 'class': 'cell-meta' }, rate(c))]), E('td', {}, detailButton(c))]);
+		}
+		function card(c) {
+			var m = c.metadata || {};
+			return E('article', { 'class': 'connection-card' + (isClosed(c) ? ' bb-connection-closed' : '') }, [
+				E('div', { 'class': 'connection-top' }, [E('div', {}, [E('div', { 'class': 'cell-title' }, target(c)),
+					E('div', { 'class': 'cell-meta' }, (m.network || '').toUpperCase() + ' · ' + (m.destinationPort || '') + ' · 来自 ' + (m.sourceIP || '—'))]), detailButton(c)]),
+				E('div', { 'class': 'connection-chain' }, (c.chains || []).join(' → ') || '—'),
+				E('div', { 'class': 'connection-bottom' }, [UI.tag(c.rule || '—', 'neutral'), status(c)]),
+				E('div', { 'class': 'bb-connection-traffic mono' }, [E('span', {}, '↓ ' + UI.bytes(c.download)), E('span', {}, '↑ ' + UI.bytes(c.upload))]),
+				E('div', { 'class': 'cell-meta' }, rate(c))]);
+		}
+		function draw() {
+			var counts = { active: active.length, closed: closed.length, all: active.length + closed.length };
+			Object.keys(tabButtons).forEach(function(key) {
+				var b = tabButtons[key]; b.textContent = ({ active: '活动', closed: '已关闭', all: '全部' })[key] + ' ' + counts[key];
+				b.classList.toggle('active', scope === key); b.setAttribute('aria-pressed', String(scope === key)); b.disabled = key === 'closed' && supported === false;
+			});
+			clearHistory.disabled = supported !== true || closed.length === 0; closeAll.disabled = active.length === 0;
+			summary.replaceChildren(E('span', {}, '↓ ' + UI.bytes(totals.downloadTotal)), E('span', {}, '↑ ' + UI.bytes(totals.uploadTotal)));
+			var data = scope === 'active' ? active : scope === 'closed' ? closed : active.concat(closed);
+			var filtered = data.filter(function(c) {
+				var m = c.metadata || {};
+				return (!protocol || String(m.network).toLowerCase() === protocol) && (!filter ||
+					[target(c), m.destinationIP, m.sourceIP, c.rule, c.rulePayload, (c.chains || []).join(' ')].join(' ').toLowerCase().indexOf(filter) >= 0);
+			});
+			filtered.sort(function(a, b) {
+				return sort === 'time' ? String(b.closed || b.start).localeCompare(String(a.closed || a.start)) : ((b.upload || 0) + (b.download || 0)) - ((a.upload || 0) + (a.download || 0));
+			});
+			var pages = Math.max(1, Math.ceil(filtered.length / pageSize)); pageNo = Math.max(0, Math.min(pageNo, pages - 1));
+			var slice = filtered.slice(pageNo * pageSize, (pageNo + 1) * pageSize);
+			if (!slice.length) {
+				var title = state === 'loading' ? '正在读取连接…' : state === 'stopped' ? '代理服务已关闭' : state === 'unknown' && !data.length ? '暂时无法读取连接' :
+					filter || protocol ? '暂无符合条件的连接' : scope === 'closed' ? '暂无已关闭连接' : scope === 'all' ? '暂无连接' : '暂无活动连接';
+				list.replaceChildren(UI.empty(title));
+			} else list.replaceChildren(E('section', { 'class': 'panel connection-table' }, E('table', { 'class': 'data-table' }, [
+				E('thead', {}, E('tr', {}, ['目标 / 协议', '来源设备', '链路 / 规则', '流量', '状态 / 速率或关闭时间', ''].map(function(h) { return E('th', {}, h); }))),
+				E('tbody', {}, slice.map(row))])), E('section', { 'class': 'panel connection-cards' }, slice.map(card)));
+			var prev = UI.button('上一页', function() { pageNo--; draw(); }), next = UI.button('下一页', function() { pageNo++; draw(); });
+			prev.disabled = pageNo === 0; next.disabled = pageNo + 1 >= pages;
+			pager.replaceChildren(prev, E('span', { 'class': 'small muted' }, '第 ' + (pageNo + 1) + ' / ' + pages + ' 页 · ' + filtered.length + ' 条'), next);
+			pager.hidden = filtered.length <= pageSize; updateDetail();
+		}
+		function stopped() {
+			active = []; closed = []; previous = {}; totals = {}; lastTime = 0; session = null; state = 'stopped';
+			notice.textContent = ''; if (detailRecord) closeDetail(); draw();
+		}
+		function checkStopped(err) {
+			return getStatus().then(function(st) {
+				// A failed service-list query is unknown, not a confirmed stop.
+				if (st && st.service_known === true && st.running === false) { stopped(); return; }
+				if (err) { state = 'unknown'; notice.textContent = '无法更新连接：' + err.message; draw(); }
+			}).catch(function() { if (err) { state = 'unknown'; notice.textContent = '无法更新连接：' + err.message; draw(); } });
+		}
+		function refresh(force) {
+			if (inFlight) return inFlight;
+			var request = paused && force !== true ? checkStopped() : Core.get('/connections?history=true').then(function(res) {
+				var snapshot = res.data;
+				if (!snapshot || !Object.prototype.hasOwnProperty.call(snapshot, 'connections') ||
+					(snapshot.connections != null && !Array.isArray(snapshot.connections)) ||
+					('closed' in snapshot && !Array.isArray(snapshot.closed))) throw new Error('连接数据无效');
+				var now = Date.now(), next = {};
+				if (snapshot.session !== session) {
+					previous = {}; lastTime = 0;
+					if (session != null && detailRecord) closeDetail();
+				}
+				session = snapshot.session; supported = Array.isArray(snapshot.closed); closed = supported ? snapshot.closed.slice(0, 512) : [];
+				active = (snapshot.connections || []).map(function(item) {
+					var count = (item.upload || 0) + (item.download || 0), old = previous[item.id];
+					item._speed = old != null && now > lastTime ? Math.max(0, count - old) * 1000 / (now - lastTime) : 0; next[item.id] = count; return item;
+				});
+				previous = next; lastTime = now; totals = snapshot; state = 'running'; notice.textContent = supported ? '' : '当前核心不支持已关闭记录';
+				if (!supported && scope === 'closed') scope = 'active'; draw();
+			}).catch(checkStopped);
+			inFlight = request.finally(function() { inFlight = null; }); return inFlight;
+		}
+		var pause = UI.button('暂停', function() {
+			paused = !paused; pause.querySelector('span').textContent = paused ? '继续' : '暂停'; pause.setAttribute('aria-pressed', String(paused));
+			if (!paused) return updatedAfterAction();
+		}, '', 'pause');
+		var closeAll = UI.button('关闭全部连接', function() {
+			UI.modal('关闭全部连接', E('p', {}, '关闭当前全部活动连接？'), [UI.button('确认关闭', function() {
+				return Core.del('/connections').then(function() { ui.hideModal(); return updatedAfterAction(); });
+			}, 'danger'), UI.button('取消', ui.hideModal)]);
+		}, 'danger', 'close');
+		var clearHistory = UI.button('清空历史', function() {
+			UI.modal('清空历史', E('p', {}, '清空全部已关闭记录？'), [UI.button('确认清空', function() {
+				return Core.del('/connections/closed').then(function() { ui.hideModal(); return updatedAfterAction(); });
+			}, 'danger'), UI.button('取消', ui.hideModal)]);
+		}, '', 'close');
+		['active', 'closed', 'all'].forEach(function(key) {
+			var b = E('button', { type: 'button', 'class': 'chip', 'aria-pressed': 'false' });
+			b.addEventListener('click', function() { scope = key; pageNo = 0; draw(); }); tabButtons[key] = b; tabs.appendChild(b);
+		});
+		var sortSelect = E('select', { 'class': 'field', 'aria-label': '连接排序' }, [E('option', { value: 'traffic' }, '按流量排序'), E('option', { value: 'time' }, '按时间排序')]);
+		sortSelect.addEventListener('change', function() { sort = sortSelect.value; pageNo = 0; draw(); });
+		var chips = E('div', { 'class': 'chips', 'aria-label': '连接协议' });
+		[['', '全部协议'], ['tcp', 'TCP'], ['udp', 'UDP']].forEach(function(p) {
+			var b = E('button', { type: 'button', 'class': 'chip' + (!p[0] ? ' active' : ''), 'aria-pressed': String(!p[0]) }, p[1]);
+			b.addEventListener('click', function() {
+				protocol = p[0]; Array.from(chips.children).forEach(function(x) { x.classList.toggle('active', x === b); x.setAttribute('aria-pressed', String(x === b)); }); pageNo = 0; draw();
+			}); chips.appendChild(b);
+		});
+		var root = UI.page('connections', '连接', [pause, clearHistory, closeAll], [
+			E('div', { 'class': 'toolbar bb-connection-filters' }, [UI.search('搜索目标、来源 IP 或规则…', function(value) { filter = value.toLowerCase(); pageNo = 0; draw(); }), sortSelect, chips]),
+			E('div', { 'class': 'toolbar bb-connection-state' }, [tabs, summary]), notice, list, pager]);
+		draw(); poll.add(refresh, 4); refresh(); return root;
+	},
+	handleSaveApply: null, handleSave: null, handleReset: null
 });

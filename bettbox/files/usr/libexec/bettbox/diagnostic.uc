@@ -32,6 +32,10 @@ if (request.kind == 'exit') {
 	command=args[0]=='apply'?'/usr/bin/bettbox apply-service':'/etc/init.d/bettbox '+args[0];
 	if(args[0]=='start'||args[0]=='stop')command='uci set bettbox.config.enabled='+q(args[0]=='start'?'1':'0')+' && uci commit bettbox && '+command;
 	if(args[0]=='start'||args[0]=='restart')command='/etc/init.d/bettbox enable && '+command;
+} else if(request.kind=='script') {
+	if(!(args[0] in ['import','check','update']) || length(args)!=(args[0]=='check'?2:3))die('bad script action');
+	command='ucode /usr/libexec/bettbox/script-update.uc';
+	for(let arg in args)command+=' '+q(arg);
 } else if(request.kind=='package' || request.kind=='package-check') {
 	if((request.kind=='package' && (length(args)!=1 || args[0]!='update')) || (request.kind=='package-check' && length(args)!=0))die('bad package action');
 	command='/usr/bin/bettbox package '+(request.kind=='package'?'update':'check');

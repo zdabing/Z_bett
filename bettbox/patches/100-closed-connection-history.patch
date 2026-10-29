@@ -1,0 +1,188 @@
+From: Bettbox for OpenWrt contributors
+Subject: [PATCH] Keep bounded, process-local closed connection history
+
+Only live core processes own this history. Closing connections records them;
+clearing history does not close active connections. The normal connections
+response is unchanged unless history=true is requested.
+
+--- a/tunnel/statistic/manager.go
++++ b/tunnel/statistic/manager.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"os"
++	"sync"
+ 	"time"
+ 
+ 	"github.com/metacubex/mihomo/common/atomic"
+@@ -26,6 +27,10 @@
+ }
+ 
+ type Manager struct {
++	historyMu     sync.Mutex
++	closed        [closedConnectionLimit]*ClosedConnection
++	closedHead    int
++	closedCount   int
+ 	connections   xsync.Map[string, Tracker]
+ 	uploadTemp    atomic.Int64
+ 	downloadTemp  atomic.Int64
+@@ -38,11 +43,18 @@
+ }
+ 
+ func (m *Manager) Join(c Tracker) {
++	m.historyMu.Lock()
++	defer m.historyMu.Unlock()
+ 	m.connections.Store(c.ID(), c)
+ }
+ 
+ func (m *Manager) Leave(c Tracker) {
+-	m.connections.Delete(c.ID())
++	m.historyMu.Lock()
++	defer m.historyMu.Unlock()
++	// A tracker can be closed by both the API and its relay goroutine.
++	if _, loaded := m.connections.LoadAndDelete(c.ID()); loaded {
++		m.recordClosed(c.Info())
++	}
+ }
+ 
+ func (m *Manager) Get(id string) (c Tracker) {
+--- /dev/null
++++ b/tunnel/statistic/history.go
+@@ -0,0 +1,100 @@
++package statistic
++
++import (
++	"time"
++
++	"github.com/gofrs/uuid/v5"
++	C "github.com/metacubex/mihomo/constant"
++)
++
++const closedConnectionLimit = 512
++
++// A core process owns one session. Nothing is written to disk or carried into
++// the next service start. ResetStatistic and closing active connections do not
++// clear history; only ClearClosedConnections (or exiting the process) does.
++var historySession = uuid.Must(uuid.NewV4()).String()
++
++// ClosedConnection holds values, never a tracker, socket or live counter.
++// Records are immutable after insertion into the bounded in-memory ring.
++type ClosedConnection struct {
++	UUID          uuid.UUID   `json:"id"`
++	Metadata      *C.Metadata `json:"metadata"`
++	UploadTotal   int64       `json:"upload"`
++	DownloadTotal int64       `json:"download"`
++	Start         time.Time   `json:"start"`
++	Closed        time.Time   `json:"closed"`
++	Chain         C.Chain     `json:"chains"`
++	ProviderChain C.Chain     `json:"providerChains"`
++	Rule          string      `json:"rule"`
++	RulePayload   string      `json:"rulePayload"`
++}
++
++// recordClosed is called with historyMu held and only for a registered tracker.
++func (m *Manager) recordClosed(info *TrackerInfo) {
++	if info == nil {
++		return
++	}
++	var metadata *C.Metadata
++	if info.Metadata != nil {
++		metadata = info.Metadata.Clone()
++		metadata.SrcGeoIP = append([]string(nil), metadata.SrcGeoIP...)
++		metadata.DstGeoIP = append([]string(nil), metadata.DstGeoIP...)
++		metadata.RawSrcAddr = nil
++		metadata.RawDstAddr = nil
++	}
++	record := &ClosedConnection{
++		UUID: info.UUID, Metadata: metadata,
++		UploadTotal: info.UploadTotal.Load(), DownloadTotal: info.DownloadTotal.Load(),
++		Start: info.Start, Closed: time.Now(),
++		Chain:         append(C.Chain(nil), info.Chain...),
++		ProviderChain: append(C.Chain(nil), info.ProviderChain...),
++		Rule:          info.Rule, RulePayload: info.RulePayload,
++	}
++	m.closed[m.closedHead] = record
++	m.closedHead = (m.closedHead + 1) % closedConnectionLimit
++	if m.closedCount < closedConnectionLimit {
++		m.closedCount++
++	}
++}
++
++// closedConnectionsLocked returns newest first. The returned slice owns its
++// storage, so serializing a response cannot race with eviction or clearing.
++func (m *Manager) closedConnectionsLocked() []*ClosedConnection {
++	result := make([]*ClosedConnection, 0, m.closedCount)
++	for i := 0; i < m.closedCount; i++ {
++		index := (m.closedHead - 1 - i + closedConnectionLimit) % closedConnectionLimit
++		result = append(result, m.closed[index])
++	}
++	return result
++}
++
++type ClosedSnapshot struct {
++	Connections []*ClosedConnection `json:"connections"`
++	Session     string              `json:"session"`
++}
++
++func (m *Manager) ClosedSnapshot() *ClosedSnapshot {
++	m.historyMu.Lock()
++	defer m.historyMu.Unlock()
++	return &ClosedSnapshot{Connections: m.closedConnectionsLocked(), Session: historySession}
++}
++
++// SnapshotWithHistory captures membership of both lists under the same lock:
++// a connection cannot disappear between the active and closed snapshots.
++func (m *Manager) SnapshotWithHistory() any {
++	m.historyMu.Lock()
++	defer m.historyMu.Unlock()
++	return struct {
++		*Snapshot
++		Closed  []*ClosedConnection `json:"closed"`
++		Session string              `json:"session"`
++	}{m.Snapshot(), m.closedConnectionsLocked(), historySession}
++}
++
++func (m *Manager) ClearClosedConnections() {
++	m.historyMu.Lock()
++	defer m.historyMu.Unlock()
++	m.closed = [closedConnectionLimit]*ClosedConnection{}
++	m.closedHead = 0
++	m.closedCount = 0
++}
+--- a/hub/route/connections.go
++++ b/hub/route/connections.go
+@@ -17,13 +17,20 @@
+ 	r := chi.NewRouter()
+ 	r.Get("/", getConnections)
+ 	r.Delete("/", closeAllConnections)
++	r.Get("/closed", getClosedConnections)
++	r.Delete("/closed", clearClosedConnections)
+ 	r.Delete("/{id}", closeConnection)
+ 	return r
+ }
+ 
+ func getConnections(w http.ResponseWriter, r *http.Request) {
+ 	if !(r.Header.Get("Upgrade") == "websocket") {
+-		snapshot := statistic.DefaultManager.Snapshot()
++		var snapshot any
++		if r.URL.Query().Get("history") == "true" {
++			snapshot = statistic.DefaultManager.SnapshotWithHistory()
++		} else {
++			snapshot = statistic.DefaultManager.Snapshot()
++		}
+ 		render.JSON(w, r, snapshot)
+ 		return
+ 	}
+@@ -85,3 +92,12 @@
+ 	})
+ 	render.NoContent(w, r)
+ }
++
++func getClosedConnections(w http.ResponseWriter, r *http.Request) {
++	render.JSON(w, r, statistic.DefaultManager.ClosedSnapshot())
++}
++
++func clearClosedConnections(w http.ResponseWriter, r *http.Request) {
++	statistic.DefaultManager.ClearClosedConnections()
++	render.NoContent(w, r)
++}
