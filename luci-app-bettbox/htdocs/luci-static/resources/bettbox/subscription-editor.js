@@ -152,7 +152,7 @@ return baseclass.extend({
 			}).finally(function() { busy = false; box.setBusy(false); if (box.element.isConnected) drawOptions(); });
 		}
 		var saveButton = UI.button(config.active ? '保存并应用' : '保存', save, 'primary', 'save');
-		box = H.dialog('编辑订阅', [E('div', { 'class': 'hub-editor-context' }, [UI.icon('file'), E('strong', {}, name), config.active ? UI.tag('当前使用') : null]), tabs, content], [status, E('div', {}, [UI.button('取消', function() { return box.close(); }), saveButton])], {
+		box = H.dialog('编辑订阅', [E('div', { 'class': 'hub-editor-context' }, [UI.icon('file'), E('strong', {}, name), config.active ? UI.tag('当前使用') : '']), tabs, content], [status, E('div', {}, [UI.button('取消', function() { return box.close(); }), saveButton])], {
 			drawer: true, beforeClose: function() { if (busy) return false; return !dirty || H.confirm('放弃修改', '订阅有未保存的修改，确定放弃？', '放弃修改', true); }
 		});
 		renderTab(); if (dirty) changed(); if (useScript) loadOptions(selected); return box;

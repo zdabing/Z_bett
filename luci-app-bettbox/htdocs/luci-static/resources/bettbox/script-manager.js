@@ -44,7 +44,7 @@ function versionCard(source, size) {
 			E('span', { 'class': 'muted', title: stamp ? new Date(stamp).toLocaleString() : '' }, stamp ? '上游更新 ' + ago(stamp) : '上游更新时间未提供')]),
 		E('p', { 'class': 'bb-script-version-message' }, source.message ? String(source.message).split('\n')[0] : '上游未提供提交说明'),
 		E('div', { 'class': 'bb-script-version-facts' }, [E('span', {}, ['脚本：', E('strong', { 'class': 'mono' }, UI.bytes(size == null ? source.size : size))]),
-			E('span', {}, ['脚本开关：', E('strong', {}, source.options_count == null ? '未提取' : source.options_count + ' 项')]), source.modified ? UI.tag('本地已修改', 'neutral') : null])]);
+			E('span', {}, ['脚本开关：', E('strong', {}, source.options_count == null ? '未提取' : source.options_count + ' 项')]), source.modified ? UI.tag('本地已修改', 'neutral') : ''])]);
 }
 
 return baseclass.extend({
@@ -150,7 +150,7 @@ return baseclass.extend({
 					E('div', { 'class': 'hub-card-top' }, [E('div', { 'class': 'hub-name' }, [E('span', { 'class': 'hub-icon' }, UI.icon('code')), E('div', {}, [E('h2', {}, s.name), E('span', { 'class': 'small muted' }, s.name + '.js')])]), UI.tag(s.source ? '链接导入' : '本地脚本', 'neutral')]),
 					E('div', { 'class': 'hub-script-stats' }, [stat('脚本大小', E('strong', { 'class': 'mono' }, UI.bytes(s.size))), stat('脚本开关', number), stat('关联订阅', E('strong', {}, used.length + ' 个'))]),
 					E('div', { 'class': 'hub-associated' }, [E('span', { 'class': 'label' }, '应用于'), references]),
-					E('div', { 'class': 'hub-script-stamp' }, [E('span', {}, s.source && s.source.updated_at ? '最近同步 · ' + new Date(s.source.updated_at * 1000).toLocaleString() : '本地保存'), s.source && s.source.modified ? UI.tag('本地已修改', 'neutral') : null]),
+					E('div', { 'class': 'hub-script-stamp' }, [E('span', {}, s.source && s.source.updated_at ? '最近同步 · ' + new Date(s.source.updated_at * 1000).toLocaleString() : '本地保存'), s.source && s.source.modified ? UI.tag('本地已修改', 'neutral') : '']),
 					E('div', { 'class': 'hub-card-actions' }, [E('div', {}, configureButton), E('div', {}, [update, more(s)])])]);
 			}));
 		}
