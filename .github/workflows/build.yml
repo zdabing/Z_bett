@@ -16,6 +16,10 @@ on:
         description: Optional previous run ID; reuse verified APK payloads only when product sources and build definitions match
         type: string
         required: false
+      reuse_forge:
+        description: Reuse the verified release helper only if forge sources and build definitions are unchanged
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -99,6 +103,14 @@ jobs:
           tar axf sdk.tar.zst
           SDKDIR=$(echo openwrt-sdk-*)
           echo "SDKDIR=$SDKDIR" >> "$GITHUB_ENV"
+
+      - name: Reuse verified unchanged forge helper
+        if: inputs.reuse_forge && inputs.reuse_run == ''
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+          APK_TOOL: ${{ github.workspace }}/${{ env.SDKDIR }}/staging_dir/host/bin/apk
+        working-directory: ${{ github.workspace }}/bettbox-feed
+        run: python3 .github/scripts/reuse-forge.py
 
       - name: Register feed and install
         if: inputs.reuse_run == ''
