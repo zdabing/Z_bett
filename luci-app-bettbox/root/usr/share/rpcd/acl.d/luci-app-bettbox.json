@@ -34,6 +34,7 @@
 					"core_update",
 					"update_profile",
 					"add_profile",
+					"import_profile",
 					"del_profile",
 					"save_script",
 					"del_script",

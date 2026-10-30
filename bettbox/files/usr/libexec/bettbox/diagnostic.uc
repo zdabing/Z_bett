@@ -12,6 +12,9 @@ if (request.kind == 'exit') {
 	command = '/usr/libexec/bettbox/network-check.sh exit ' + q(args[0]);
 } else if (request.kind == 'connectivity') {
 	command = '/usr/libexec/bettbox/network-check.sh connectivity';
+} else if (request.kind == 'health') {
+	if(length(args)!=1 || type(args[0])!='string' || length(args[0])>253 || !match(args[0],/^[A-Za-z0-9_][A-Za-z0-9._-]*$/))die('invalid health target');
+	command='/usr/libexec/bettbox/health-check.sh '+q(args[0]);
 } else if (request.kind == 'delay') {
 	if(length(args)!=2 || !match(args[0],/^[A-Za-z0-9_.~%\/-]+$/) || !match(args[1],/^[A-Za-z0-9_.~%\/-]+$/))die('bad delay target');
 	command='/usr/libexec/bettbox/network-check.sh delay '+q(args[0])+' '+q(args[1]);

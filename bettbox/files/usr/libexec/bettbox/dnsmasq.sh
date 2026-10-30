@@ -60,6 +60,11 @@ restore() {
 }
 
 apply() {
+	# Source IP selection must also select DNS; excluded devices must not
+	# receive fake IPs through a router-wide dnsmasq upstream override.
+	case "$(uci_get bettbox.config.device_mode):$(uci_get bettbox.config.transparent_mode)" in
+	include:tun|exclude:tun|include:tproxy|exclude:tproxy|include:redir|exclude:redir) restore; return $? ;;
+	esac
 	[ "$(uci_get bettbox.config.hijack_dnsmasq)" = 1 ] || { restore; return $?; }
 	case "$DNS_PORT" in ''|*[!0-9]*) die "invalid DNS listener port" ;; esac
 	[ "$DNS_PORT" -gt 0 ] && [ "$DNS_PORT" -le 65535 ] || die "invalid DNS listener port"

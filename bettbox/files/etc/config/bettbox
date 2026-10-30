@@ -24,6 +24,9 @@ config core 'config'
 	# tun | tproxy | redir | off
 	option transparent_mode 'tun'
 	option hijack_dnsmasq '0'
+	# off = all LAN devices; include = listed source IPs only; exclude = bypass listed IPs
+	option device_mode 'off'
+	# list device_ips '10.0.0.194'
 	# controller
 	option external_controller '127.0.0.1:9097'
 	option secret ''
@@ -40,6 +43,8 @@ config core 'config'
 	# watchdog: procd respawn + controller health check
 	option watchdog '1'
 	option watchdog_interval '30'
+	# full read-only DNS/HTTP checks; 0 disables periodic checks, manual remains available
+	option health_interval '300'
 	# age identity for encrypted subscriptions (per-subscription overrides)
 	option age_identity ''
 

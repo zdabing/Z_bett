@@ -11,6 +11,7 @@ var profilesRPC = rpc.declare({ object: 'bettbox', method: 'get_profiles' });
 var scriptsRPC = rpc.declare({ object: 'bettbox', method: 'get_scripts' });
 var updateRPC = rpc.declare({ object: 'bettbox', method: 'update_profile', params: ['sid','all'] });
 var addRPC = rpc.declare({ object: 'bettbox', method: 'add_profile', params: ['url','label'] });
+var importRPC = rpc.declare({ object: 'bettbox', method: 'import_profile', params: ['content','label'] });
 var commitRPC = rpc.declare({ object: 'uci', method: 'commit', params: ['config'] });
 var applyRPC = rpc.declare({ object: 'bettbox', method: 'apply' });
 
@@ -24,7 +25,7 @@ function load(fresh) {
 }
 function mount() {
 	[['bettbox-subscriptions-css','subscriptions.css'],['bettbox-scripts-css','scripts.css']].forEach(function(item) {
-		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=20261029-2' }));
+		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=20261030-2' }));
 	});
 }
 
@@ -65,11 +66,17 @@ return baseclass.extend({
 		function add() {
 			var name = E('input', { 'class': 'field', placeholder: '订阅名称（可选）', 'aria-label': '订阅名称' });
 			var url = E('input', { 'class': 'field', type: 'url', placeholder: 'https://…', 'aria-label': '订阅链接' });
+			var method = E('select', { 'class': 'field', 'aria-label': '添加方式' }, [E('option', { value: 'url' }, '订阅链接'), E('option', { value: 'content' }, '粘贴导入')]);
+			var content = E('textarea', { 'class': 'field mono', rows: '7', 'aria-label': '导入内容', placeholder: '粘贴 Clash YAML、分享链接或 Base64 内容', spellcheck: 'false' });
+			var urlField = H.field('订阅链接', url), contentField = H.field('导入内容', content); contentField.hidden = true;
 			var error = E('div', { 'class': 'hub-error', role: 'alert' }), box;
-			box = H.dialog('添加订阅', [H.field('名称', name), H.field('订阅链接', url), error], [UI.button('取消', function() { return box.close(); }), UI.button('添加订阅', function() {
-				var value = url.value.trim(); if (!/^(https?|file):\/\//.test(value)) { error.textContent = '请输入有效的订阅链接'; return; }
+			method.addEventListener('change', function() { urlField.hidden = method.value === 'content'; contentField.hidden = method.value !== 'content'; error.textContent = ''; });
+			box = H.dialog('添加订阅', [H.field('名称', name), H.field('添加方式', method), urlField, contentField, error], [UI.button('取消', function() { return box.close(); }), UI.button('添加订阅', function() {
+				var pasted = method.value === 'content', value = pasted ? content.value.trim() : url.value.trim();
+				if (pasted ? !value : !/^(https?|file):\/\//.test(value)) { error.textContent = pasted ? '请粘贴要导入的内容' : '请输入有效的订阅链接'; return; }
+				if (pasted && new Blob([value]).size > 1048576) { error.textContent = '导入内容超过 1 MiB 上限'; return; }
 				box.setBusy(true); error.textContent = '';
-				return addRPC(value, name.value.trim()).then(UI.checked).then(refresh).then(function() { box.setBusy(false); return box.close(true); }).catch(function(err) { error.textContent = '添加失败：' + err.message; }).finally(function() { box.setBusy(false); });
+				return (pasted ? importRPC(value, name.value.trim()) : addRPC(value, name.value.trim())).then(UI.checked).then(refresh).then(function() { box.setBusy(false); return box.close(true); }).catch(function(err) { error.textContent = '添加失败：' + err.message; }).finally(function() { box.setBusy(false); });
 			}, 'primary', 'plus')]);
 		}
 		function card(p) {

@@ -147,12 +147,15 @@ jobs:
                         "$SOURCE_ROOT"/luci-app-bettbox/root/usr/share/rpcd/ucode/bettbox.uc; do
             printf 'Checking %s\n' "$source"
             target="ucode-checks/$(basename "$source").ucb"
-            if [ "$(basename "$source")" = script-store.uc ]; then
-              # Exports are legal only when compiled as an imported module.
-              printf "import { valid_script_name } from '%s';\n" "$source" > ucode-checks/script-store-wrapper.uc
-              source=ucode-checks/script-store-wrapper.uc
+            # Exporting helpers must be checked as imported modules, including
+            # newly added device-access, DNS-policy and health-policy helpers.
+            export_name=$(sed -n 's/^export function \([A-Za-z0-9_]*\).*/\1/p' "$source" | head -n 1)
+            if [ -n "$export_name" ]; then
+              wrapper="ucode-checks/$(basename "$source")-wrapper.uc"
+              printf "import { %s } from '%s';\n" "$export_name" "$source" > "$wrapper"
+              source="$wrapper"
             fi
-            staging_dir/hostpkg/bin/ucode -cno-interp,dynlink=fs,dynlink=uci,dynlink=/usr/libexec/bettbox/script-store.uc \
+            staging_dir/hostpkg/bin/ucode -cno-interp,dynlink=fs,dynlink=uci,dynlink=/usr/libexec/bettbox/script-store.uc,dynlink=/usr/libexec/bettbox/device-access.uc,dynlink=/usr/libexec/bettbox/dns-policy.uc,dynlink=/usr/libexec/bettbox/health-policy.uc \
               -o "$target" "$source"
           done
 

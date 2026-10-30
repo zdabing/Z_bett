@@ -3,6 +3,7 @@
 # Subscription management: fetch/validate/store profiles, auto-update cron.
 
 . /usr/libexec/bettbox/common.sh
+umask 077
 
 DEFAULT_UA="clash.meta/v1.19.33"
 NOW=$(date +%s)
@@ -21,20 +22,22 @@ set_userinfo() {
 	uci -q set "bettbox.$sid.sub_expire=${expire:-0}"
 }
 
-update_one() {
+update_one() (
 	# $1 = uci section id
 	sid="$1"
-	local url ua tmp hdr n
+	local url ua tmp hdr n normalized work
+	case "$sid" in ''|*[!A-Za-z0-9_-]*) die 'invalid subscription id' ;; esac
 	url=$(uci_get "bettbox.$sid.url")
 	[ -n "$url" ] || { log "subscription $sid has no url"; return 1; }
-	[ -f "$(profile_file "$sid")" ] || touch "$(profile_file "$sid")"
 
 	ua=$(uci_get "bettbox.$sid.user_agent")
 	[ -n "$ua" ] || ua="$DEFAULT_UA"
 
-	tmp="$BETTBOX_STATE/$sid.dl"
-	hdr="$BETTBOX_STATE/$sid.hdr"
 	mkdir -p "$BETTBOX_STATE"
+	work=$(mktemp -d "$BETTBOX_STATE/subscription.XXXXXX") || return 1
+	trap 'rm -rf "$work"' EXIT
+	tmp="$work/download"
+	hdr="$work/headers"
 
 	# file:// profiles are read directly (curl 8 rejects bare-path URLs).
 	if [ "${url#file://}" != "$url" ]; then
@@ -58,8 +61,8 @@ update_one() {
 		[ -n "$ident" ] || ident=$(uci_get bettbox.config.age_identity)
 		[ -n "$ident" ] || { rm -f "$tmp" "$hdr"; log "subscription $sid is age-encrypted but no age_identity configured"; return 1; }
 		command -v age >/dev/null || { rm -f "$tmp" "$hdr"; log "age not installed (apk add age)"; return 1; }
-		idf="$BETTBOX_STATE/$sid.agekey"
-		dec="$BETTBOX_STATE/$sid.dec"
+		idf="$work/agekey"
+		dec="$work/decrypted"
 		printf '%s\n' "$ident" > "$idf"
 		chmod 600 "$idf"
 		if ! age -d -i "$idf" -o "$dec" "$tmp"; then
@@ -72,17 +75,20 @@ update_one() {
 		log "subscription $sid age-decrypted"
 	fi
 
-	# must be a mihomo YAML with proxies (Bettbox treats subs as raw YAML)
-	if [ "$(yq '.proxies | length > 0' "$tmp" 2>/dev/null)" != "true" ]; then
-		rm -f "$tmp" "$hdr"
-		log "subscription $sid has no proxies, keeping old profile"
+	# Downloaded YAML stays verbatim; raw/Base64 share links are converted by
+	# the existing on-demand sandbox before the stored profile is touched.
+	normalized="$tmp.normalized"
+	if ! sh /usr/libexec/bettbox/subscription-normalize.sh "$tmp" "$normalized"; then
+		rm -f "$tmp" "$hdr" "$normalized"
+		log "subscription $sid format invalid, keeping old profile"
 		return 1
 	fi
+	rm -f "$tmp"
+	tmp="$normalized"
 
+	mv -f "$tmp" "$(profile_file "$sid")" || return 1
 	set_userinfo "$sid" "$(grep -i '^subscription-userinfo:' "$hdr" | head -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
 	rm -f "$hdr"
-
-	mv -f "$tmp" "$(profile_file "$sid")"
 	uci -q set "bettbox.$sid.last_update=$NOW"
 	uci commit bettbox
 	log "subscription $sid updated"
@@ -91,7 +97,7 @@ update_one() {
 		/usr/libexec/bettbox/apply.sh live || { log "subscription $sid downloaded but live apply failed"; return 1; }
 	fi
 	return 0
-}
+)
 
 update() {
 	[ -n "$1" ] || die "usage: subscription.sh update <sid>"
@@ -129,10 +135,10 @@ add() {
 	local url="$1"
 	[ -n "$url" ] || die "usage: subscription.sh add <url> [label]"
 	local sid
-	sid="sub$(date +%s)"
+	sid="sub$(date +%s)$$"
 	while uci -q get "bettbox.$sid" >/dev/null; do
 		sleep 1
-		sid="sub$(date +%s)"
+		sid="sub$(date +%s)$$"
 	done
 	uci set "bettbox.$sid=subscription"
 	uci set "bettbox.$sid.url=$url"
@@ -145,7 +151,36 @@ add() {
 	if ! update_one "$sid"; then
 		uci -q delete "bettbox.$sid"
 		uci commit bettbox
+		rm -f "$(profile_file "$sid")"
 		echo "subscription download failed, not added" >&2
+		return 1
+	fi
+	echo "$sid"
+}
+
+import_file() {
+	# The web backend provides a private temporary file, not a command string.
+	local input="$1" label="$2" sid candidate
+	[ -f "$input" ] || die "import input missing"
+	mkdir -p "$BETTBOX_PROFILES" "$BETTBOX_STATE" || return 1
+	candidate=$(mktemp "$BETTBOX_PROFILES/import.XXXXXX") || return 1
+	if ! sh /usr/libexec/bettbox/subscription-normalize.sh "$input" "$candidate"; then
+		rm -f "$candidate"
+		return 1
+	fi
+	sid="sub$(date +%s)$$"
+	while uci -q get "bettbox.$sid" >/dev/null; do sleep 1; sid="sub$(date +%s)$$"; done
+	if ! mv -f "$candidate" "$(profile_file "$sid")"; then rm -f "$candidate"; return 1; fi
+	if ! uci set "bettbox.$sid=subscription" ||
+		! uci set "bettbox.$sid.url=file://$(profile_file "$sid")" ||
+		! uci set "bettbox.$sid.label=${label:-$sid}" ||
+		! uci set "bettbox.$sid.auto_update=0" ||
+		! uci set "bettbox.$sid.update_interval=1440" ||
+		! uci set "bettbox.$sid.use_script=0" ||
+		! uci set "bettbox.$sid.custom_options={}" ||
+		! uci set "bettbox.$sid.last_update=$NOW" || ! uci commit bettbox; then
+		uci -q delete "bettbox.$sid"; uci commit bettbox
+		rm -f "$(profile_file "$sid")"
 		return 1
 	fi
 	echo "$sid"
@@ -160,6 +195,9 @@ remove() {
 }
 
 case "$1" in
+import)
+	import_file "$2" "$3"
+	;;
 update)
 	update "$2"
 	;;

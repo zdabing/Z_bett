@@ -28,6 +28,10 @@ var SCHEMA = [
 		{ opt: 'external_ui', kind: 'flag', icon: 'cloud', label: _('内置面板 (zashboard)'), sub: _('在「资源」页安装') },
 		{ opt: 'test_url', kind: 'value', icon: 'gauge', label: _('测延迟 URL'), ph: 'https://www.gstatic.com/generate_204' }
 	] },
+	{ section: 'config', title: _('设备 IP 控制'), opts: [
+		{ opt: 'device_mode', kind: 'list', label: _('设备控制模式'), list: [ ['off','关闭（全部设备进入分流）'], ['include','白名单（仅指定 IP 进入分流）'], ['exclude','黑名单（指定 IP 直连）'] ] },
+		{ opt: 'device_ips', kind: 'list-multi', label: _('设备 IP / CIDR（每行一个）'), ph: '10.0.0.194\n10.0.0.200\nfd00::194' }
+	] },
 	{ section: 'tun', title: _('TUN 虚拟网卡'), opts: [
 		{ opt: 'stack', kind: 'list', icon: 'tunnel', label: 'TUN 栈', sub: _('上游默认 mips'), list: [ ['mips'], ['mixed'], ['gvisor'], ['system'] ] },
 		{ opt: 'device', kind: 'value', icon: 'tunnel', label: _('设备名'), ph: 'bettbox' },
@@ -68,6 +72,7 @@ var SCHEMA = [
 	{ section: 'config', title: _('守护'), opts: [
 		{ opt: 'watchdog', kind: 'flag', icon: 'pulse', label: _('看门狗'), sub: _('健康检查失败自动重启内核') },
 		{ opt: 'watchdog_interval', kind: 'value', icon: 'clock', label: _('检查间隔 (秒)') },
+		{ opt: 'health_interval', kind: 'value', icon: 'activity', label: _('网络检测间隔 (秒)'), ph: '300；0 关闭定期检测' },
 		{ opt: 'age_identity', kind: 'value', icon: 'key', label: _('age 身份密钥 (全局)'), sub: _('加密订阅解密密钥'), pass: true, ph: 'AGE-SECRET-KEY-…', wide: true }
 	] },
 	{ section: 'backup', title: _('备份 WebDAV'), opts: [
@@ -87,20 +92,65 @@ function fieldFor(cfg,o,profiles){
 	if(o.kind==='flag'){control=E('button',{type:'button','class':'switch'+(value==='1'?'':' off'),role:'switch','aria-checked':String(value==='1'),'aria-label':o.label});control.checked=value==='1';control.addEventListener('click',function(){control.checked=!control.checked;control.classList.toggle('off',!control.checked);control.setAttribute('aria-checked',String(control.checked));control.dispatchEvent(new Event('change',{bubbles:true}));});return control;}
 	if(o.opt==='profile'){control=E('select',{'class':'field','aria-label':o.label},profiles.map(function(p){return E('option',{value:p.id},p.label||p.id);}));if(value&&!profiles.some(function(p){return p.id===value;}))control.appendChild(E('option',{value:value},value));control.value=value||'';return control;}
 	if(o.kind==='list'){control=E('select',{'class':'field','aria-label':o.label},(o.list||[]).map(function(item){return E('option',{value:item[0]},item[1]||item[0]);}));control.value=value||o.list[0][0];return control;}
-	if(o.kind==='list-multi'){control=E('textarea',{'class':'field',rows:3,'aria-label':o.label});control.value=Array.isArray(value)?value.join('\n'):value||'';return control;}
+	if(o.kind==='list-multi'){control=E('textarea',{'class':'field',rows:2,'aria-label':o.label});control.value=Array.isArray(value)?value.join('\n'):value||'';if(o.ph)control.placeholder=o.ph;return control;}
 	var numeric=/(?:port$|interval$|mtu$)/.test(o.opt);control=E('input',{'class':'field',type:o.pass?'password':numeric?'number':'text','aria-label':o.label});control.value=value==null?'':value;if(o.ph)control.placeholder=o.ph;if(numeric)control.min='0';return control;
 }
 function readField(control,o){if(o.kind==='flag')return control.checked?'1':'0';if(o.kind==='list-multi')return control.value.split('\n').map(function(s){return s.trim();}).filter(Boolean);return control.value;}
-function category(sec){if(sec.section==='tun')return 'tun';if(sec.section==='dns')return 'dns';if(sec.section==='backup')return 'backup';if(sec.opts.some(function(o){return o.opt==='mixed_port';}))return 'network';if(sec.opts.some(function(o){return o.opt==='enabled'||o.opt==='watchdog';}))return 'general';return 'other';}
+function category(sec){if(sec.opts.some(function(o){return o.opt==='device_mode';}))return 'devices';if(sec.section==='tun')return 'tun';if(sec.section==='dns')return 'dns';if(sec.section==='backup')return 'backup';if(sec.opts.some(function(o){return o.opt==='mixed_port';}))return 'network';if(sec.opts.some(function(o){return o.opt==='enabled'||o.opt==='watchdog';}))return 'general';return 'other';}
+function validateDevices(values){
+	if(values.length>256)throw new Error('设备 IP 列表最多 256 项');
+	values.forEach(function(text){
+		var parts=text.split('/'),address=parts[0],ipv6=address.indexOf(':')>=0,valid=parts.length<=2;
+		if(ipv6){try{if(!/^[0-9a-f:.]+$/i.test(address))throw new Error();new URL('http://['+address+']/');}catch(e){valid=false;}}
+		else valid=valid&&/^(0|[1-9]\d{0,2})(\.(0|[1-9]\d{0,2})){3}$/.test(address)&&address.split('.').every(function(n){return +n<=255;});
+		if(parts.length===2)valid=valid&&/^(0|[1-9]\d{0,2})$/.test(parts[1])&&+parts[1]<=(ipv6?128:32);
+		if(!valid)throw new Error('设备 IP 或网段无效：'+text);
+	});
+}
 return view.extend({
 	load:function(){return Promise.all([uci.load('bettbox'),callProfiles()]);},
-	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['tun','TUN','route'],['dns','DNS','globe'],['backup','备份','layers'],['other','其他','grid']];
+	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['devices','设备控制','lan'],['tun','TUN','route'],['dns','DNS','globe'],['backup','备份','layers'],['other','其他','grid']];
+		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261030-2'}));
+		var requested=new URLSearchParams(window.location.search).get('category');
+		if(categories.some(function(c){return c[0]===requested;}))selected=requested;
+		content.setAttribute('aria-label',categories.find(function(c){return c[0]===selected;})[1]+'设置');
 		var state=E('strong',{},'当前配置');
-		function changed(){var count=inputs.filter(function(it){return JSON.stringify(readField(it.control,it.option))!==it.original;}).length;state.textContent=count?'有 '+count+' 项修改':'当前配置';}
-		SCHEMA.forEach(function(sec){var cfg=uci.get('bettbox',sec.section)||{},form=E('div',{'class':'settings-form'});sec.opts.forEach(function(o){var control=fieldFor(cfg,o,profiles),original=JSON.stringify(readField(control,o));inputs.push({section:sec.section,option:o,control:control,original:original});control.addEventListener('change',changed);control.addEventListener('input',changed);form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')},[E('div',{},[E('label',{'class':'setting-label'},o.opt==='profile'?'当前订阅':o.label)]),E('div',{'class':'setting-control'},control)]));});var panel=E('section',{'class':'panel settings-panel'},[E('div',{'class':'panel-head'},E('div',{},[E('h2',{},[UI.icon(category(sec)==='general'?'settings':category(sec)==='network'?'lan':category(sec)==='tun'?'route':category(sec)==='dns'?'globe':'grid'),document.createTextNode(sec.title)]) ])),form]);var cat=category(sec);panel.hidden=cat!==selected;sections.push({panel:panel,category:cat});content.appendChild(panel);});
-		var nav=E('aside',{'class':'panel settings-categories','aria-label':'设置类别'},categories.map(function(c){var b=E('button',{type:'button','class':'category-button'+(selected===c[0]?' active':''),'aria-pressed':String(selected===c[0])},[UI.icon(c[2]),E('span',{},c[1])]);b.addEventListener('click',function(){selected=c[0];Array.from(nav.children).forEach(function(x){x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});sections.forEach(function(s){s.panel.hidden=s.category!==selected;});});return b;}));
-		function save(){inputs.forEach(function(it){var value=readField(it.control,it.option);if(it.control.type==='number'&&value!==''&&!it.control.checkValidity())throw new Error('请检查 '+it.option.label);if(/port$/.test(it.option.opt)&&value!==''&&(+value<0||+value>65535))throw new Error('端口需要在 0–65535 之间');if(JSON.stringify(value)!==it.original)uci.set('bettbox',it.section,it.option.opt,value);});inputs.forEach(function(it){it.control.disabled=true;});state.textContent='正在保存并应用…';return uci.save().then(function(){return commit('bettbox');}).then(callApply).then(UI.operation).then(function(){inputs.forEach(function(it){it.original=JSON.stringify(readField(it.control,it.option));});state.textContent='设置已保存并应用';}).catch(function(err){state.textContent='应用失败';throw new Error('配置可能已保存：'+err.message);}).finally(function(){inputs.forEach(function(it){it.control.disabled=false;});});}
-		var bar=E('div',{'class':'save-bar'},[E('div',{},[state]),E('div',{'class':'button-row'},[UI.button('撤销',function(){window.location.reload();}),UI.button('保存并应用',save,'primary','save')])]);
-		return UI.page('settings','设置',[],[E('div',{'class':'settings-layout'},[nav,content]),bar]);
+		function syncDeviceControls(){
+			var mode=inputs.find(function(it){return it.option.opt==='device_mode';}),transport=inputs.find(function(it){return it.option.opt==='transparent_mode';});
+			if(!mode||!transport)return;
+			var selected=mode.control.value!=='off'&&transport.control.value!=='off';
+			inputs.forEach(function(it){
+				var owned=it.option.opt==='hijack_dnsmasq'?selected:it.section==='tun'&&['auto_route','auto_redirect','strict_route'].indexOf(it.option.opt)>=0?selected&&transport.control.value==='tun':null;
+				if(owned!==null){it.control.disabled=owned;it.control.title=owned?'设备控制启用时，由插件按设备 IP 接管 DNS 和路由':'';}
+			});
+		}
+		function changed(){var count=inputs.filter(function(it){return JSON.stringify(readField(it.control,it.option))!==it.original;}).length;state.textContent=count?'有 '+count+' 项修改':'当前配置';syncDeviceControls();}
+		SCHEMA.forEach(function(sec,index){
+			var cfg=uci.get('bettbox',sec.section)||{},form=E('div',{'class':'settings-form'});
+			sec.opts.forEach(function(o){
+				var control=fieldFor(cfg,o,profiles),original=JSON.stringify(readField(control,o)),id='bettbox-setting-'+sec.section+'-'+o.opt;
+				control.id=id;inputs.push({section:sec.section,option:o,control:control,original:original});
+				control.addEventListener('change',changed);control.addEventListener('input',changed);
+				var wide=o.opt==='age_identity';
+				form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(wide?' wide':'')+(o.kind==='list-multi'?' multiline':'')},[
+					E('div',{},E('label',{'class':'setting-label',for:id},o.label)),E('div',{'class':'setting-control'},control)]));
+			});
+			var cat=category(sec),headingId='bettbox-settings-section-'+index;
+			var panel=E('section',{'class':'panel settings-panel','aria-labelledby':headingId},[
+				E('div',{'class':'panel-head'},E('h2',{id:headingId},[UI.icon(cat==='general'?'settings':cat==='network'?'lan':cat==='tun'?'route':cat==='dns'?'globe':'grid'),document.createTextNode(sec.title)])),form]);
+			panel.hidden=cat!==selected;sections.push({panel:panel,category:cat});content.appendChild(panel);
+		});
+		syncDeviceControls();
+		var nav=E('nav',{'class':'settings-categories','aria-label':'设置类别'},categories.map(function(c){
+			var b=E('button',{type:'button','class':'category-button'+(selected===c[0]?' active':''),'aria-pressed':String(selected===c[0])},[UI.icon(c[2]),E('span',{},c[1])]);
+			b.addEventListener('click',function(){
+				selected=c[0];Array.from(nav.children).forEach(function(x){x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});
+				sections.forEach(function(s){s.panel.hidden=s.category!==selected;});content.setAttribute('aria-label',c[1]+'设置');
+				var url=new URL(window.location.href);url.searchParams.set('category',selected);window.history.replaceState({},'',url.href);
+			});return b;
+		}));
+		function save(){var deviceMode=inputs.find(function(it){return it.option.opt==='device_mode';}),deviceIPs=inputs.find(function(it){return it.option.opt==='device_ips';});if(deviceMode.control.value!=='off')validateDevices(readField(deviceIPs.control,deviceIPs.option));inputs.forEach(function(it){var value=readField(it.control,it.option);if(it.control.type==='number'&&value!==''&&!it.control.checkValidity())throw new Error('请检查 '+it.option.label);if(/port$/.test(it.option.opt)&&value!==''&&(+value<0||+value>65535))throw new Error('端口需要在 0–65535 之间');if(JSON.stringify(value)!==it.original)uci.set('bettbox',it.section,it.option.opt,value);});inputs.forEach(function(it){it.control.disabled=true;});state.textContent='正在保存并应用…';return uci.save().then(function(){return commit('bettbox');}).then(callApply).then(UI.operation).then(function(){inputs.forEach(function(it){it.original=JSON.stringify(readField(it.control,it.option));});state.textContent='设置已保存并应用';}).catch(function(err){state.textContent='应用失败';throw new Error('配置可能已保存：'+err.message);}).finally(function(){inputs.forEach(function(it){it.control.disabled=false;});syncDeviceControls();});}
+		var bar=E('div',{'class':'save-bar settings-save-bar'},[E('div',{'role':'status','aria-live':'polite'},[state]),E('div',{'class':'button-row'},[UI.button('撤销',function(){window.location.reload();}),UI.button('保存并应用',save,'primary','save')])]);
+		var root=UI.page('settings','设置',[],[E('div',{'class':'settings-layout'},[nav,content]),bar]);root.classList.add('bb-settings');return root;
 	},handleSaveApply:null,handleSave:null,handleReset:null
 });

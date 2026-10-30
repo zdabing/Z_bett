@@ -44,7 +44,11 @@ start_service() {
 	procd_set_param env GEOIP_DIR=/etc/bettbox/geo
 	procd_close_instance
 
-	if [ "$(uci -q get bettbox.config.watchdog)" = "1" ]; then
+	local route_guard=0
+	case "$(uci -q get bettbox.config.device_mode):$(uci -q get bettbox.config.transparent_mode)" in
+	include:tun|exclude:tun) route_guard=1 ;;
+	esac
+	if [ "$(uci -q get bettbox.config.watchdog)" = "1" ] || [ "$route_guard" = 1 ]; then
 		procd_open_instance watchdog
 		procd_set_param command /bin/sh /usr/libexec/bettbox/watchdog.sh
 		procd_set_param respawn 3600 5 0
@@ -103,7 +107,7 @@ bettbox_release_network() {
 
 bettbox_network_settings() {
 	local key value
-	for key in transparent_mode hijack_dnsmasq external_controller secret mixed_port tproxy_port redir_port port socks_port; do
+	for key in transparent_mode hijack_dnsmasq device_mode device_ips external_controller secret mixed_port tproxy_port redir_port port socks_port; do
 		value=$(uci -q get "bettbox.config.$key")
 		printf '%s=%s\n' "$key" "$value"
 	done
@@ -144,6 +148,23 @@ stop_service() {
 		printf '%s\n' 'network restore failed; core retained, retry stop' >&2
 		exit 1
 	fi
+	BETTBOX_STOP_PID=$(bettbox_core_pid)
+}
+
+service_stopped() {
+	# procd's delete reply only acknowledges SIGTERM. Do not report completion
+	# while the captured core is still closing its sockets and TUN interface.
+	case "$BETTBOX_STOP_PID" in ''|*[!0-9]*) return 0 ;; esac
+	local deadline
+	deadline=$(( $(bettbox_uptime) + 7 ))
+	while [ -d "/proc/$BETTBOX_STOP_PID" ]; do
+		if [ "$(bettbox_uptime)" -ge "$deadline" ]; then
+			printf '%s\n' 'core process has not exited after stop; check service state' >&2
+			return 1
+		fi
+		sleep 1
+	done
+	return 0
 }
 
 reload_service() {

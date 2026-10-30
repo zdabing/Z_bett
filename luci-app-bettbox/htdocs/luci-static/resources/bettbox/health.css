@@ -1,0 +1,7 @@
+.bb-app .bb-health-summary{font-weight:600;margin:20px 0 14px;line-height:1.6}
+.bb-app .bb-health-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.bb-app .bb-health-layer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center;padding:14px 16px;border:1px solid var(--bb-line);border-radius:10px;background:var(--surface);min-width:0}
+.bb-app .bb-health-layer>strong{font-size:13px}.bb-app .bb-health-layer>span:last-child{grid-column:1/-1;overflow-wrap:anywhere}
+.bb-app .bb-health-memory{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:20px 0 0;padding-top:16px;border-top:1px solid var(--bb-line)}
+.bb-app .bb-health-memory dt{font-size:12px;color:var(--muted)}.bb-app .bb-health-memory dd{margin:8px 0 0;overflow-wrap:anywhere}
+@media(max-width:599px){.bb-app .bb-health-grid{grid-template-columns:minmax(0,1fr)}.bb-app .bb-health-memory{grid-template-columns:repeat(2,minmax(0,1fr))}}

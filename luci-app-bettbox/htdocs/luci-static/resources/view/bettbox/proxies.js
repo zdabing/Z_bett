@@ -1,10 +1,14 @@
 'use strict';
 'require view';
 'require poll';
+'require rpc';
 'require uci';
 'require ui';
 'require bettbox.core as Core';
 'require bettbox.ui as UI';
+
+var getStatus = rpc.declare({ object: 'bettbox', method: 'get_status' });
+var serviceAction = rpc.declare({ object: 'bettbox', method: 'service_action', params: ['action'] });
 
 function encode(value) {
 	return encodeURIComponent(value).replace(/[!'()*]/g, function(c) {
@@ -37,20 +41,28 @@ return view.extend({
 	load: function() { return uci.load('bettbox'); },
 	render: function() {
 		var proxies = new Map(), groups = [], expanded = new Set(), columns = new Map();
-		var results = new Map(), requests = new Map(), queue = [], active = 0;
+		var results = new Map(), requests = new Map(), queue = [], active = 0, enqueueDepth = 0;
+		var testBatch = 0, disposed = false, runtimeKey = '', visibleCounts = new Map(), gridObserver = null;
+		var reuseSeconds = Number(stored('proxy-test-reuse', '60'));
+		if ([0,30,60,300].indexOf(reuseSeconds) < 0) reuseSeconds = 60;
+		var cacheKey = 'bettbox-proxy-results-v1', cacheLoaded = false;
 		var groupTests = new Map(), selecting = new Set(), allTesting = false;
 		var filter = '', snapshot = false, offline = false, refreshPromise = null;
+		var serviceState = 'checking', serviceInfo = null, startError = '', dataGeneration = 0;
 		var lastAttempt = 0, lastSuccess = 0, layoutKey = '', expansionLoaded = false;
 		var profileKey = 'proxy-expanded-v4:' + (uci.get('bettbox', 'config', 'profile') || 'default');
 		var viewMode = stored('proxy-view', 'cards'), sortMode = stored('proxy-sort', 'default');
 		if (['cards', 'list'].indexOf(viewMode) < 0) viewMode = 'cards';
 		if (['default', 'delay', 'name'].indexOf(sortMode) < 0) sortMode = 'default';
 		var testURL = stored('test-url', uci.get('bettbox', 'config', 'test_url') || 'https://www.gstatic.com/generate_204');
+		if (!document.getElementById('bettbox-proxy-state-css'))
+			document.head.appendChild(E('link', { id: 'bettbox-proxy-state-css', rel: 'stylesheet', href: L.resource('bettbox/proxy-state.css') + '?v=20261030-1' }));
 		var host = E('div', { 'class': 'v4-groups', 'aria-live': 'off' });
 		var banner = E('div', { 'class': 'v4-connection-state', role: 'status', hidden: true });
 		var count = E('span', { 'class': 'v4-group-count' }, '—');
 		var refreshButton = UI.button('刷新', refresh, '', 'refresh');
 		var allButton = UI.button('全部测速', function() { testAll(); }, 'primary', 'activity');
+		var cancelButton = UI.button('取消测速', cancelTests, '', 'close'); cancelButton.hidden = true;
 		var viewButton = UI.button('切换视图', function() {
 			viewMode = viewMode === 'cards' ? 'list' : 'cards';
 			persist('proxy-view', viewMode); draw();
@@ -59,14 +71,14 @@ return view.extend({
 		var collapseButton = UI.button('全部收起', toggleAll, 'bb-icon-only', 'layers');
 		var settingsButton = UI.button('测试设置', settings, 'bb-icon-only', 'settings');
 		settingsButton.setAttribute('aria-label', '测试设置');
-		var search = UI.search('搜索策略组或节点', function(value) { filter = value.trim().toLowerCase(); draw(); });
+		var search = UI.search('搜索策略组或节点', function(value) { filter = value.trim().toLowerCase(); visibleCounts.clear(); draw(); });
 		var sort = E('select', { 'class': 'field', 'aria-label': '节点排序' }, [
 			E('option', { value: 'default' }, '默认排序'),
 			E('option', { value: 'delay' }, '延迟优先'),
 			E('option', { value: 'name' }, '名称排序')
 		]);
 		sort.value = sortMode;
-		sort.addEventListener('change', function() { sortMode = sort.value; persist('proxy-sort', sortMode); draw(); });
+		sort.addEventListener('change', function() { sortMode = sort.value; persist('proxy-sort', sortMode); visibleCounts.clear(); draw(); });
 
 		function get(name) { return proxies.get(name) || { name: name || '—', type: 'Unknown' }; }
 		function children(group) { return (group.all || []).map(get); }
@@ -86,7 +98,19 @@ return view.extend({
 			return last && !/^(REJECT|REJECT-DROP|PASS)$/i.test(last.name) &&
 				!/^(Reject|RejectDrop|Pass|Rematch)$/i.test(last.type || '');
 		}
-		function requestKey(proxy, url) { return JSON.stringify([url || testURL, proxy.name]); }
+		function requestKey(proxy, url) { return JSON.stringify([runtimeKey, url || testURL, proxy.name]); }
+		function saveResults() {
+			var entries = Array.from(results.entries()).filter(function(item) { return item[1].status === 'success' && Date.now() - item[1].time <= 300000; }).slice(-512);
+			try { sessionStorage.setItem(cacheKey, JSON.stringify(entries)); } catch(e) {}
+		}
+		function loadResults() {
+			if (cacheLoaded) return; cacheLoaded = true;
+			try { var data = JSON.parse(sessionStorage.getItem(cacheKey) || '[]');
+				if (Array.isArray(data)) data.slice(-512).forEach(function(item) {
+					if (Array.isArray(item) && typeof item[0] === 'string' && item[1] && item[1].status === 'success' && item[1].delay > 0 && item[1].time <= Date.now() && Date.now() - item[1].time <= 300000) results.set(item[0], item[1]);
+				});
+			} catch(e) {}
+		}
 		function stateFor(proxy) {
 			var last = target(proxy);
 			if (!last) return { status: 'error', error: '策略组出口形成循环' };
@@ -160,9 +184,24 @@ return view.extend({
 			return card;
 		}
 		function nodeGrid(group, list) {
-			return E('div', {
+			var limit = Math.min(list.length, visibleCounts.get(group.name) || 48);
+			var grid = E('div', {
 				'class': 'proxy-node-grid v4-node-grid' + (viewMode === 'list' ? ' list-view' : ''), 'data-count': String(list.length)
-			}, list.length ? list.map(function(proxy) { return nodeCard(group, proxy); }) : [E('div', { 'class': 'v4-no-nodes' }, '暂无节点')]);
+			}, list.length ? list.slice(0, limit).map(function(proxy) { return nodeCard(group, proxy); }) : [E('div', { 'class': 'v4-no-nodes' }, '暂无节点')]);
+			if (limit < list.length) {
+				var more = E('button', { type: 'button', 'class': 'btn v4-load-more', 'aria-label': '加载更多 ' + group.name + ' 节点' }, '加载更多 · ' + limit + '/' + list.length);
+				function append() {
+					if (!grid.isConnected || disposed) return;
+					var end = Math.min(list.length, limit + 48), fragment = document.createDocumentFragment();
+					list.slice(limit, end).forEach(function(proxy) { fragment.appendChild(nodeCard(group, proxy)); });
+					grid.insertBefore(fragment, more); limit = end; visibleCounts.set(group.name, limit);
+					if (limit === list.length) { if (gridObserver) gridObserver.unobserve(more); more.remove(); }
+					else more.textContent = '加载更多 · ' + limit + '/' + list.length;
+				}
+				more.addEventListener('click', append); more.loadNodes = append; grid.appendChild(more);
+				if (gridObserver) gridObserver.observe(more);
+			}
+			return grid;
 		}
 		function currentChain(group) {
 			var list = chain(group), selected = group.now ? get(group.now) : null;
@@ -201,7 +240,50 @@ return view.extend({
 				'class': 'panel v4-group' + (open ? ' open' : ''), 'data-group-name': group.name, style: '--group-order:' + index
 			}, [E('div', { 'class': 'v4-group-head' }, [toggle, test]), open ? nodeGrid(group, list) : document.createTextNode('')]);
 		}
+		function inactive() { return serviceState === 'stopped' || serviceState === 'idle' || serviceState === 'starting'; }
+		function inactiveCard() {
+			var starting = serviceState === 'starting';
+			var id = serviceInfo && serviceInfo.profile || uci.get('bettbox', 'config', 'profile') || '';
+			var name = id ? uci.get('bettbox', id, 'label') || '已选择订阅' : '未选择订阅';
+			var primary = id ? UI.button(starting ? '正在启动…' : startError ? '重试启动' : '启动服务', startService, 'primary', starting ? 'refresh' : 'power') :
+				E('a', { 'class': 'btn primary', href: L.url('admin', 'services', 'bettbox', 'profiles') }, '添加订阅');
+			primary.disabled = starting;
+			return E('section', { 'class': 'panel v4-state-card' + (starting ? ' starting' : ''), 'aria-labelledby': 'bettbox-proxy-state-title' }, [
+				E('div', { 'class': 'v4-state-symbol' }, UI.icon(starting ? 'refresh' : 'power')),
+				E('h2', { id: 'bettbox-proxy-state-title' }, starting ? '正在启动服务' : serviceState === 'idle' ? '服务未运行' : '服务未启动'),
+				E('div', { 'class': 'v4-state-profile' }, id ? [E('span', {}, '当前订阅'), E('strong', {}, name)] : E('span', {}, name)),
+				startError ? E('p', { 'class': 'v4-state-error', role: 'alert' }, startError) : document.createTextNode(''),
+				E('div', { 'class': 'v4-state-actions' }, [primary, id ? E('a', { 'class': 'btn text', href: L.url('admin', 'services', 'bettbox', 'profiles') }, '管理订阅') : document.createTextNode('')])
+			]);
+		}
+		function stopped(status) {
+			if (snapshot || groups.length || requests.size) {
+				dataGeneration++; cancelTests(); results.clear(); saveResults();
+				proxies.clear(); groups = []; snapshot = false; layoutKey = '';
+			}
+			serviceInfo = status; serviceState = status.enabled ? 'idle' : 'stopped'; offline = true; banner.hidden = true; draw();
+		}
+		function startService() {
+			if (serviceState === 'starting') return Promise.resolve();
+			dataGeneration++; startError = ''; serviceState = 'starting'; draw();
+			return serviceAction('start').then(UI.operation).then(function() {
+				return Promise.resolve(refreshPromise).then(function() { serviceState = 'checking'; return refresh(); });
+			}).catch(function(error) {
+				startError = error.message || String(error);
+				return getStatus().then(function(status) {
+					if (status && status.service_known !== false && status.running === false) { stopped(status); return; }
+					serviceState = 'unknown'; offline = true; connectionError(error, '启动服务失败'); draw();
+				}, function() { serviceState = 'unknown'; offline = true; connectionError(error, '启动服务失败'); draw(); });
+			});
+		}
 		function draw() {
+			if (disposed) return;
+			if (gridObserver) gridObserver.disconnect();
+			var quiet = inactive() || serviceState === 'checking';
+			controls.hidden = quiet; refreshButton.hidden = quiet; allButton.hidden = quiet; count.hidden = !snapshot || quiet;
+			cancelButton.hidden = quiet || !requests.size;
+			host.classList.toggle('v4-inactive', inactive());
+			if (inactive()) { banner.hidden = true; host.classList.remove('stale'); host.replaceChildren(inactiveCard()); return; }
 			count.textContent = snapshot ? String(groups.length) : '—';
 			allButton.disabled = !groups.length || offline || allTesting;
 			collapseButton.disabled = !groups.length || !!filter;
@@ -228,6 +310,7 @@ return view.extend({
 			saveExpanded(); draw();
 		}
 		function updateTests() {
+			if (disposed) return;
 			Array.from(host.querySelectorAll('[data-proxy-name]')).forEach(function(card) {
 				var proxy = get(card.dataset.proxyName), footer = card.querySelector('.v4-node-footer');
 				footer.replaceChildren(E('span', { 'class': 'v4-protocol' }, proxy.type || '—'), latency(proxy));
@@ -237,47 +320,74 @@ return view.extend({
 				button.disabled = offline || testing || !children(group).some(testable); button.classList.toggle('testing', testing);
 			});
 			allButton.disabled = !groups.length || offline || allTesting;
+			cancelButton.hidden = !requests.size || inactive();
+		}
+		function cancelTests() {
+			testBatch++;
+			requests.forEach(function(entry) { entry.cancelled = true; entry.resolve(); });
+			requests.clear(); queue = []; groupTests.clear(); allTesting = false;
+			allButton.querySelector('span').textContent = '全部测速'; updateTests();
 		}
 		function pump() {
+			if (offline || disposed) return;
 			while (active < 2 && queue.length) run(queue.shift());
 		}
 		function run(entry) {
+			var generation = dataGeneration;
 			active++; entry.running = true; updateTests();
-			Promise.resolve().then(function() { return UI.job('delay', [encode(entry.target.name), encode(entry.url)]); }).then(function(response) {
+			Promise.resolve().then(function() {
+				if (!disposed && !entry.cancelled && generation === dataGeneration) return UI.job('delay', [encode(entry.target.name), encode(entry.url)]);
+			}).then(function(response) {
+				if (disposed || entry.cancelled || generation !== dataGeneration) return;
 				var data = JSON.parse(response.text); if (!(data.delay > 0)) throw new Error('未获得有效延迟');
-				results.set(entry.key, { status: 'success', delay: data.delay });
+				results.delete(entry.key); results.set(entry.key, { status: 'success', delay: data.delay, time: Date.now() });
+				while (results.size > 512) results.delete(results.keys().next().value);
+				saveResults();
 			}).catch(function(error) {
-				results.set(entry.key, { status: /504|timeout|timed out|超时/i.test(error.message) ? 'timeout' : 'error', error: error.message });
+				if (disposed || entry.cancelled || generation !== dataGeneration) return;
+				results.set(entry.key, { status: /504|timeout|timed out|超时/i.test(error.message) ? 'timeout' : 'error', error: String(error.message || error).slice(0,300) });
+				while (results.size > 512) results.delete(results.keys().next().value);
 			}).finally(function() {
-				active--; requests.delete(entry.key); entry.resolve(); pump();
+				active--; if (requests.get(entry.key) === entry) requests.delete(entry.key); entry.resolve(); pump();
 				if (sortMode === 'delay') draw(); else updateTests();
 			});
 		}
-		function testOne(proxy) {
-			if (offline || !testable(proxy)) return Promise.resolve();
+		function testOne(proxy, reuse) {
+			if (offline || disposed || !testable(proxy)) return Promise.resolve();
 			var last = target(proxy), key = requestKey(last), entry = requests.get(key);
-			if (entry) { entry.aliases.add(proxy.name); updateTests(); return entry.promise; }
+			if (entry) { entry.aliases.add(proxy.name); if (!enqueueDepth) updateTests(); return entry.promise; }
+			var cached = results.get(key);
+			if (reuse === true && reuseSeconds > 0 && cached && cached.status === 'success' && cached.time <= Date.now() && Date.now() - cached.time < reuseSeconds * 1000) return Promise.resolve();
 			entry = { key: key, target: last, url: testURL, aliases: new Set([proxy.name]), running: false };
 			entry.promise = new Promise(function(resolve) { entry.resolve = resolve; });
-			requests.set(key, entry); queue.push(entry); updateTests(); pump(); return entry.promise;
+			requests.set(key, entry); queue.push(entry);
+			if (!enqueueDepth) { updateTests(); pump(); }
+			return entry.promise;
 		}
 		function testGroup(group) {
 			if (offline) return Promise.resolve();
 			if (groupTests.has(group.name)) return groupTests.get(group.name);
-			var pending = Promise.all(children(group).map(testOne)).finally(function() {
-				groupTests.delete(group.name); updateTests();
+			var tasks;
+			enqueueDepth++;
+			try { tasks = children(group).map(function(proxy) { return testOne(proxy, true); }); }
+			finally { enqueueDepth--; }
+			var pending = Promise.all(tasks).finally(function() {
+				if (groupTests.get(group.name) === pending) groupTests.delete(group.name); updateTests();
 			});
-			groupTests.set(group.name, pending); updateTests(); return pending;
+			groupTests.set(group.name, pending); updateTests(); pump(); return pending;
 		}
 		function testAll() {
 			if (offline || allTesting) return Promise.resolve();
+			var batch = testBatch;
 			allTesting = true; allButton.querySelector('span').textContent = '检测中…';
 			return Promise.all(groups.map(testGroup)).finally(function() {
+				if (batch !== testBatch) return;
 				allTesting = false; allButton.querySelector('span').textContent = '全部测速'; updateTests();
 			});
 		}
 		function selectNode(group, proxy) {
 			if (offline || selecting.has(group.name) || group.now === proxy.name) return;
+			var generation = dataGeneration;
 			selecting.add(group.name);
 			Array.from(host.querySelectorAll('[data-select-group]')).forEach(function(button) {
 				if (button.dataset.selectGroup === group.name) button.disabled = true;
@@ -285,22 +395,25 @@ return view.extend({
 			Core.put('/proxies/' + encode(group.name), { name: proxy.name }).then(function() {
 				// Keep the confirmed selection even if the subsequent snapshot fails.
 				return Promise.resolve(refreshPromise).then(function() {
+					if (generation !== dataGeneration) return;
 					get(group.name).now = proxy.name; draw(); return refresh();
 				});
-			}).catch(UI.error).finally(function() { selecting.delete(group.name); draw(); });
+			}).catch(function(error) { if (generation === dataGeneration) UI.error(error); }).finally(function() { selecting.delete(group.name); draw(); });
 		}
 		function settings() {
 			var input = E('input', { 'class': 'field', type: 'url', value: testURL, 'aria-label': '测试地址' });
-			UI.modal('测试设置', [UI.field('测试地址', input)], [UI.button('保存', function() {
+			var reuse = E('select', { 'class': 'field', 'aria-label': '批量结果复用' }, [0,30,60,300].map(function(n) { return E('option', { value: String(n) }, n ? n + ' 秒' : '每次重新检测'); })); reuse.value = String(reuseSeconds);
+			UI.modal('测试设置', [UI.field('测试地址', input), UI.field('批量结果复用', reuse)], [UI.button('保存', function() {
 				var address = input.value.trim();
 				try { if (!/^https?:$/.test(new URL(address).protocol)) throw new Error(); }
 				catch(e) { throw new Error('请输入有效的 http(s) 测试地址'); }
-				testURL = address; persist('test-url', address); ui.hideModal(); draw();
+				if (address !== testURL) cancelTests();
+				testURL = address; reuseSeconds = Number(reuse.value); persist('proxy-test-reuse', String(reuseSeconds)); persist('test-url', address); ui.hideModal(); draw();
 			}, 'primary', 'save'), UI.button('取消', ui.hideModal)]);
 		}
-		function connectionError(error) {
+		function connectionError(error, message) {
 			var code = error && error.httpStatus;
-			var title = code === 401 || code === 403 ? '控制器认证失败' : code === 408 || code === 504 ? '控制器连接超时' : '控制器连接中断';
+			var title = message || (code === 401 || code === 403 ? '控制器认证失败' : code === 408 || code === 504 ? '控制器连接超时' : serviceState === 'unknown' ? '暂时无法确认服务状态' : '控制器连接中断');
 			banner.hidden = false; banner.title = error.message || String(error);
 			banner.replaceChildren(UI.icon('info'), E('div', {}, [E('strong', {}, title),
 				snapshot ? E('time', {}, '上次数据 · ' + new Date(lastSuccess).toLocaleTimeString()) : document.createTextNode('')]),
@@ -309,9 +422,24 @@ return view.extend({
 				E('a', { 'class': 'btn', href: L.url('admin', 'services', 'bettbox', 'overview') }, '查看概览')));
 		}
 		function refresh() {
+			if (disposed) return Promise.resolve();
+			if (serviceState === 'starting') return Promise.resolve();
 			if (refreshPromise) return refreshPromise;
+			var generation = dataGeneration;
 			lastAttempt = Date.now();
-			refreshPromise = Core.get('/proxies').then(function(response) {
+			refreshPromise = getStatus().catch(function() { return { service_known: false }; }).then(function(status) {
+				if (generation !== dataGeneration) return null;
+				serviceInfo = status;
+				var nextProfileKey = 'proxy-expanded-v4:' + (status && status.profile || 'default');
+				if (nextProfileKey !== profileKey) { profileKey = nextProfileKey; expansionLoaded = false; expanded.clear(); layoutKey = ''; }
+				var nextKey = JSON.stringify([status && status.profile || '', status && status.controller || '', status && status.pid || 0, status && status.config_stamp || 0]);
+				if (runtimeKey && runtimeKey !== nextKey) { cancelTests(); results.clear(); visibleCounts.clear(); dataGeneration++; generation = dataGeneration; }
+				runtimeKey = nextKey; loadResults();
+				if (status && status.service_known !== false && status.running === false && typeof status.enabled === 'boolean') { stopped(status); return null; }
+				serviceState = status && status.running === true ? 'live' : 'unknown';
+				return Core.get('/proxies');
+			}).then(function(response) {
+				if (!response || generation !== dataGeneration) return;
 				var data = response.data && response.data.proxies;
 				if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('控制器未返回节点数据');
 				var next = new Map();
@@ -323,21 +451,28 @@ return view.extend({
 				groups = order.filter(function(name) { if (seen.has(name)) return false; seen.add(name); return true; }).map(function(name) { return next.get(name); }).filter(function(proxy) {
 					return proxy && proxy.name !== 'GLOBAL' && !proxy.hidden && Array.isArray(proxy.all);
 				});
-				proxies = next; snapshot = true; offline = false; lastSuccess = Date.now(); banner.hidden = true;
-				initializeLayout(); host.classList.remove('stale'); draw();
+				serviceState = 'live'; startError = ''; proxies = next; snapshot = true; offline = false; lastSuccess = Date.now(); banner.hidden = true;
+				initializeLayout(); host.classList.remove('stale'); draw(); pump();
 			}).catch(function(error) {
+				if (generation !== dataGeneration) return;
 				offline = true; connectionError(error);
-				if (snapshot) { host.classList.add('stale'); draw(); }
+				if (snapshot) host.classList.add('stale');
+				draw();
 			}).finally(function() { refreshPromise = null; });
 			return refreshPromise;
 		}
 
 		var controls = E('div', { 'class': 'v4-controls' }, [search, E('div', { 'class': 'v4-control-actions' }, [sort, viewButton, collapseButton, settingsButton])]);
-		var root = UI.page('proxies', '代理', [refreshButton, allButton], [controls, banner, host]);
+		if (typeof IntersectionObserver !== 'undefined') gridObserver = new IntersectionObserver(function(entries) { entries.forEach(function(entry) { if (entry.isIntersecting && entry.target.loadNodes) entry.target.loadNodes(); }); }, { rootMargin: '480px' });
+		var root = UI.page('proxies', '代理', [refreshButton, cancelButton, allButton], [controls, banner, host]);
+		function dispose() { if (disposed) return; disposed = true; dataGeneration++; cancelTests(); if (gridObserver) gridObserver.disconnect(); lifecycle.disconnect(); window.removeEventListener('pagehide', dispose); }
+		var lifecycle = new MutationObserver(function() { if (!root.isConnected) dispose(); }); lifecycle.observe(document.body, { childList: true, subtree: true });
+		window.addEventListener('pagehide', dispose);
 		root.classList.add('v4-proxies'); root.querySelector('h1').appendChild(count);
-		host.appendChild(E('div', { 'class': 'v4-loading', role: 'status' }, [UI.icon('refresh'), document.createTextNode('正在读取节点…')]));
+		host.appendChild(E('div', { 'class': 'v4-loading', role: 'status' }, [UI.icon('refresh'), document.createTextNode('正在读取服务状态…')]));
 		poll.add(function() {
-			if (requests.size || selecting.size || Date.now() - lastAttempt < 15000) return Promise.resolve();
+			if (disposed || !root.isConnected) return Promise.resolve();
+			if (Date.now() - lastAttempt < (inactive() ? 5000 : 15000)) return Promise.resolve();
 			return refresh();
 		}, 5);
 		draw(); refresh(); return root;

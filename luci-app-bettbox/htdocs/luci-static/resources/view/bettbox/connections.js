@@ -5,6 +5,7 @@
 'require ui';
 'require bettbox.core as Core';
 'require bettbox.ui as UI';
+'require bettbox.subscription-controls as H';
 
 var getStatus = rpc.declare({ object: 'bettbox', method: 'get_status' });
 
@@ -146,14 +147,14 @@ return view.extend({
 			if (!paused) return updatedAfterAction();
 		}, '', 'pause');
 		var closeAll = UI.button('关闭全部连接', function() {
-			UI.modal('关闭全部连接', E('p', {}, '关闭当前全部活动连接？'), [UI.button('确认关闭', function() {
-				return Core.del('/connections').then(function() { ui.hideModal(); return updatedAfterAction(); });
-			}, 'danger'), UI.button('取消', ui.hideModal)]);
+			return H.confirm('关闭全部连接', '关闭当前全部活动连接？', '确认关闭', true).then(function(yes) {
+				if (yes) return Core.del('/connections').then(updatedAfterAction);
+			});
 		}, 'danger', 'close');
 		var clearHistory = UI.button('清空历史', function() {
-			UI.modal('清空历史', E('p', {}, '清空全部已关闭记录？'), [UI.button('确认清空', function() {
-				return Core.del('/connections/closed').then(function() { ui.hideModal(); return updatedAfterAction(); });
-			}, 'danger'), UI.button('取消', ui.hideModal)]);
+			return H.confirm('清空历史', '清空全部已关闭记录？', '确认清空', true).then(function(yes) {
+				if (yes) return Core.del('/connections/closed').then(updatedAfterAction);
+			});
 		}, '', 'close');
 		['active', 'closed', 'all'].forEach(function(key) {
 			var b = E('button', { type: 'button', 'class': 'chip', 'aria-pressed': 'false' });

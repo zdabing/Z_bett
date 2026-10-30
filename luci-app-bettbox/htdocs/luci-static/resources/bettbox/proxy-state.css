@@ -1,0 +1,17 @@
+/* A stopped service is an ordinary page state, using the shared V2 palette. */
+.bb-app .v4-load-more{grid-column:1/-1;justify-content:center;min-height:44px;color:var(--muted)}
+.bb-app.v4-proxies .v4-groups.v4-inactive{display:block}
+.bb-app.v4-proxies .v4-state-card{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;padding:36px 24px;text-align:center}
+.bb-app .v4-state-symbol{display:flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:15px;background:var(--soft);color:var(--bb-accent)}
+.bb-app .v4-state-symbol>.ico{width:26px;height:26px;stroke-width:1.6}
+.bb-app .v4-state-card h2{margin:18px 0 12px;font-size:20px;font-weight:600;line-height:1.4;letter-spacing:-.3px}
+.bb-app .v4-state-profile{display:flex;justify-content:center;align-items:baseline;gap:9px;max-width:100%;font-size:12px;color:var(--muted)}
+.bb-app .v4-state-profile strong{font-size:13px;color:var(--secondary);font-weight:500;overflow-wrap:anywhere;min-width:0}
+.bb-app .v4-state-profile>span{flex-shrink:0}
+.bb-app .v4-state-actions{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:24px}
+.bb-app .v4-state-actions>.btn{min-height:44px;min-width:124px;font-size:13px}
+.bb-app .v4-state-actions>.btn.text{background:transparent;border-color:transparent}
+.bb-app .v4-state-error{max-width:480px;margin:16px 0 0;font-size:13px;color:var(--bb-danger);line-height:1.6;overflow-wrap:anywhere;white-space:pre-wrap}
+.bb-app .v4-state-card.starting .v4-state-symbol>.ico{animation:proxy-spin 1s linear infinite}
+@media(max-width:599px){.bb-app.v4-proxies .v4-state-card{min-height:320px;padding:28px 18px}.bb-app .v4-state-card h2{font-size:19px}.bb-app .v4-state-actions{flex-direction:column;width:min(240px,100%);gap:6px}.bb-app .v4-state-actions>.btn{width:100%}}
+@media(prefers-reduced-motion:reduce){.bb-app .v4-state-card.starting .v4-state-symbol>.ico{animation:none}}

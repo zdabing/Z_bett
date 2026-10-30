@@ -14,6 +14,8 @@
 
 import { readfile, writefile } from 'fs';
 import { cursor } from 'uci';
+import { device_access } from '/usr/libexec/bettbox/device-access.uc';
+import { preserve_node_dns, check_dns } from '/usr/libexec/bettbox/dns-policy.uc';
 
 const BETT_RULES = 'https://github.com/appshubcc/bett-rules/releases/latest/download';
 
@@ -29,6 +31,7 @@ if (type(base) != 'object')
 let sid = (length(argv) > 2) ? argv[2] : null;
 
 let ctx = cursor();
+let devices = device_access(ctx);
 let uci = (section, option) => ctx.get('bettbox', section, option);
 let uci_list = (section, option) => {
 	let all = ctx.get_all('bettbox') ?? {};
@@ -266,6 +269,8 @@ patch['geox-url'] = geox;
 // crafted by the provider); we only patch enable+listen on top so dnsmasq can
 // forward to the core. A full replace happens only when the user explicitly
 // turns on "覆写 DNS" (dns.override=1), matching upstream overrideDns.
+if (devices.enabled && mode != 'off' && !match(uci('dns', 'listen') ?? '0.0.0.0:1053', /^(0\.0\.0\.0|\[::\]):[0-9]+$/))
+	die('设备控制需要 DNS 监听 0.0.0.0:端口 或 [::]:端口\n');
 if (uci('dns', 'override') == '1') {
 	let nameservers = filter(uci_list('dns', 'nameserver'), v => length(v) > 0);
 	if (length(nameservers) == 0)
@@ -306,7 +311,7 @@ if (uci('dns', 'override') == '1') {
 	// profile has no usable DNS: keep name resolution alive like upstream
 	patch.dns = {
 		enable: true,
-		listen: '0.0.0.0:1053',
+		listen: uci('dns', 'listen') ?? '0.0.0.0:1053',
 		'enhanced-mode': 'redir-host',
 		// dnsmasq may forward to us; using system:// here would form a loop.
 		nameserver: [ '223.5.5.5', '119.29.29.29' ]
@@ -320,8 +325,10 @@ if (mode == 'tun') {
 		enable: true,
 		stack: uci('tun', 'stack') ?? 'mips',
 		device: uci('tun', 'device') ?? 'bettbox',
-		'auto-route': (uci('tun', 'auto_route') != '0'),
-		'auto-redirect': (uci('tun', 'auto_redirect') != '0'),
+		// Device access uses source-filtered policy routing, including with
+		// official cores; do not also install the core's all-device takeover.
+		'auto-route': !devices.enabled && (uci('tun', 'auto_route') != '0'),
+		'auto-redirect': !devices.enabled && (uci('tun', 'auto_redirect') != '0'),
 		'strict-route': (uci('tun', 'strict_route') == '1'),
 		'auto-detect-interface': true,
 		'dns-hijack': [ uci('tun', 'dns_hijack') ?? 'any:53' ],
@@ -442,4 +449,7 @@ if (type(disabled) == 'array' && length(disabled) > 0 && type(base['proxy-groups
 /* ---------- output ---------- */
 
 let final = merge(base, clean(patch));
+preserve_node_dns(final);
+let dns_warnings = check_dns(final, uci('config', 'hijack_dnsmasq') == '1' && !devices.enabled);
+for (let message in dns_warnings) warn('DNS 配置检查: ' + message + '\n');
 writefile(argv[1], dump_yaml(final));

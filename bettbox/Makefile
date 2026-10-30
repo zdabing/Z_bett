@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=bettbox
 PKG_VERSION:=1.19.33
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0

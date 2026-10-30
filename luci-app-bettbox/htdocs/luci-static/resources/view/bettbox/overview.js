@@ -21,11 +21,23 @@ function traffic(upload,download,available){
 return view.extend({
 	load:function(){return Promise.all([callStatus(),callNetwork(),uci.load('bettbox')]);},
 	render:function(data){
-		var st=data[0]||{},net=data[1]||{},last=null,busy=false,lastStatus=0,lastProxy=0,servicePending='';
-		var note=E('div',{'class':'bb-update-note','role':'status'}),stateTag=UI.tag(st.running?'运行中':'已停止',st.running?'':'neutral'),serviceTitle=E('span',{},st.running?'Bettbox 正在运行':'Bettbox 已停止');
+		var st=data[0]||{},net=data[1]||{},last=null,busy=false,lastStatus=0,lastProxy=0,servicePending='',serviceGeneration=0,refreshSequence=0;
+		var note=E('div',{'class':'bb-update-note','role':'status',hidden:true}),stateTag=UI.tag(st.running?'运行中':'已停止',st.running?'':'neutral'),serviceTitle=E('span',{},st.running?'Bettbox 正在运行':'Bettbox 已停止');
+		function setNote(text){note.textContent=text;note.hidden=!text;}
 		var meta=E('div',{'class':'service-meta'},'Mihomo · '+(st.transparent_mode||'tun').toUpperCase()+' / '+(net.stack||'mips'));
 		var serviceSwitch=E('button',{type:'button','class':'switch'+((st.enabled||st.running)?'':' off'),role:'switch','aria-checked':String(!!(st.enabled||st.running)),'aria-label':'启动服务'});
-		serviceSwitch.addEventListener('click',function(){var on=!(st.enabled||st.running);serviceSwitch.disabled=true;servicePending=on?'正在启动…':'正在停止…';stateTag.textContent=servicePending;callService(on?'start':'stop').then(UI.operation).catch(UI.error).finally(function(){servicePending='';serviceSwitch.disabled=false;refreshStatus().then(function(s){if(s.running)return checkExit('proxy');}).catch(UI.error);});});
+		serviceSwitch.addEventListener('click',function(){
+			if(servicePending)return;
+			var on=!(st.enabled||st.running);
+			serviceGeneration++;refreshSequence++;busy=false;last=null;proxyGeneration++;
+			serviceSwitch.disabled=true;servicePending=on?'正在启动…':'正在停止…';setNote('');paintService();
+			callService(on?'start':'stop').then(UI.operation).then(function(){return waitForService(on);}).catch(function(err){
+				UI.error(err);return refreshStatus().catch(UI.error);
+			}).finally(function(){
+				servicePending='';paintService();serviceSwitch.disabled=false;refresh();
+				if(st.running){proxyGeneration++;checkExit('proxy');}
+			});
+		});
 		var modes=E('div',{'class':'segmented','aria-label':'运行模式'});
 		[['rule','规则'],['global','全局'],['direct','直连']].forEach(function(m){var b=E('button',{type:'button','class':st.mode===m[0]?'active':'','aria-pressed':String(st.mode===m[0])},m[1]);b.addEventListener('click',function(){var old=st.mode;Array.from(modes.children).forEach(function(x){x.disabled=true;});(st.running?Core.patch('/configs',{mode:m[0]}):Promise.resolve()).then(function(){uci.set('bettbox','config','mode',m[0]);return uci.save();}).then(function(){return commit('bettbox');}).then(refreshStatus).catch(function(err){uci.set('bettbox','config','mode',old);if(st.running)Core.patch('/configs',{mode:old}).catch(function(){});UI.error(err);}).finally(function(){Array.from(modes.children).forEach(function(x){x.disabled=false;});});});b.dataset.mode=m[0];modes.appendChild(b);});
 		var stats={},metrics=E('section',{'class':'panel metric-grid overview-metrics'},[['down','下行速度','实时下载'],['up','上行速度','实时上传'],['link','活动连接','当前核心会话数'],['chip','内核内存','Mihomo 进程占用']].map(function(m){var value=E('div',{'class':'stat'},'—');stats[m[0]]=value;return E('div',{'class':'metric'},[E('div',{'class':'label'},[UI.icon(m[0]),document.createTextNode(m[1])]),value]);}));
@@ -40,10 +52,11 @@ return view.extend({
 			p.country.textContent='—';p.org.textContent='—';p.status.textContent='代理未运行';p.status.title='';
 		}
 		function checkExit(via){
+			if(via==='proxy'&&servicePending)return Promise.resolve();
 			if(via==='proxy'&&!st.running){stopProxyExit();return Promise.resolve();}
 			if(exitJobs[via])return exitJobs[via];
 			var p=exitParts[via],generation=proxyGeneration;
-			function current(){return via!=='proxy'||(st.running&&generation===proxyGeneration);}
+			function current(){return via!=='proxy'||(st.running&&!servicePending&&generation===proxyGeneration);}
 			p.status.textContent='检测中…';p.status.title='';if(!p.ip.dataset.ip)p.ip.textContent='检测中…';
 			var task=Promise.resolve().then(function(){return UI.job('exit',[via]);}).then(function(res){
 				if(!current())return;
@@ -57,7 +70,7 @@ return view.extend({
 			}).finally(function(){
 				delete exitJobs[via];
 				// A stop/start during an in-flight query needs a fresh result.
-				if(via==='proxy'&&st.running&&generation!==proxyGeneration)return checkExit('proxy');
+				if(via==='proxy'&&!servicePending&&st.running&&generation!==proxyGeneration)return checkExit('proxy');
 			});exitJobs[via]=task;return task;
 		}
 		function checkExits(){return Promise.all([checkExit('direct'),checkExit('proxy')]);}
@@ -68,8 +81,51 @@ return view.extend({
 		var siteGrid=E('div',{'class':'test-grid'},sites.map(function(s){var result=E('div',{'class':'test-result'},'未检测');resultNodes[s[0]]=result;return E('div',{'class':'test-row'},[E('div',{'class':'test-left'},[E('span',{'class':'site-icon'},s[1]),E('div',{},[E('div',{'class':'site-name'},s[2]),E('div',{'class':'site-domain'},s[3])])]),result]);}));
 		function checkSites(){Object.keys(resultNodes).forEach(function(id){resultNodes[id].textContent='检测中…';});return UI.job('connectivity',[]).then(function(res){var result=JSON.parse(res.text);(result.results||[]).forEach(function(s){var el=resultNodes[s.id];if(!el)return;var good=s.code===0&&s.http>=200&&s.http<400;el.className='test-result'+(good?'':' warn');el.replaceChildren(E('span',{},good?'可达':s.code===28?'超时':s.code===6?'解析失败':s.http?'HTTP '+s.http:'连接失败'),E('b',{},s.latency_ms>0?Math.round(s.latency_ms)+' ms':'—'));});}).catch(function(err){Object.keys(resultNodes).forEach(function(id){resultNodes[id].textContent='检测失败';});throw err;});}
 		var connectivity=E('section',{'class':'panel section-gap'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.icon('link'),document.createTextNode('连通性测试')])]),UI.button('开始检测',checkSites,'primary small','refresh')]),siteGrid]);
-		function refreshStatus(){return callStatus().then(function(s){var wasRunning=st.running,oldMode=st.mode;st=s;lastStatus=Date.now();stateTag.textContent=servicePending||(s.running?'运行中':'已停止');stateTag.className='tag '+(s.running?'':'neutral');serviceTitle.textContent=s.running?'Bettbox 正在运行':'Bettbox 已停止';serviceSwitch.classList.toggle('off',!(s.enabled||s.running));serviceSwitch.setAttribute('aria-checked',String(!!(s.enabled||s.running)));Array.from(modes.children).forEach(function(b){b.classList.toggle('active',b.dataset.mode===s.mode);b.setAttribute('aria-pressed',String(b.dataset.mode===s.mode));});if(!s.running&&wasRunning)stopProxyExit();else if(!servicePending&&s.running&&(!wasRunning||oldMode!==s.mode)){proxyGeneration++;checkExit('proxy');}return s;});}
-		function refresh(){if(busy)return Promise.resolve();busy=true;return (Date.now()-lastStatus>10000?refreshStatus():Promise.resolve(st)).then(function(s){if(!s.running){last=null;Object.keys(stats).forEach(function(k){stats[k].textContent='—';});trafficSlot.replaceChildren(traffic(0,0,false));note.textContent='核心未运行';return;}return Core.get('/connections').then(function(res){var c=res.data||{},now=Date.now(),up=+c.uploadTotal||0,down=+c.downloadTotal||0;if(last&&now>last.time&&up>=last.up&&down>=last.down){stats.up.textContent=UI.speed((up-last.up)*1000/(now-last.time));stats.down.textContent=UI.speed((down-last.down)*1000/(now-last.time));}else{stats.up.textContent='采样中…';stats.down.textContent='采样中…';}last={up:up,down:down,time:now};stats.link.textContent=String((c.connections||[]).length);stats.chip.textContent=UI.bytes(st.memory_rss);trafficSlot.replaceChildren(traffic(up,down,true));note.textContent='';if(now-lastProxy>30000){lastProxy=now;Core.get('/proxies').then(function(p){var ps=p.data&&p.data.proxies||{},g=ps['默认代理']||ps.PROXY||ps.Proxy;if(g&&g.now)exitParts.proxy.node.textContent=g.now;}).catch(function(){});}});}).catch(function(err){note.textContent='暂时无法更新统计，保留上次结果：'+err.message;}).finally(function(){busy=false;});}
+		function paintService(){
+			stateTag.textContent=servicePending||(st.running?'运行中':'已停止');stateTag.className='tag '+(st.running?'':'neutral');
+			serviceTitle.textContent=st.running?'Bettbox 正在运行':'Bettbox 已停止';
+			serviceSwitch.classList.toggle('off',!(st.enabled||st.running));serviceSwitch.setAttribute('aria-checked',String(!!(st.enabled||st.running)));
+			Array.from(modes.children).forEach(function(b){b.classList.toggle('active',b.dataset.mode===st.mode);b.setAttribute('aria-pressed',String(b.dataset.mode===st.mode));});
+		}
+		function refreshStatus(){
+			var generation=serviceGeneration;
+			return callStatus().then(function(s){
+				if(generation!==serviceGeneration)return st;
+				var wasRunning=st.running,oldMode=st.mode;st=s;lastStatus=Date.now();paintService();
+				if(!s.running&&wasRunning)stopProxyExit();
+				else if(!servicePending&&s.running&&(!wasRunning||oldMode!==s.mode)){proxyGeneration++;checkExit('proxy');}
+				return s;
+			});
+		}
+		function waitForService(on){
+			var until=Date.now()+15000;
+			function check(){return refreshStatus().then(function(s){
+				if(s.service_known!==false&&(on?s.enabled&&s.running:!s.enabled&&!s.running))return s;
+				if(Date.now()>=until)throw new Error('服务状态尚未稳定，请刷新确认');
+				return new Promise(function(resolve){window.setTimeout(resolve,200);}).then(check);
+			});}return check();
+		}
+		function stoppedMetrics(){last=null;Object.keys(stats).forEach(function(k){stats[k].textContent='—';});trafficSlot.replaceChildren(traffic(0,0,false));setNote('');}
+		function refresh(){
+			if(servicePending||busy)return Promise.resolve();busy=true;
+			var generation=serviceGeneration,sequence=++refreshSequence;
+			function current(){return generation===serviceGeneration&&sequence===refreshSequence&&!servicePending;}
+			return (Date.now()-lastStatus>10000?refreshStatus():Promise.resolve(st)).then(function(s){
+				if(!current())return;
+				if(!s.running){stoppedMetrics();return;}
+				return Core.get('/connections').then(function(res){
+					if(!current())return;
+					var c=res.data||{},now=Date.now(),up=+c.uploadTotal||0,down=+c.downloadTotal||0;
+					if(last&&now>last.time&&up>=last.up&&down>=last.down){stats.up.textContent=UI.speed((up-last.up)*1000/(now-last.time));stats.down.textContent=UI.speed((down-last.down)*1000/(now-last.time));}
+					else{stats.up.textContent='采样中…';stats.down.textContent='采样中…';}
+					last={up:up,down:down,time:now};stats.link.textContent=String((c.connections||[]).length);stats.chip.textContent=UI.bytes(st.memory_rss);trafficSlot.replaceChildren(traffic(up,down,true));setNote('');
+					if(now-lastProxy>30000){lastProxy=now;Core.get('/proxies').then(function(p){if(!current())return;var ps=p.data&&p.data.proxies||{},g=ps['默认代理']||ps.PROXY||ps.Proxy;if(g&&g.now)exitParts.proxy.node.textContent=g.now;}).catch(function(){});}
+				});
+			}).catch(function(err){
+				if(!current())return;
+				return refreshStatus().then(function(s){if(!current())return;if(!s.running)stoppedMetrics();else setNote('暂时无法更新统计，保留上次结果：'+err.message);},function(){if(current())setNote('暂时无法更新统计，保留上次结果：'+err.message);});
+			}).finally(function(){if(sequence===refreshSequence)busy=false;});
+		}
 		var service=E('section',{'class':'panel service'},[E('div',{'class':'service-main'},[E('div',{'class':'service-icon'},UI.icon('power')),E('div',{},[E('div',{'class':'service-title'},[serviceTitle,stateTag]),meta])]),E('div',{'class':'service-actions'},[modes,E('div',{'class':'service-toggle'},[document.createTextNode('启动服务'),serviceSwitch])])]);
 		var root=UI.page('overview','概览',[UI.button('刷新',refresh,'','refresh')],[service,metrics,note,E('div',{'class':'net-grid overview-network'},[trafficPanel,networkPanel,lanPanel]),connectivity]);poll.add(refresh,2);checkExits();refresh();return root;
 	},handleSaveApply:null,handleSave:null,handleReset:null

@@ -18,7 +18,9 @@ usage: bettbox <command> [args]
   subscriptions
     update <sid> | update-all | cron
     add <url> [label] | remove <sid>
+    import <file> [label]                    import YAML/share links/Base64
   toolbox
+    health [domain]                          layered read-only network checks
     dns <name> [type] [follow|system|custom] [server]
     ip [direct|proxy] [ip]
     ping <host> [count] [interval] [tcpport]
@@ -45,6 +47,9 @@ cmd="$1"
 shift
 
 case "$cmd" in
+health)
+	exec sh "$LIBEXEC/health-check.sh" "$@"
+	;;
 package)
 	umask 077
 	exec ucode "$LIBEXEC/package-update.uc" "$@"
@@ -76,7 +81,7 @@ status)
 	echo "mode: $(uci -q get bettbox.config.mode)"
 	echo "profile: $(uci -q get bettbox.config.profile)"
 	;;
-update|update-all|cron|add|remove)
+update|update-all|cron|add|remove|import)
 	sh "$LIBEXEC/subscription.sh" "$cmd" "$@"
 	;;
 subscription|subscriptions)

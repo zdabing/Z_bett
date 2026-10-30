@@ -1,0 +1,50 @@
+/* Compact router settings; stronger scope keeps shared/theme resets out. */
+.bb-app.bb-settings .settings-layout{display:block;min-width:0}
+.bb-app.bb-settings .settings-categories{position:static;display:flex;align-items:center;gap:5px;width:max-content;max-width:100%;padding:5px;margin:0 0 16px;border:1px solid var(--bb-line);border-radius:12px;background:var(--surface)}
+.bb-app.bb-settings .category-button{display:flex;justify-content:center;align-items:center;gap:8px;width:auto;min-height:44px;padding:10px 20px;margin:0;border-radius:8px;font-size:13px;line-height:1.4}
+.bb-app.bb-settings .category-button>.ico{width:17px;height:17px}
+.bb-app.bb-settings .settings-content{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;padding:0;min-width:0}
+.bb-app.bb-settings .settings-panel{grid-column:1/-1;min-width:0;padding:0;margin:0;overflow:hidden}
+.bb-app.bb-settings .settings-panel+.settings-panel{margin-top:0}
+.bb-app.bb-settings .settings-panel>.panel-head{align-items:center;padding:15px 20px 11px;min-height:48px}
+.bb-app.bb-settings .settings-panel>.panel-head h2{display:flex;align-items:center;gap:9px;margin:0;font-size:15px;font-weight:600;line-height:1.5}
+.bb-app.bb-settings .settings-panel>.panel-head .ico{width:17px;height:17px;color:var(--bb-accent)}
+.bb-app.bb-settings .settings-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;padding:0 20px 14px;min-width:0}
+.bb-app.bb-settings .setting-row{display:grid;grid-template-columns:160px minmax(0,1fr);align-items:center;gap:16px;min-height:60px;padding:8px 0;border:0}
+.bb-app.bb-settings .setting-row.wide{grid-column:1/-1}
+.bb-app.bb-settings .setting-label{display:block;margin:0;padding:0;line-height:1.5;font-size:12px;font-weight:500;overflow-wrap:anywhere}
+.bb-app.bb-settings .setting-control{display:flex;align-items:center;justify-content:flex-end;min-width:0;width:100%;margin:0}
+.bb-app.bb-settings .setting-control>.field{width:100%;max-width:none;min-height:40px;height:40px;margin:0;padding:8px 11px;font-size:13px;line-height:1.5}
+.bb-app.bb-settings .setting-control>textarea.field{min-height:72px;height:72px;resize:vertical}
+.bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto;gap:16px}
+.bb-app.bb-settings .setting-row.flag>.setting-control{width:44px;flex:none}
+.bb-app.bb-settings .setting-row.flag .switch{width:44px;height:44px;min-height:44px;padding:0;border:0;background:transparent;border-radius:10px}
+.bb-app.bb-settings .setting-row.flag .switch::before{content:'';position:absolute;left:2px;top:10px;width:40px;height:24px;border-radius:14px;background:var(--bb-accent)}
+.bb-app.bb-settings .setting-row.flag .switch.off::before{background:var(--switch-off,#bdc7c0)}
+.bb-app.bb-settings .setting-row.flag .switch::after{width:18px;height:18px;top:13px;right:5px;left:auto}
+.bb-app.bb-settings .setting-row.flag .switch.off::after{left:5px;right:auto}
+.bb-app.bb-settings .settings-save-bar{position:sticky;left:auto;right:auto;bottom:12px;z-index:16;width:100%;max-width:none;margin:16px 0 0;padding:10px 16px;border:1px solid var(--bb-line);border-radius:12px;background:var(--surface);box-shadow:0 3px 14px #233c3310;backdrop-filter:none;min-height:66px}
+.bb-app.bb-settings .settings-save-bar .btn{min-height:44px;padding:9px 13px;font-size:12px}
+.bb-app.bb-settings .settings-save-bar strong{font-size:12px;font-weight:500}
+@media(max-width:1199px){
+ .bb-app.bb-settings .settings-form{grid-template-columns:minmax(0,1fr)}
+ .bb-app.bb-settings .setting-row,.bb-app.bb-settings .setting-row.wide{grid-template-columns:minmax(160px,.7fr) minmax(0,1.3fr);gap:20px}
+ .bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto}
+}
+@media(max-width:719px){
+ .bb-app.bb-settings .settings-categories{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));width:100%;gap:3px;padding:4px;margin-bottom:12px}
+ .bb-app.bb-settings .category-button{width:100%;padding:9px 6px;font-size:12px;gap:6px}
+ .bb-app.bb-settings .category-button>.ico{width:16px;height:16px}
+ .bb-app.bb-settings .settings-content{grid-template-columns:minmax(0,1fr);gap:12px}
+ .bb-app.bb-settings .settings-panel>.panel-head{padding:14px 16px 6px;min-height:44px}
+ .bb-app.bb-settings .settings-form{padding:0 16px 12px}
+ .bb-app.bb-settings .setting-row,.bb-app.bb-settings .setting-row.wide{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;padding:8px 0;min-height:60px}
+ .bb-app.bb-settings .setting-label{font-size:13px}
+ .bb-app.bb-settings .setting-control>.field{height:44px;min-height:44px;font-size:16px}
+ .bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto;gap:14px;padding:5px 0;min-height:54px}
+ .bb-app.bb-settings .setting-row.flag>div{flex:none}
+ .bb-app.bb-settings .settings-save-bar{bottom:0;margin-top:12px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-radius:12px;gap:8px}
+ .bb-app.bb-settings .settings-save-bar strong{font-size:11px}
+ .bb-app.bb-settings .settings-save-bar .button-row{gap:6px}
+ .bb-app.bb-settings .settings-save-bar .btn{padding:9px 10px;min-height:44px}
+}

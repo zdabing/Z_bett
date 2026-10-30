@@ -114,6 +114,10 @@ function status_obj() {
 	let service_result = run_result('ubus -t 2 call service list ' + shellquote('{"name":"bettbox"}'));
 	try { if (service_result.ok) service = json(service_result.text); } catch (e) {}
 	let pid=service?.bettbox?.instances?.core?.pid, rss=null;
+	let runtime=stat('/var/run/bettbox/config.yaml');
+	let stamp=sprintf('%s:%s:%s',runtime?.mtime??0,runtime?.size??0,runtime?.ino??0), health=null;
+	try { health=json(readfile('/var/run/bettbox/health.json')); } catch(e) {}
+	if(health?.pid!=pid || health?.config_stamp!=stamp || type(health?.checked_at)!='int' || health.checked_at>time() || time()-health.checked_at>600)health=null;
 	if(type(pid)=='int' && pid>0){let m=match(readfile('/proc/'+pid+'/status')??'',/VmRSS:\s+([0-9]+) kB/);if(m)rss=int(m[1])*1024;}
 	/* instant by design: no internal curl here — views read live core state
 	   straight from the external-controller (bettbox.core module) */
@@ -124,6 +128,9 @@ function status_obj() {
 		secret: ctx.get('bettbox', 'config', 'secret') ?? '',
 		core: null,
 		memory_rss: rss,
+		pid: pid,
+		config_stamp: stamp,
+		health: health,
 		mode: ctx.get('bettbox', 'config', 'mode') ?? 'rule',
 		profile: ctx.get('bettbox', 'config', 'profile') ?? '',
 		controller: ctx.get('bettbox', 'config', 'external_controller') ?? '127.0.0.1:9097',
@@ -201,12 +208,13 @@ function service_job(action) {
 
 function diagnostic_start(request) {
 	let kind=request.args.kind, args=null;
-	if (!(kind in ['exit','connectivity','delay','toolbox'])) return {ok:false,error:'invalid diagnostic kind'};
+	if (!(kind in ['exit','connectivity','delay','toolbox','health'])) return {ok:false,error:'invalid diagnostic kind'};
 	try { args=json(request.args.args_json); } catch(e) {}
 	if(type(args)!='array'||length(args)>8) return {ok:false,error:'invalid diagnostic arguments'};
 	for(let arg in args) if(type(arg)!='string'||length(arg)>65536) return {ok:false,error:'invalid diagnostic argument'};
 	if(kind=='exit' && !(args[0] in ['direct','proxy'])) return {ok:false,error:'invalid exit mode'};
 	if(kind=='toolbox' && !(args[0] in ['dns','ip','ping','speedtest','media','trace','mrs','nat','age','iperf'])) return {ok:false,error:'invalid tool'};
+	if(kind=='health' && (length(args)!=1 || type(args[0])!='string' || length(args[0])>253 || !match(args[0],/^[A-Za-z0-9_][A-Za-z0-9._-]*$/)))return {ok:false,error:'invalid health target'};
 	return create_job(kind,args);
 }
 
@@ -279,6 +287,29 @@ return {
 				if (match(sid, /^sub[A-Za-z0-9]+$/))
 					return { ok: true, sid: sid, text: out };
 				return { ok: false, text: out };
+			}
+		},
+		import_profile: {
+			args: { content: '', label: '' },
+			call: function(request) {
+				let content = request.args.content, label = request.args.label ?? '';
+				if (type(content) != 'string' || !length(trim(content)) || length(content) > 1048576)
+					return { ok: false, error: '导入内容为空或超过 1 MiB 上限' };
+				if (type(label) != 'string' || length(label) > 256)
+					return { ok: false, error: '订阅名称过长' };
+				let dir = trim(run('umask 077; mktemp -d /tmp/bettbox-import.XXXXXX'));
+				if (!match(dir, /^\/tmp\/bettbox-import\.[A-Za-z0-9]+$/))
+					return { ok: false, error: '无法创建导入工作区' };
+				let result = { ok: false, text: '无法写入导入内容' };
+				if (writefile(dir + '/input', content))
+					result = run_result('/usr/bin/bettbox import ' + shellquote(dir + '/input') + ' ' + shellquote(label) + ' 2>&1');
+				unlink(dir + '/input');
+				system('rmdir ' + shellquote(dir));
+				let lines = split(trim(result.text), '\n');
+				let sid = trim(lines[length(lines) - 1] ?? '');
+				if (result.ok && match(sid, /^sub[A-Za-z0-9]+$/))
+					return { ok: true, sid: sid };
+				return { ok: false, text: result.text };
 			}
 		},
 		update_profile: {

@@ -20,12 +20,14 @@ function toggle(value, label, change) {
 }
 function dialog(title, content, actions, options) {
 	options = options || {};
+	UI.mount();
+	if (!document.getElementById('bettbox-subscriptions-css')) document.head.appendChild(E('link', { id: 'bettbox-subscriptions-css', rel: 'stylesheet', href: L.resource('bettbox/subscriptions.css') + '?v=20261030-2' }));
 	var busy = false, closed = false, disabled = [], controller;
 	var body = E('div', { 'class': 'hub-dialog-body' }, content);
 	var footer = E('footer', { 'class': 'hub-dialog-foot' }, actions || []);
 	var close = UI.button('关闭', function() { return controller.close(); }, 'bb-icon-only', 'close'); close.setAttribute('aria-label', '关闭' + title);
 	var heading = E('h2', { id: 'bettbox-sub-dialog-' + (++nextId) }, title);
-	var element = E('dialog', { 'class': 'bb-app hub-dialog' + (options.drawer ? ' hub-drawer' : ''), 'aria-labelledby': heading.id }, [
+	var element = E('dialog', { 'class': 'bb-app hub-dialog' + (options.drawer ? ' hub-drawer' : '') + (options.confirm ? ' hub-confirm' : ''), 'aria-labelledby': heading.id }, [
 		E('header', { 'class': 'hub-dialog-head' }, [heading, close]), body, footer]);
 	controller = {
 		element: element, body: body, footer: footer,
@@ -53,6 +55,7 @@ function confirm(title, message, label, danger) {
 		var box, done = false;
 		function finish(value) { done = true; return box.close(true).then(function() { resolve(value); }); }
 		box = dialog(title, E('p', {}, message), [UI.button('取消', function() { return finish(false); }), UI.button(label || '确认', function() { return finish(true); }, danger ? 'danger' : 'primary')], {
+			confirm: true,
 			onClose: function() { if (!done) resolve(false); }
 		});
 	});

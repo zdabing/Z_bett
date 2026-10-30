@@ -47,9 +47,14 @@ apply() (
 
 	local out="$work/config.yaml" validation="$work/validation.log" core
 	core=$(core_binary)
-	if ! ucode /usr/libexec/bettbox/render.uc "$base" "$out" "$sid"; then
+	if ! ucode /usr/libexec/bettbox/render.uc "$base" "$out" "$sid" 2> "$work/render.log"; then
+		cat "$work/render.log" >&2
 		rm -f "$out"
 		die "config render failed"
+	fi
+	if [ -s "$work/render.log" ]; then
+		cat "$work/render.log" >&2
+		while IFS= read -r message; do [ -z "$message" ] || log "$message"; done < "$work/render.log"
 	fi
 
 	# validate; retry once with geodata-mode off (upstream patchValidateConfig)
