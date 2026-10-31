@@ -2,6 +2,83 @@
 // SPDX-License-Identifier: GPL-3.0
 // Pure configuration checks: no DNS requests and no system configuration writes.
 
+export function real_ip_domain(value) {
+	if(type(value)!='string')return null;
+	let domain=lc(trim(value));
+	if(substr(domain,length(domain)-1)=='.')domain=substr(domain,0,length(domain)-1);
+	if(length(domain)>253 || index(domain,'.')<0 || !match(domain,/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/) || match(domain,/^[0-9.]+$/))return null;
+	for(let label in split(domain,'.'))
+		if(!length(label) || length(label)>63 || substr(label,0,1)=='-' || substr(label,length(label)-1)=='-')return null;
+	return domain;
+};
+
+export function real_ip_rule(value) {
+	if(type(value)!='string')return null;
+	let text=trim(value),bullet=match(text,/^-[ \t]+/);
+	if(bullet)text=trim(substr(text,length(bullet[0])));
+	let parts=map(split(text,','),part=>trim(part)),kind='DOMAIN',domain;
+	if(length(parts)==1) {
+		if(substr(text,0,2)=='+.') {kind='DOMAIN-SUFFIX';text=substr(text,2);}
+		domain=real_ip_domain(text);
+	} else {
+		kind=uc(parts[0]);
+		let target=length(parts)==3?uc(parts[2]):null;
+		if(!(kind in ['DOMAIN','DOMAIN-SUFFIX']) || length(parts)>3 ||
+			(target!=null && !(target in ['DIRECT','直连','REAL-IP'])))return null;
+		domain=real_ip_domain(parts[1]);
+	}
+	return domain==null?null:{kind:kind,domain:domain};
+};
+
+// Home DDNS must resolve to real addresses so fw4 can apply NAT reflection
+// before transparent interception. DIRECT alone still creates a router-origin
+// connection and cannot use a LAN prerouting reflection rule.
+export function protect_real_ip(config, domains) {
+	let names=[],seen={};
+	for(let value in domains) {
+		if(type(value)=='string' && (!length(trim(value)) || substr(trim(value),0,1)=='#'))continue;
+		let rule=real_ip_rule(value);
+		if(rule==null)die('真实 IP 域名支持完整域名、+.域名、DOMAIN 或 DOMAIN-SUFFIX；可带 DIRECT／直连／real-ip，不含协议和端口\n');
+		let key=rule.kind+','+rule.domain;
+		if(!seen[key]) { seen[key]=true;push(names,rule); }
+	}
+	if(!length(names) || config?.dns?.['enhanced-mode']!='fake-ip')return;
+	let dns=config.dns,mode=dns['fake-ip-filter-mode']??'blacklist';
+	let filters=dns['fake-ip-filter']??[];
+	if(type(filters)!='array')die('dns.fake-ip-filter 必须为列表\n');
+	if(mode=='blacklist') {
+		let result=map(filters,entry=>entry),entries={};
+		for(let entry in filters)entries[entry]=true;
+		for(let rule in names) {
+			let pattern=(rule.kind=='DOMAIN-SUFFIX'?'+.':'')+rule.domain;
+			if(!entries[pattern]){push(result,pattern);entries[pattern]=true;}
+		}
+		dns['fake-ip-filter']=result;return;
+	}
+	let rules=map(names,r=>r.kind+','+r.domain+',real-ip');
+	if(mode=='rule') {
+		let owned={};for(let rule in rules)owned[rule]=true;
+		for(let rule in filters)if(!owned[rule])push(rules,rule);
+	} else if(mode=='whitelist') {
+		// Preserve domain-pattern matching exactly in an inline domain provider,
+		// rather than approximating whitelist patterns with routing wildcards.
+		let patterns=[];
+		for(let entry in filters) {
+			let kind=substr(entry,0,8)=='geosite:'?'GEOSITE':substr(entry,0,9)=='rule-set:'?'RULE-SET':null;
+			if(kind)for(let name in split(substr(entry,kind=='GEOSITE'?8:9),','))push(rules,kind+','+name+',fake-ip');
+			else push(patterns,entry);
+		}
+		if(length(patterns)) {
+			let providers=config['rule-providers']??{},name='bettbox-dns-whitelist',n=0;
+			while(providers[name]!=null)name='bettbox-dns-whitelist-'+(++n);
+			providers[name]={type:'inline',behavior:'domain',payload:patterns};
+			config['rule-providers']=providers;push(rules,'RULE-SET,'+name+',fake-ip');
+		}
+		push(rules,'MATCH,real-ip');dns['fake-ip-filter-mode']='rule';
+	} else die('不支持的 fake-ip-filter-mode\n');
+	dns['fake-ip-filter']=rules;
+};
+
 function dns_values(value, path) {
 	if (type(value) == 'string' && length(trim(value))) return [value];
 	if (type(value) == 'array' && length(value)) {

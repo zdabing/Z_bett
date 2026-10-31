@@ -15,7 +15,7 @@
 import { readfile, writefile } from 'fs';
 import { cursor } from 'uci';
 import { device_access } from '/usr/libexec/bettbox/device-access.uc';
-import { preserve_node_dns, check_dns } from '/usr/libexec/bettbox/dns-policy.uc';
+import { preserve_node_dns, check_dns, protect_real_ip, real_ip_domain } from '/usr/libexec/bettbox/dns-policy.uc';
 
 const BETT_RULES = 'https://github.com/appshubcc/bett-rules/releases/latest/download';
 
@@ -341,6 +341,10 @@ if (mode == 'tun') {
 		'disable-icmp-forwarding': true,
 		'congestion-controller': 'bbr3'
 	};
+} else {
+	// A subscription or override must not retain a second, all-device TUN
+	// takeover when the router is configured for TPROXY or REDIR.
+	patch.tun = { enable: false, 'auto-route': false, 'auto-redirect': false };
 }
 
 // sniffer
@@ -449,6 +453,15 @@ if (type(disabled) == 'array' && length(disabled) > 0 && type(base['proxy-groups
 /* ---------- output ---------- */
 
 let final = merge(base, clean(patch));
+let real_domains=uci_list('dns','real_ip_domains');
+if(type(real_domains)=='string')real_domains=[real_domains];
+else real_domains=map(real_domains,d=>d);
+ctx.foreach('ddns','service',s=>{
+	if(s.enabled!='1')return;
+	let domain=real_ip_domain(s.lookup_host??s.domain);
+	if(domain!=null)push(real_domains,domain);
+});
+protect_real_ip(final,real_domains);
 preserve_node_dns(final);
 let dns_warnings = check_dns(final, uci('config', 'hijack_dnsmasq') == '1' && !devices.enabled);
 for (let message in dns_warnings) warn('DNS 配置检查: ' + message + '\n');

@@ -466,7 +466,16 @@ return view.extend({
 		if (typeof IntersectionObserver !== 'undefined') gridObserver = new IntersectionObserver(function(entries) { entries.forEach(function(entry) { if (entry.isIntersecting && entry.target.loadNodes) entry.target.loadNodes(); }); }, { rootMargin: '480px' });
 		var root = UI.page('proxies', '代理', [refreshButton, cancelButton, allButton], [controls, banner, host]);
 		function dispose() { if (disposed) return; disposed = true; dataGeneration++; cancelTests(); if (gridObserver) gridObserver.disconnect(); lifecycle.disconnect(); window.removeEventListener('pagehide', dispose); }
-		var lifecycle = new MutationObserver(function() { if (!root.isConnected) dispose(); }); lifecycle.observe(document.body, { childList: true, subtree: true });
+		// LuCI may attach the returned view after other body mutations. A view
+		// which has not mounted yet must not be mistaken for a removed view.
+		var mounted = root.isConnected;
+		var lifecycle = new MutationObserver(function(records) {
+			if (root.isConnected) { mounted = true; return; }
+			var removed = records.some(function(record) {
+				return Array.from(record.removedNodes).some(function(node) { return node === root || (node.contains && node.contains(root)); });
+			});
+			if (mounted || removed) dispose();
+		}); lifecycle.observe(document.body, { childList: true, subtree: true });
 		window.addEventListener('pagehide', dispose);
 		root.classList.add('v4-proxies'); root.querySelector('h1').appendChild(count);
 		host.appendChild(E('div', { 'class': 'v4-loading', role: 'status' }, [UI.icon('refresh'), document.createTextNode('正在读取服务状态…')]));

@@ -84,8 +84,19 @@ apply_live() {
 		return $?
 	fi
 	if [ -f "$BETTBOX_RUN/config.yaml" ] && api_call GET /version | grep -q version; then
-		api_call PUT /configs "{\"path\": \"$BETTBOX_RUN/config.yaml\", \"payload\": \"\", \"force\": true}" >/dev/null || return 1
-		return 0
+		# The runtime file is intentionally outside the core home directory.
+		# Send validated content instead of relaxing Mihomo's SAFE_PATHS guard.
+		# A file body also avoids the per-argument size limit for large profiles.
+		local body rc
+		body=$(mktemp "$BETTBOX_RUN/reload.XXXXXX") || return 1
+		if ! ucode -e 'import {readfile,writefile} from "fs"; let payload=readfile(ARGV[0]); if(payload==null || writefile(ARGV[1],sprintf("%J",{payload:payload,force:true}))==null)die("cannot prepare core reload");' "$BETTBOX_RUN/config.yaml" "$body"; then
+			rm -f "$body"
+			return 1
+		fi
+		api_call PUT /configs "@$body" >/dev/null
+		rc=$?
+		rm -f "$body"
+		return "$rc"
 	fi
 	/etc/init.d/bettbox restart
 }

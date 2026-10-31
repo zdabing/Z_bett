@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0
-# Forward dnsmasq to the core and restore the exact options owned by this service.
+# Forward dnsmasq without restarting its listener at each proxy transition.
 
 . /usr/libexec/bettbox/common.sh
 umask 077
@@ -31,7 +31,7 @@ forget_saved() {
 	rmdir "$SAVED"
 }
 
-restore() {
+restore_legacy() {
 	[ -f "$MARKER" ] || return 0
 	if [ -f "$SAVED/port" ]; then
 		local current owned
@@ -68,38 +68,62 @@ apply() {
 	[ "$(uci_get bettbox.config.hijack_dnsmasq)" = 1 ] || { restore; return $?; }
 	case "$DNS_PORT" in ''|*[!0-9]*) die "invalid DNS listener port" ;; esac
 	[ "$DNS_PORT" -gt 0 ] && [ "$DNS_PORT" -le 65535 ] || die "invalid DNS listener port"
-	if [ -f "$MARKER" ]; then
-		if [ -f "$SAVED/port" ] && [ "$(cat "$SAVED/port")" = "$DNS_PORT" ]; then return 0; fi
-		restore || return 1
+	[ -z "$(uci -q changes dhcp)" ] || die "save or discard pending DHCP edits before DNS integration"
+	restore_legacy || return 1
+	local result
+	result=$(hot stage) || return 1
+	if [ "$result" = setup ]; then
+		if ! /etc/init.d/dnsmasq restart >/dev/null 2>&1; then
+			hot unregister && /etc/init.d/dnsmasq restart >/dev/null 2>&1
+			return 1
+		fi
+		# procd acknowledges restart before the new listener is running.
+		# Wait only during registration; ordinary transitions use SIGHUP.
+		local tries=0
+		while ! hot attached >/dev/null 2>&1; do
+			tries=$((tries + 1))
+			[ "$tries" -lt 10 ] || return 1
+			sleep 1
+		done
 	fi
-	mkdir -p "$BETTBOX_STATE" "$SAVED" || return 1
-	uci -q get dhcp.@dnsmasq[0].server > "$SAVED/servers" || true
-	if uci -q get dhcp.@dnsmasq[0].noresolv > "$SAVED/noresolv"; then
-		echo 1 > "$SAVED/noresolv-present"
-	else
-		echo 0 > "$SAVED/noresolv-present"
-	fi
-	printf '%s\n' "$DNS_PORT" > "$SAVED/port"
-	local servers="127.0.0.1#$DNS_PORT" old
-	for old in $(cat "$SAVED/servers"); do
-		# Keep explicit per-domain DNS rules, but not a catch-all upstream.
-		case "$old" in /#/*) ;; /*) servers="$servers $old" ;; esac
-	done
-	printf '%s\n' "$servers" > "$SAVED/applied"
-	touch "$MARKER"
-	if ! set_servers "$servers" ||
-		! uci -q set dhcp.@dnsmasq[0].noresolv=1 ||
-		! uci commit dhcp ||
-		! /etc/init.d/dnsmasq restart >/dev/null 2>&1; then
-		set_servers "$(cat "$SAVED/servers")" && restore_noresolv && uci commit dhcp || return 1
-		/etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
-		forget_saved
-		return 1
-	fi
+	hot core "$DNS_PORT"
 }
+
+hot() { ucode /usr/libexec/bettbox/dns-forward.uc "$@"; }
+restore() {
+	restore_legacy || return 1
+	hot system
+}
+
+if [ "$1" = watch ]; then
+	while sleep 5; do "$0" sync >/dev/null 2>&1; done
+	exit 0
+fi
+
+# Serialize main service, early boot and WAN resolver refreshes. A slow
+# watcher must never overwrite a concurrent core/system target switch.
+lock="$BETTBOX_RUN/dns-forward.lock"
+mkdir -p "$BETTBOX_RUN" || exit 1
+tries=0
+while ! mkdir "$lock" 2>/dev/null; do
+	holder=$(cat "$lock/pid" 2>/dev/null)
+	case "$holder" in ''|*[!0-9]*) ;; *)
+		if ! kill -0 "$holder" 2>/dev/null; then rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null; continue; fi ;;
+	esac
+	tries=$((tries + 1))
+	[ "$tries" -lt 12 ] || die "DNS forwarding operation already running"
+	sleep 1
+done
+printf '%s\n' "$$" > "$lock/pid"
+trap 'rm -f "$lock/pid"; rmdir "$lock" 2>/dev/null' EXIT
+trap 'exit 1' INT TERM
 
 case "$1" in
 apply) apply ;;
 restore) restore ;;
-*) die "usage: dnsmasq.sh apply|restore" ;;
+prepare|sync) hot "$1" ;;
+unregister)
+	restore_legacy && hot unregister && /etc/init.d/dnsmasq restart
+	;;
+*) die "usage: dnsmasq.sh apply|restore|prepare|sync|unregister|watch" ;;
 esac

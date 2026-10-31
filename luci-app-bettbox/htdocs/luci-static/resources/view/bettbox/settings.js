@@ -46,6 +46,7 @@ var SCHEMA = [
 		{ opt: 'listen', kind: 'value', icon: 'server', label: _('监听地址'), ph: '0.0.0.0:1053' },
 		{ opt: 'enhanced_mode', kind: 'list', icon: 'tune', label: _('增强模式'), list: [ ['fake-ip'], ['redir-host'] ] },
 		{ opt: 'fake_ip_range', kind: 'value', icon: 'globe', label: 'fake-ip-range', ph: '198.18.0.1/16' },
+		{ opt: 'real_ip_domains', kind: 'list-multi', icon: 'globe', label: _('真实 IP 域名（每行一个）'), ph: 'nas.example.com\n+.example.com', wide: true },
 		{ opt: 'respect_rules', kind: 'flag', icon: 'map', label: 'respect-rules', sub: _('DNS 连接跟随规则') },
 		{ opt: 'ipv6', kind: 'flag', icon: 'globe', label: _('IPv6 解析') },
 		{ opt: 'nameserver', kind: 'list-multi', icon: 'server', label: 'nameserver', wide: true },
@@ -149,7 +150,29 @@ return view.extend({
 				var url=new URL(window.location.href);url.searchParams.set('category',selected);window.history.replaceState({},'',url.href);
 			});return b;
 		}));
-		function save(){var deviceMode=inputs.find(function(it){return it.option.opt==='device_mode';}),deviceIPs=inputs.find(function(it){return it.option.opt==='device_ips';});if(deviceMode.control.value!=='off')validateDevices(readField(deviceIPs.control,deviceIPs.option));inputs.forEach(function(it){var value=readField(it.control,it.option);if(it.control.type==='number'&&value!==''&&!it.control.checkValidity())throw new Error('请检查 '+it.option.label);if(/port$/.test(it.option.opt)&&value!==''&&(+value<0||+value>65535))throw new Error('端口需要在 0–65535 之间');if(JSON.stringify(value)!==it.original)uci.set('bettbox',it.section,it.option.opt,value);});inputs.forEach(function(it){it.control.disabled=true;});state.textContent='正在保存并应用…';return uci.save().then(function(){return commit('bettbox');}).then(callApply).then(UI.operation).then(function(){inputs.forEach(function(it){it.original=JSON.stringify(readField(it.control,it.option));});state.textContent='设置已保存并应用';}).catch(function(err){state.textContent='应用失败';throw new Error('配置可能已保存：'+err.message);}).finally(function(){inputs.forEach(function(it){it.control.disabled=false;});syncDeviceControls();});}
+		function save(){
+			var deviceMode=inputs.find(function(it){return it.option.opt==='device_mode';}),deviceIPs=inputs.find(function(it){return it.option.opt==='device_ips';}),saved=false;
+			if(deviceMode.control.value!=='off')validateDevices(readField(deviceIPs.control,deviceIPs.option));
+			var values=inputs.map(function(it){
+				var value=readField(it.control,it.option);
+				if(it.control.type==='number'&&value!==''&&!it.control.checkValidity())throw new Error('请检查 '+it.option.label);
+				if(/port$/.test(it.option.opt)&&value!==''&&(+value<0||+value>65535))throw new Error('端口需要在 0–65535 之间');
+				return value;
+			});
+			inputs.forEach(function(it,index){
+				var value=values[index];
+				if(JSON.stringify(value)===it.original)return;
+				if(it.option.kind==='list-multi'&&value.length===0)uci.unset('bettbox',it.section,it.option.opt);
+				else uci.set('bettbox',it.section,it.option.opt,value);
+			});
+			inputs.forEach(function(it){it.control.disabled=true;});state.textContent='正在保存并应用…';
+			return uci.save().then(function(){return commit('bettbox');}).then(function(){saved=true;return callApply();}).then(UI.operation).then(function(){
+				inputs.forEach(function(it){it.original=JSON.stringify(readField(it.control,it.option));});state.textContent='设置已保存并应用';
+			}).catch(function(err){
+				state.textContent=saved?'应用失败':'保存失败';
+				throw new Error((saved?'配置已保存，但应用失败：':'配置保存未完成：')+err.message);
+			}).finally(function(){inputs.forEach(function(it){it.control.disabled=false;});syncDeviceControls();});
+		}
 		var bar=E('div',{'class':'save-bar settings-save-bar'},[E('div',{'role':'status','aria-live':'polite'},[state]),E('div',{'class':'button-row'},[UI.button('撤销',function(){window.location.reload();}),UI.button('保存并应用',save,'primary','save')])]);
 		var root=UI.page('settings','设置',[],[E('div',{'class':'settings-layout'},[nav,content]),bar]);root.classList.add('bb-settings');return root;
 	},handleSaveApply:null,handleSave:null,handleReset:null

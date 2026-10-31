@@ -55,7 +55,29 @@ lan_device() {
 	echo "$dev"
 }
 
+device_forward_handles() {
+	nft -a list chain inet fw4 forward 2>/dev/null |
+		awk '/comment "bettbox:device-tun"/ && $(NF-1) == "handle" { print $NF }'
+}
+
+remove_device_forward() {
+	local handle
+	for handle in $(device_forward_handles); do
+		case "$handle" in ''|*[!0-9]*) return 1 ;; esac
+		nft delete rule inet fw4 forward handle "$handle" || return 1
+	done
+}
+
+ensure_device_forward() {
+	[ -n "$(device_forward_handles)" ] && return 0
+	# A verdict in a separate base chain cannot override fw4's forward reject.
+	# Permit only our selected, marked LAN requests going into our TUN.
+	nft insert rule inet fw4 forward iifname "$2" oifname "$1" \
+		meta mark "$MARK" ct direction original accept comment '"bettbox:device-tun"'
+}
+
 cleanup() {
+	remove_device_forward || return 1
 	nft delete table inet "$TABLE" 2>/dev/null || true
 	if [ -f "$BETTBOX_RUN/device-tun" ]; then
 		local tun
@@ -65,6 +87,7 @@ cleanup() {
 		ip -6 route del default dev "$tun" table 100 2>/dev/null || true
 		rm -f "$BETTBOX_RUN/device-tun"
 	fi
+	rm -f "$BETTBOX_RUN/device-lan"
 	while ip rule del fwmark "$MARK" table 100 2>/dev/null; do :; done
 	ip route del local default dev lo table 100 2>/dev/null || true
 	while ip -6 rule del fwmark "$MARK" table 100 2>/dev/null; do :; done
@@ -76,7 +99,7 @@ start_tproxy() {
 	dp=$(dns_port) || return 1
 	tp=$(tproxy_port) || return 1
 	lan=$(lan_device) || return 1
-	cleanup
+	cleanup || return 1
 	nft -f - <<NFT
 table inet $TABLE {
 	chain dns {
@@ -112,7 +135,7 @@ start_redir() {
 	dp=$(dns_port) || return 1
 	rp=$(redir_port) || return 1
 	lan=$(lan_device) || return 1
-	cleanup
+	cleanup || return 1
 	nft -f - <<NFT
 table inet $TABLE {
 	chain dns {
@@ -167,10 +190,12 @@ NFT
 	if [ "$?" -ne 0 ]; then cleanup; return 1; fi
 	mkdir -p "$BETTBOX_RUN" || { cleanup; return 1; }
 	(umask 077; printf '%s\n' "$tun" > "$BETTBOX_RUN/device-tun") || { cleanup; return 1; }
+	(umask 077; printf '%s\n' "$lan" > "$BETTBOX_RUN/device-lan") || { cleanup; return 1; }
 	if ! ip route add default dev "$tun" table 100 ||
 		! ip -6 route add default dev "$tun" table 100 ||
 		! ip rule add fwmark "$MARK" table 100 ||
-		! ip -6 rule add fwmark "$MARK" table 100; then
+		! ip -6 rule add fwmark "$MARK" table 100 ||
+		! ensure_device_forward "$tun" "$lan"; then
 		cleanup
 		return 1
 	fi
@@ -205,9 +230,12 @@ stop() {
 # running service's saved interface is repaired, never unsaved UCI settings.
 repair() {
 	[ -f "$BETTBOX_RUN/ready" ] && [ -f "$BETTBOX_RUN/device-tun" ] || return 0
-	local tun
+	local tun lan
 	tun=$(cat "$BETTBOX_RUN/device-tun")
 	case "$tun" in ''|*[!A-Za-z0-9_.-]*) return 1 ;; esac
+	lan=$(cat "$BETTBOX_RUN/device-lan" 2>/dev/null)
+	[ -n "$lan" ] || lan=$(lan_device) || return 1
+	case "$lan" in *[!A-Za-z0-9_.:@-]*) return 1 ;; esac
 	ip link show dev "$tun" >/dev/null 2>&1 || return 0
 	if ! ip route show table 100 | grep -Fq "default dev $tun "; then
 		ip route replace default dev "$tun" table 100 || return 1
@@ -215,6 +243,7 @@ repair() {
 	if ! ip -6 route show table 100 | grep -Fq "default dev $tun "; then
 		ip -6 route replace default dev "$tun" table 100 || return 1
 	fi
+	ensure_device_forward "$tun" "$lan"
 }
 
 lock="$BETTBOX_RUN/firewall.lock"

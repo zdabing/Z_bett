@@ -99,6 +99,9 @@ define Package/bettbox/install
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/etc/init.d/bettbox $(1)/etc/init.d/bettbox
+	$(INSTALL_BIN) ./files/etc/init.d/bettbox-dns $(1)/etc/init.d/bettbox-dns
+	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
+	$(INSTALL_DATA) ./files/lib/upgrade/keep.d/bettbox $(1)/lib/upgrade/keep.d/bettbox
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/etc/config/bettbox $(1)/etc/config/bettbox
@@ -117,11 +120,21 @@ define Package/bettbox/postinst
 [ -n "$$IPKG_INSTROOT" ] || {
 	[ -f /etc/config/bettbox ] || exit 0
 	sh /usr/libexec/bettbox/router-settings.sh || exit 1
+	/etc/init.d/bettbox-dns enable || exit 1
+	/etc/init.d/bettbox-dns start || exit 1
 	[ "$$BETTBOX_SELF_UPDATE" != 1 ] || exit 0
 	if /etc/init.d/bettbox enabled; then
 		/usr/bin/bettbox apply 2>/dev/null || true
 		/etc/init.d/bettbox restart 2>/dev/null || true
 	fi
+}
+exit 0
+endef
+
+define Package/bettbox/prerm
+#!/bin/sh
+[ -n "$$IPKG_INSTROOT" ] || [ "$$PKG_UPGRADE" = 1 ] || [ "$$BETTBOX_SELF_UPDATE" = 1 ] || {
+	/usr/libexec/bettbox/dnsmasq.sh unregister || exit 1
 }
 exit 0
 endef

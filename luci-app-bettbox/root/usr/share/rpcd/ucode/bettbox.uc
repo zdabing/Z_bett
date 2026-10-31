@@ -171,10 +171,13 @@ function create_job(kind, args) {
 	if(!valid_job(id))return {ok:false,error:'could not create diagnostic workspace'};
 	if(writefile(dir+'/request',sprintf('%J',{kind:kind,args:args}))==null)return {ok:false,error:'could not save diagnostic request'};
 	if(service && writefile('/var/run/bettbox-service.lock/job',id)==null)return {ok:false,error:'could not save service job'};
+	// Release admission when the worker actually finishes, even if its page was
+	// closed. A completed job must not leave the watchdog disabled indefinitely.
+	let unlock=service?'if [ "$(cat /var/run/bettbox-service.lock/job 2>/dev/null)" = '+shellquote(id)+' ]; then rm -f /var/run/bettbox-service.lock/job; rmdir /var/run/bettbox-service.lock 2>/dev/null || true; fi':'';
 	let limit=kind=='package'?2400:kind=='core'?1200:service?600:160;
 	if(kind=='package'){
 		let worker=readfile('/usr/libexec/bettbox/diagnostic.uc');
-		let script='#!/bin/sh\numask 077\ntimeout 2400 ucode '+shellquote(dir+'/worker.uc')+' '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1\nrc=$?\nprintf "%s\\n" "$rc" > '+shellquote(dir+'/code')+'\nexit "$rc"\n';
+		let script='#!/bin/sh\numask 077\ntimeout 2400 ucode '+shellquote(dir+'/worker.uc')+' '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1\nrc=$?\nprintf "%s\\n" "$rc" > '+shellquote(dir+'/code')+'\n'+unlock+'\nexit "$rc"\n';
 		if(!worker||writefile(dir+'/worker.uc',worker)==null||writefile(dir+'/runner.sh',script)==null)return {ok:false,error:'无法保存独立更新任务'};
 		let definition={name:'bettbox-package-update',instances:{worker:{command:['/bin/sh',dir+'/runner.sh'],stdout:false,stderr:false}}};
 		if(system('ubus -t 5 call service set '+shellquote(sprintf('%J',definition))+' >/dev/null 2>&1')!=0)return {ok:false,error:'无法启动独立 APK 更新任务'};
@@ -182,7 +185,7 @@ function create_job(kind, args) {
 	}
 	// A diagnostic file-size limit must not be inherited by config/Geo writers.
 	let filelimit=service?'':'ulimit -f 2048; ';
-	let cmd='(umask 077; '+filelimit+'timeout '+limit+' ucode /usr/libexec/bettbox/diagnostic.uc '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1; echo $? > '+shellquote(dir+'/code')+') </dev/null >/dev/null 2>&1 &';
+	let cmd='(umask 077; '+filelimit+'timeout '+limit+' ucode /usr/libexec/bettbox/diagnostic.uc '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1; echo $? > '+shellquote(dir+'/code')+'; '+(unlock||':')+') </dev/null >/dev/null 2>&1 &';
 	if(system(cmd)!=0)return {ok:false,error:'could not start diagnostic'};
 	return {ok:true,id:id,timeout_ms:(limit+30)*1000};
 }
