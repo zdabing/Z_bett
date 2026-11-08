@@ -22,18 +22,134 @@ function stored(key, fallback) {
 function persist(key, value) {
 	try { localStorage.setItem('bettbox-' + key, value); } catch(e) {}
 }
+// Region-name matching adapted from NaiLink (MIT), copyright NaiLink contributors.
+// Qure artwork and original notices are bundled in bettbox/qure.
+// These are name hints, independent of the actual server or exit IP location.
+var regionDefinitions = [
+  ['hk', '香港', '香港|香港特別行政區|Hong[ -]?Kong', 'HK|HKG'],
+  ['tw', '台湾', '台湾|台灣|台北|Taiwan|Taipei', 'TW|TWN'],
+  ['mo', '澳门', '澳门|澳門|Macau|Macao', 'MO|MAC'],
+  ['cn', '中国大陆', '中国|中國|大陆|大陸|China|Mainland', 'CN|CHN'],
+  ['jp', '日本', '日本|东京|東京|大阪|Japan|Tokyo|Osaka', 'JP|JPN'],
+  ['sg', '新加坡', '新加坡|狮城|獅城|Singapore', 'SG|SGP'],
+  ['us', '美国', '美国|美國|洛杉矶|洛杉磯|纽约|紐約|圣何塞|United States|America|Los Angeles|New York', 'US|USA'],
+  ['gb', '英国', '英国|英國|伦敦|倫敦|United Kingdom|Britain|London', 'GB|GBR|UK'],
+  ['de', '德国', '德国|德國|法兰克福|法蘭克福|Germany|Frankfurt', 'DE|DEU'],
+  ['fr', '法国', '法国|法國|巴黎|France|Paris', 'FR|FRA'],
+  ['kr', '韩国', '韩国|韓國|首尔|首爾|South Korea|Korea|Seoul', 'KR|KOR'],
+  ['ca', '加拿大', '加拿大|多伦多|多倫多|温哥华|溫哥華|Canada|Toronto|Vancouver', 'CA|CAN'],
+  ['au', '澳大利亚', '澳大利亚|澳大利亞|澳洲|悉尼|雪梨|Australia|Sydney', 'AU|AUS'],
+  ['nz', '新西兰', '新西兰|新西蘭|纽西兰|紐西蘭|New Zealand', 'NZ|NZL'],
+  ['ru', '俄罗斯', '俄罗斯|俄羅斯|莫斯科|Russia|Moscow', 'RU|RUS'],
+  ['nl', '荷兰', '荷兰|荷蘭|阿姆斯特丹|Netherlands|Amsterdam', 'NL|NLD'],
+  ['ch', '瑞士', '瑞士|苏黎世|蘇黎世|Switzerland|Zurich', 'CH|CHE'],
+  ['se', '瑞典', '瑞典|Sweden', 'SE|SWE'],
+  ['no', '挪威', '挪威|Norway', 'NO|NOR'],
+  ['fi', '芬兰', '芬兰|芬蘭|Finland', 'FI|FIN'],
+  ['dk', '丹麦', '丹麦|丹麥|Denmark', 'DK|DNK'],
+  ['es', '西班牙', '西班牙|Spain', 'ES|ESP'],
+  ['it', '意大利', '意大利|義大利|Italy', 'IT|ITA'],
+  ['ie', '爱尔兰', '爱尔兰|愛爾蘭|Ireland', 'IE|IRL'],
+  ['pl', '波兰', '波兰|波蘭|Poland', 'PL|POL'],
+  ['tr', '土耳其', '土耳其|Turkey|Türkiye', 'TR|TUR'],
+  ['ae', '阿联酋', '阿联酋|阿聯酋|迪拜|阿拉伯联合酋长国|United Arab Emirates|Dubai', 'AE|ARE|UAE'],
+  ['my', '马来西亚', '马来西亚|馬來西亞|马来|馬來|大马|Malaysia', 'MY|MYS'],
+  ['th', '泰国', '泰国|泰國|曼谷|Thailand|Bangkok', 'TH|THA'],
+  ['vn', '越南', '越南|Vietnam', 'VN|VNM'],
+  ['ph', '菲律宾', '菲律宾|菲律賓|Philippines', 'PH|PHL'],
+  ['id', '印度尼西亚', '印度尼西亚|印度尼西亞|印尼|Indonesia', 'ID|IDN'],
+  ['in', '印度', '印度(?!尼)|India', 'IN|IND'],
+  ['za', '南非', '南非|South Africa', 'ZA|ZAF'],
+  ['br', '巴西', '巴西|Brazil', 'BR|BRA'],
+  ['mx', '墨西哥', '墨西哥|Mexico', 'MX|MEX'],
+  ['ar', '阿根廷', '阿根廷|Argentina', 'AR|ARG'],
+  ['ua', '乌克兰', '乌克兰|烏克蘭|Ukraine', 'UA|UKR'],
+  ['il', '以色列', '以色列|Israel', 'IL|ISR'],
+  ['is', '冰岛', '冰岛|冰島|Iceland', 'IS|ISL'],
+  ['kz', '哈萨克斯坦', '哈萨克斯坦|哈薩克斯坦|Kazakhstan', 'KZ|KAZ'],
+  ['sa', '沙特阿拉伯', '沙特|Saudi Arabia', 'SA|SAU'],
+];
+var regions = regionDefinitions.map(function(definition){
+	var aliases = definition[2].split('|').map(function(alias){
+		return /[a-z]/i.test(alias) ? '(?:^|[^a-z])(?:' + alias + ')(?![a-z])' : alias;
+	}).join('|');
+	return {
+		code:definition[0], name:definition[1],
+		label:new RegExp(aliases, 'i'),
+		abbreviation:new RegExp('(?:^|[^a-z0-9])(' + definition[3] + ')(?=$|[^a-z])', 'gi')
+	};
+});
+function nodeRegion(name){
+	var normalized = String(name || '').normalize('NFKC');
+	var flags = normalized.match(/[\u{1F1E6}-\u{1F1FF}]{2}/gu);
+	if (flags) {
+		var codes = new Set(flags.map(function(flag){
+			return Array.from(flag, function(part){
+				return String.fromCharCode(part.codePointAt(0) - 0x1F1E6 + 97);
+			}).join('');
+		}));
+		if (codes.size !== 1) return null;
+		return regions.find(function(region){ return region.code === Array.from(codes)[0]; }) || null;
+	}
+	var labels = normalized.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ')
+		.replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/\S*)?/gi, ' ');
+	var matches = regions.filter(function(region){
+		if (region.label.test(labels)) return true;
+		region.abbreviation.lastIndex = 0;
+		var match;
+		while ((match = region.abbreviation.exec(labels))) {
+			if (!['in','it','no','is','id'].includes(match[1]) ||
+				/\d/.test(labels[match.index + match[0].length] || '') || labels.trim() === match[1])
+				return true;
+		}
+		return false;
+	});
+	return matches.length === 1 ? matches[0] : null;
+}
+var policyArtwork = [
+	['chatgpt',/chatgpt|openai/i], ['ai',/(?:^|[^a-z])ai(?:$|[^a-z])|人工智能/i],
+	['netflix',/netflix|奈飞/i], ['youtube',/youtube|油管/i], ['telegram',/telegram|电报/i],
+	['github',/github/i], ['google',/google|谷歌/i], ['bilibili',/bilibili|哔哩/i],
+	['apple',/apple|苹果/i], ['microsoft',/microsoft|微软/i], ['game',/steam|游戏|gaming/i],
+	['reject',/^(?:REJECT(?:-DROP)?|AdBlock|广告拦截|拦截|拒绝)$/i],
+	['direct',/^(?:DIRECT|直连|绕过)(?:$|[\s\[（(])/i],
+	['final',/^(?:FINAL|MATCH|漏网之鱼|兜底|其他流量)$/i],
+	['global',/^(?:GLOBAL|全局)$/i], ['auto',/自动选择|自动测速|延迟优选|URLTest/i]
+];
+function regionOrIcon(proxy, fallback){
+	var region = nodeRegion(proxy.name);
+	if (!region) {
+		var policy=policyArtwork.find(function(item){return item[1].test(proxy.name||'');});
+		if(policy)return UI.artwork(policy[0],fallback);
+		if(proxy.type==='Direct')return UI.artwork('direct',fallback);
+		if(proxy.type==='Reject'||proxy.type==='RejectDrop')return UI.artwork('reject',fallback);
+		if(Array.isArray(proxy.all))return UI.artwork(proxy.type==='URLTest'?'auto':'proxy',fallback);
+		return UI.icon(fallback);
+	}
+	var flag = E('img', {
+		'class':'bb-proxy-image bb-region-flag', src:L.resource('bettbox/flags/' + region.code + '.svg'),
+		alt:'', title:region.name + ' · 按名称识别', width:24, height:24, decoding:'async',
+		'data-region':region.code
+	});
+	flag.addEventListener('error', function(){ flag.replaceWith(UI.icon(fallback)); }, {once:true});
+	return flag;
+}
+function displayName(proxy){
+	var name = proxy.name;
+	return nodeRegion(name) ? name.replace(/^(?:\s*[\u{1F1E6}-\u{1F1FF}]{2})+\s*/u, '') || name : name;
+}
 function iconFor(proxy) {
 	proxy = proxy || {};
 	var fallback = Array.isArray(proxy.all) ? 'route' : 'globe';
 	var value = typeof proxy.icon === 'string' ? proxy.icon.trim() : '';
 	var valid = /^(https?:\/\/|\/\/|data:image\/|\.?\.?\/)/i.test(value) ||
 		(!/^[a-z][a-z0-9+.-]*:/i.test(value) && /^[A-Za-z0-9_-]+\//.test(value));
-	if (!value || !valid) return UI.icon(fallback);
+	if (!value || !valid) return regionOrIcon(proxy, fallback);
 	var image = E('img', {
 		'class': 'bb-proxy-image', src: value, alt: '', width: 24, height: 24,
 		loading: 'lazy', decoding: 'async'
 	});
-	image.addEventListener('error', function() { image.replaceWith(UI.icon(fallback)); }, { once: true });
+	image.addEventListener('error', function() { image.replaceWith(regionOrIcon(proxy, fallback)); }, { once: true });
 	return image;
 }
 
@@ -172,8 +288,8 @@ return view.extend({
 			var selected = group.now === proxy.name;
 			var choose = E('button', {
 				type: 'button', 'class': 'node-select v4-node-select', 'data-node': proxy.name,
-				'data-select-group': group.name, 'aria-pressed': String(selected), title: proxy.name
-			}, [E('span', { 'class': 'v4-node-icon' }, iconFor(proxy)), E('span', { 'class': 'v4-node-name' }, proxy.name)]);
+				'data-select-group': group.name, 'aria-pressed': String(selected), title: proxy.name, 'aria-label':proxy.name
+			}, [E('span', { 'class': 'v4-node-icon' }, iconFor(proxy)), E('span', { 'class': 'v4-node-name' }, displayName(proxy))]);
 			if (selected) choose.appendChild(E('span', { 'class': 'v4-selected-mark' }, UI.icon('check')));
 			choose.disabled = offline || selecting.has(group.name);
 			choose.addEventListener('click', function() { selectNode(group, proxy); });
@@ -209,7 +325,7 @@ return view.extend({
 			if (!selected) { row.appendChild(E('span', {}, '—')); return row; }
 			function item(proxy, final) {
 				return E('span', { 'class': 'v4-current-item' + (final ? ' final' : '') }, [
-					E('span', { 'class': 'v4-current-icon' }, iconFor(proxy)), E('span', { 'class': 'v4-current-name' }, proxy.name)
+					E('span', { 'class': 'v4-current-icon' }, iconFor(proxy)), E('span', { 'class': 'v4-current-name', title:proxy.name }, displayName(proxy))
 				]);
 			}
 			row.appendChild(item(selected, false));
@@ -224,7 +340,7 @@ return view.extend({
 				'aria-expanded': String(open), 'aria-label': group.name
 			}, [E('span', { 'class': 'v4-disclosure' }, UI.icon('chevron')),
 				E('span', { 'class': 'v4-group-icon' }, iconFor(group)), E('span', { 'class': 'v4-group-copy' }, [
-					E('span', { 'class': 'v4-group-title-row' }, [E('strong', { 'class': 'v4-group-title' }, group.name),
+					E('span', { 'class': 'v4-group-title-row' }, [E('strong', { 'class': 'v4-group-title' }, displayName(group)),
 						E('span', { 'class': 'v4-group-type' }, group.type || ''),
 						E('span', { 'class': 'v4-node-count' }, String(list.length === group.all.length ? list.length : list.length + '/' + group.all.length))]), currentChain(group)
 				])]);

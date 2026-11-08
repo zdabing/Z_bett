@@ -35,6 +35,6 @@ return view.extend({render:function(){
 		var run=UI.button(state.running?'检测中…':'开始运行',execute,'primary','activity');run.disabled=!!state.running;
 		workspace.replaceChildren(UI.panel(item[1],item[2],[form,E('div',{'class':'button-row'},[run,status]),out]));tiles.forEach(function(t){t.classList.toggle('active',t.dataset.tool===active);t.setAttribute('aria-pressed',String(t.dataset.tool===active));});
 	}
-	var grid=E('div',{'class':'tool-grid'},TOOLS.map(function(t){var b=E('button',{type:'button','class':'tool-card','data-tool':t[0]},[UI.icon(t[2]),E('div',{},[E('strong',{},t[1])])]);b.addEventListener('click',function(){active=t[0];draw();});tiles.push(b);return b;}));draw();
+	var grid=E('div',{'class':'tool-grid'},TOOLS.map(function(t){var b=E('button',{type:'button','class':'tool-card','data-tool':t[0]},[t[0]==='speedtest'?UI.artwork('speedtest',t[2]):UI.icon(t[2]),E('div',{},[E('strong',{},t[1])])]);b.addEventListener('click',function(){active=t[0];draw();});tiles.push(b);return b;}));draw();
 	return UI.page('toolbox','工具箱',[],[grid,workspace]);
 },handleSaveApply:null,handleSave:null,handleReset:null});

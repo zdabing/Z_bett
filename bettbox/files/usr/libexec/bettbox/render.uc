@@ -14,7 +14,7 @@
 
 import { readfile, writefile } from 'fs';
 import { cursor } from 'uci';
-import { device_access } from '/usr/libexec/bettbox/device-access.uc';
+import { device_access, device_fallback_rules } from '/usr/libexec/bettbox/device-access.uc';
 import { preserve_node_dns, check_dns, protect_real_ip, real_ip_domain } from '/usr/libexec/bettbox/dns-policy.uc';
 
 const BETT_RULES = 'https://github.com/appshubcc/bett-rules/releases/latest/download';
@@ -453,6 +453,21 @@ if (type(disabled) == 'array' && length(disabled) > 0 && type(base['proxy-groups
 /* ---------- output ---------- */
 
 let final = merge(base, clean(patch));
+let fallback_targets = { DIRECT: true, REJECT: true };
+for (let group in (final['proxy-groups'] ?? [])) fallback_targets[group.name] = true;
+for (let proxy in (final.proxies ?? [])) fallback_targets[proxy.name] = true;
+let device_rules = device_fallback_rules(ctx, fallback_targets);
+if (length(device_rules)) {
+	let ordered = [], inserted = false;
+	for (let rule in (final.rules ?? [])) {
+		if (!inserted && match(rule, /^\s*(MATCH|FINAL)\s*,/)) {
+			ordered = concat(ordered, device_rules);
+			inserted = true;
+		}
+		push(ordered, rule);
+	}
+	final.rules = inserted ? ordered : concat(ordered, device_rules);
+}
 let real_domains=uci_list('dns','real_ip_domains');
 if(type(real_domains)=='string')real_domains=[real_domains];
 else real_domains=map(real_domains,d=>d);

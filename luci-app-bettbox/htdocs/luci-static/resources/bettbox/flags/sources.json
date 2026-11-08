@@ -1,0 +1,259 @@
+{
+  "project": "https://github.com/aaANDkk/Qure_Style_SVG",
+  "revision": "ba24af0de3e3ae827464e4c73fcfd9beb7118ed2",
+  "notice": "../qure/THIRD_PARTY_NOTICES.md",
+  "assets": [
+    {
+      "file": "us.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/United_States.svg",
+      "sha256": "73f1791fdfca9009cb5489ec573ac1f28540bc5d945b68ce8b924ca0483c8360",
+      "bytes": 3935
+    },
+    {
+      "file": "hk.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Hong_Kong.svg",
+      "sha256": "d9b6431523432865618e64edaa49e0761790ebc168a1f0707e89f845b47fccaa",
+      "bytes": 13507
+    },
+    {
+      "file": "tw.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/China_Taiwan.svg",
+      "sha256": "549b02e45c0e5a543b06491373a01adb7a7877cb542b5450ea7564eca951b99b",
+      "bytes": 2053
+    },
+    {
+      "file": "jp.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Japan.svg",
+      "sha256": "d70d0b75dc5e76e184373068c9680683717c4c536d2c6e8adcbf8c5fb1eb9dd8",
+      "bytes": 1527
+    },
+    {
+      "file": "sg.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Singapore.svg",
+      "sha256": "edad47e1773a8f6e7473a7b1335afb4449803799de4d1e97fc96db9502dff80c",
+      "bytes": 3429
+    },
+    {
+      "file": "kr.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/South_Korea.svg",
+      "sha256": "f46cccbb08b890130917a2d2450d395352a93e4ce7929dd0c65caae436304cdd",
+      "bytes": 5399
+    },
+    {
+      "file": "mo.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Macau.svg",
+      "sha256": "8e57aa873fe323202f97ee8bc343633c34d7804aaf1151a08fb1945f9442cf19",
+      "bytes": 4144
+    },
+    {
+      "file": "cn.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/China.svg",
+      "sha256": "6ac99804393aa34acfb430484d8b84e11e0307a6c24acd2af75b30ce44253379",
+      "bytes": 2557
+    },
+    {
+      "file": "gb.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/United_Kingdom.svg",
+      "sha256": "9e5e857beaf3e728982155ef6bc7b108aefae93bd3e7bf6ac917c950c927a067",
+      "bytes": 3025
+    },
+    {
+      "file": "de.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Germany.svg",
+      "sha256": "e3aa1913354bdf984404b08fcc1c20a816820f7b2cf6bb17cfcf372aa2e3c0dc",
+      "bytes": 2312
+    },
+    {
+      "file": "fr.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/France.svg",
+      "sha256": "c30475414484ccfce366378892e2728bda036f7b9048ddfd0080ad32d88d2262",
+      "bytes": 2130
+    },
+    {
+      "file": "ca.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Canada.svg",
+      "sha256": "fc5c9bb0e02a72d500d3d2ca1f81b5f0b08aa2381ea95d4ce6d046bdc5ad0ba6",
+      "bytes": 4258
+    },
+    {
+      "file": "au.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Australia.svg",
+      "sha256": "5b13baa513f55b41a40e513b1232c26ce99c21f5d50372d3bc0c280bd351c113",
+      "bytes": 4626
+    },
+    {
+      "file": "nz.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/New_Zealand.svg",
+      "sha256": "bf0bd98b2e6d1f9c3c80fae6fc4b80ba19e4194224ed1c27fad6005370aecfb5",
+      "bytes": 11385
+    },
+    {
+      "file": "ru.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Russia.svg",
+      "sha256": "a91810d8323d0f22474751cd96782efa341fdd14b67d51e93e96896546fee149",
+      "bytes": 2116
+    },
+    {
+      "file": "nl.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Netherlands.svg",
+      "sha256": "9b8420baec7b2f9805c47598982218ac2e73907524b687b93a5ab9302a74327b",
+      "bytes": 2113
+    },
+    {
+      "file": "ch.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Switzerland.svg",
+      "sha256": "7701d60f3c344063b7a2c2050875b3d847e0cbb225cc5a392bf423f03ca9d123",
+      "bytes": 1857
+    },
+    {
+      "file": "se.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Sweden.svg",
+      "sha256": "e983240e6067a89b6533b1ad3fc3f1b24b40f4fbc496e63e46d383b121132654",
+      "bytes": 2086
+    },
+    {
+      "file": "no.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Norway.svg",
+      "sha256": "cb527d0cebcea34ed5dfba88a44e381a0efa398511adf8274e150f0f8bcf8460",
+      "bytes": 2444
+    },
+    {
+      "file": "fi.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Finland.svg",
+      "sha256": "d350df0fabe0312922f8ea14143e26feff4d37311905da217b3325b2b4d9af9f",
+      "bytes": 1923
+    },
+    {
+      "file": "dk.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Denmark.svg",
+      "sha256": "c711eb569ab6869d60da57d6c04894870c27c1e1d6a02b2877654282db772648",
+      "bytes": 1924
+    },
+    {
+      "file": "es.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Spain.svg",
+      "sha256": "e25792c2afc458f0161f13e07496aad06582aca7dc282b2dc15e281d1c89f78f",
+      "bytes": 4873
+    },
+    {
+      "file": "it.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Italy.svg",
+      "sha256": "0e1a9549a4a5563c0139087b3d288c66494213d1b486b347c673c9cd1a2a7c54",
+      "bytes": 2190
+    },
+    {
+      "file": "ie.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Ireland.svg",
+      "sha256": "abfc25f499db96e6352d8aab0ca96b46583230eab25683b002af441ca0596eb0",
+      "bytes": 2199
+    },
+    {
+      "file": "pl.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Poland.svg",
+      "sha256": "0474ad18869a2df4ad70c82de8c0cafb0fcb134b523fcead4f0bbb1f167aa3e2",
+      "bytes": 1799
+    },
+    {
+      "file": "tr.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Turkey.svg",
+      "sha256": "85583ed0319f6a418134b5c9372904bf84b7e14db18cfbd42a80cf22abdda50b",
+      "bytes": 2137
+    },
+    {
+      "file": "ae.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/United_Arab_Emirates.svg",
+      "sha256": "9a66bfbeab059651f0936316f85bfede925e47ce28e84a919df146511a307db2",
+      "bytes": 2491
+    },
+    {
+      "file": "my.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Malaysia.svg",
+      "sha256": "956dfd2db4cac8276fcafc9b92f5a6ad2f44f297b89dbbbb0fe4ab34e79f0272",
+      "bytes": 3327
+    },
+    {
+      "file": "th.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Thailand.svg",
+      "sha256": "a9d938a30dfb39eeb198466f4f47b9802d3f8512354f6aae9f7338d4d38d9d1d",
+      "bytes": 2230
+    },
+    {
+      "file": "vn.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Vietnam.svg",
+      "sha256": "f8a7f9b5987725e9439af47c571de0771859b1b9ff0c0d8ac6e7976c50b4740e",
+      "bytes": 2085
+    },
+    {
+      "file": "ph.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Philippines.svg",
+      "sha256": "0040c2abfbc81a07219402ac42f62c14ee2e8b855b6ab86a3c96f3156ae1c830",
+      "bytes": 5016
+    },
+    {
+      "file": "id.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Indonesia.svg",
+      "sha256": "ff7864597ea13b91f2c8533268b64daf5f47d58d529db2a6856130912d07eb6b",
+      "bytes": 1767
+    },
+    {
+      "file": "za.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/South_Africa.svg",
+      "sha256": "10dd59a02058ae3b3f5a6d255ee5e8cc6388fb2eae847d9d656d7332beb90aeb",
+      "bytes": 3491
+    },
+    {
+      "file": "br.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Brazil.svg",
+      "sha256": "61e3db335202e4eb471f6e06e3483d7c6c24ca18932d3cb00312ed80089806fa",
+      "bytes": 4051
+    },
+    {
+      "file": "mx.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Mexico.svg",
+      "sha256": "378fc063769916325b38ec08cfe69d4ac696ff8d430f2f8fc2536a92879757f1",
+      "bytes": 4516
+    },
+    {
+      "file": "ar.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Argentina.svg",
+      "sha256": "126344c9eb81d82983620c6636b6ea5f6fbe0faa87a76824027805a5e3b23764",
+      "bytes": 2356
+    },
+    {
+      "file": "ua.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Ukraine.svg",
+      "sha256": "8458aa9da4c28bc4ee46c84ace3f3593034c81cf5762cd6a9d2be7896ad9f69a",
+      "bytes": 2001
+    },
+    {
+      "file": "il.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Israel.svg",
+      "sha256": "2a678d4b815f9fb07db90b8b5d6beaefbf1a9f511cef3229209b16cf71657fb4",
+      "bytes": 2613
+    },
+    {
+      "file": "kz.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Kazakhstan.svg",
+      "sha256": "b466b209a7a79c6973c408c8392effe8108a875b7c78f419119fea0ad0a2c2b3",
+      "bytes": 4502
+    },
+    {
+      "file": "sa.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Saudi_Arabia.svg",
+      "sha256": "5f3f1fc180779ccbfe51fbbd0ea364da6dd257cd7689f76589765dd50fb6a02f",
+      "bytes": 3466
+    },
+    {
+      "file": "in.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/India.svg",
+      "sha256": "60bb16eceb354d7a3e1619bace180cdc70e5e733b47303ee3d47c653eccda2da",
+      "bytes": 11683
+    },
+    {
+      "file": "is.svg",
+      "source": "https://github.com/aaANDkk/Qure_Style_SVG/blob/ba24af0de3e3ae827464e4c73fcfd9beb7118ed2/icon/svg/flag/Iceland.svg",
+      "sha256": "07a3f59c5095f57b5b7cb05001bdc50eb87e35e2b8bc8a8c85342fb236876bc7",
+      "bytes": 2432
+    }
+  ]
+}

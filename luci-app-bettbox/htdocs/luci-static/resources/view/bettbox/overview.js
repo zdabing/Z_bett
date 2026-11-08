@@ -12,6 +12,61 @@ var callNetwork=rpc.declare({object:'bettbox',method:'get_network'});
 var callService=rpc.declare({object:'bettbox',method:'service_action',params:['action']});
 var commit=rpc.declare({object:'uci',method:'commit',params:['config']});
 function svg(tag,attrs){var el=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.keys(attrs||{}).forEach(function(k){el.setAttribute(k,attrs[k]);});return el;}
+var historyLimit = 12;
+var siteHistoryKey = 'bettbox.connectivity.v1';
+function siteSample(result, time){
+	var good = result.code === 0 && result.http >= 200 && result.http < 400;
+	var retried = (result.attempts || []).length > 1;
+	var label;
+	if (good) label = retried ? '复测可达' : '可达';
+	else if (result.code === 28) label = '超时';
+	else if (result.code === 6) label = '解析失败';
+	else label = result.http ? 'HTTP ' + result.http : '连接失败';
+	return {
+		time:time, label:label, latency:result.latency_ms > 0 ? Math.round(result.latency_ms) + ' ms' : '—',
+		tone:good ? (retried ? 'warn' : 'good') : (result.http >= 400 ? 'warn' : 'failed'),
+		note:retried ? '首次超时，复测' + (good ? '可达' : '失败') : ''
+	};
+}
+function siteRow(site, saved){
+	var samples = Array.isArray(saved) ? saved.slice(-historyLimit).filter(function(s){
+		return s && Number.isFinite(s.time) && typeof s.label === 'string' && typeof s.latency === 'string' &&
+			['good','warn','failed'].includes(s.tone);
+	}) : [];
+	var result = E('div', {'class':'test-result'}, '未检测');
+	var bars = E('summary');
+	var list = E('ol');
+	var details = E('details', {'class':'site-history'}, [bars,list]);
+	function paint(){
+		var last = samples[samples.length - 1];
+		details.hidden = !last;
+		if (!last) return;
+		result.className = 'test-result ' + (last.tone === 'failed' ? 'warn failed' : last.tone);
+		result.title = last.note || '';
+		result.replaceChildren(E('span', {}, last.label), E('b', {}, last.latency));
+		var title = site[1] + '最近 ' + samples.length + ' 次检测记录';
+		bars.setAttribute('aria-label', title); bars.title = title;
+		var marks = [], rows = [];
+		for (var i = samples.length; i < historyLimit; i++) marks.push(E('i', {'aria-hidden':'true'}));
+		samples.forEach(function(sample){
+			var text = new Date(sample.time).toLocaleTimeString() + ' · ' + sample.label + ' · ' + sample.latency;
+			marks.push(E('i', {'class':sample.tone, title:text, 'aria-hidden':'true'}));
+			rows.unshift(E('li', {}, text));
+		});
+		bars.replaceChildren.apply(bars, marks);
+		list.replaceChildren.apply(list, rows);
+	}
+	paint();
+	return {
+		element:E('div', {'class':'test-row'}, [E('div', {'class':'test-left'}, [
+			E('span', {'class':'site-icon'}, UI.artwork(site[0]==='openai'?'chatgpt':site[0], 'globe')),
+			E('div', {}, [E('div', {'class':'site-name'}, site[1]), E('div', {'class':'site-domain'}, site[2])])
+		]), result, details]),
+		samples:samples,
+		status:function(text){ result.textContent = text; result.title = ''; result.className = 'test-result'; },
+		record:function(sample){ samples.push(sample); if (samples.length > historyLimit) samples.shift(); paint(); }
+	};
+}
 function traffic(upload,download,available){
 	var total=upload+download,up=total?upload/total*100:0,down=total?100-up:0,ring=svg('svg',{viewBox:'0 0 128 128',role:'img','aria-label':available?(total?'上传 '+up.toFixed(1)+'%，下载 '+down.toFixed(1)+'%':'暂无累计流量'):'核心未运行'});
 	ring.appendChild(svg('circle',{'class':'traffic-track',cx:64,cy:64,r:51}));
@@ -29,7 +84,7 @@ return view.extend({
 		serviceSwitch.addEventListener('click',function(){
 			if(servicePending)return;
 			var on=!(st.enabled||st.running);
-			serviceGeneration++;refreshSequence++;busy=false;last=null;proxyGeneration++;
+			serviceGeneration++;refreshSequence++;busy=false;resetTrend();proxyGeneration++;
 			serviceSwitch.disabled=true;servicePending=on?'正在启动…':'正在停止…';setNote('');paintService();
 			callService(on?'start':'stop').then(UI.operation).then(function(){return waitForService(on);}).catch(function(err){
 				UI.error(err);return refreshStatus().catch(UI.error);
@@ -40,7 +95,43 @@ return view.extend({
 		});
 		var modes=E('div',{'class':'segmented','aria-label':'运行模式'});
 		[['rule','规则'],['global','全局'],['direct','直连']].forEach(function(m){var b=E('button',{type:'button','class':st.mode===m[0]?'active':'','aria-pressed':String(st.mode===m[0])},m[1]);b.addEventListener('click',function(){var old=st.mode;Array.from(modes.children).forEach(function(x){x.disabled=true;});(st.running?Core.patch('/configs',{mode:m[0]}):Promise.resolve()).then(function(){uci.set('bettbox','config','mode',m[0]);return uci.save();}).then(function(){return commit('bettbox');}).then(refreshStatus).catch(function(err){uci.set('bettbox','config','mode',old);if(st.running)Core.patch('/configs',{mode:old}).catch(function(){});UI.error(err);}).finally(function(){Array.from(modes.children).forEach(function(x){x.disabled=false;});});});b.dataset.mode=m[0];modes.appendChild(b);});
-		var stats={},metrics=E('section',{'class':'panel metric-grid overview-metrics'},[['down','下行速度','实时下载'],['up','上行速度','实时上传'],['link','活动连接','当前核心会话数'],['chip','内核内存','Mihomo 进程占用']].map(function(m){var value=E('div',{'class':'stat'},'—');stats[m[0]]=value;return E('div',{'class':'metric'},[E('div',{'class':'label'},[UI.icon(m[0]),document.createTextNode(m[1])]),value]);}));
+		var stats = {}, lines = {}, samples = [];
+		var metrics = E('section', {'class':'panel metric-grid overview-metrics'}, [
+			['down','下行速度'], ['up','上行速度'], ['link','活动连接'], ['chip','内核内存']
+		].map(function(metric){
+			var key = metric[0], label = metric[1];
+			stats[key] = E('div', {'class':'stat'}, '—');
+			var content = [E('div', {'class':'label'}, [UI.icon(key),document.createTextNode(label)]), stats[key]];
+			if (key === 'down' || key === 'up') {
+				var chart = svg('svg', {'class':'speed-trend '+key, viewBox:'0 0 180 24', preserveAspectRatio:'none',
+					role:'img', 'aria-label':'最近一分钟'+label+'趋势'});
+				var title = svg('title'); title.textContent = '最近一分钟'+label;
+				lines[key] = svg('polyline'); chart.appendChild(title); chart.appendChild(lines[key]); content.push(chart);
+			}
+			return E('div', {'class':'metric'}, content);
+		}));
+		function resetTrend(){
+			last = null; samples = [];
+			lines.down.setAttribute('points',''); lines.up.setAttribute('points','');
+		}
+		function updateSpeed(time, up, down){
+			var elapsed = last ? time - last.time : 0;
+			if (elapsed <= 0 || elapsed > 8000 || up < last.up || down < last.down) {
+				resetTrend(); stats.up.textContent = '采样中…'; stats.down.textContent = '采样中…';
+			} else {
+				var point = {time:time, up:(up-last.up)*1000/elapsed, down:(down-last.down)*1000/elapsed};
+				samples.push(point);
+				while (samples[0].time < time - 60000) samples.shift();
+				['up','down'].forEach(function(key){
+					stats[key].textContent = UI.speed(point[key]);
+					var peak = Math.max(1, ...samples.map(function(p){ return p[key]; }));
+					lines[key].setAttribute('points', samples.map(function(p){
+						return (180 - (time-p.time)*180/60000).toFixed(1) + ',' + (22 - 20*p[key]/peak).toFixed(1);
+					}).join(' '));
+				});
+			}
+			last = {up:up, down:down, time:time};
+		}
 		var trafficSlot=E('div',{},traffic(0,0,false));
 		var trafficPanel=E('section',{'class':'panel traffic-card'},[E('div',{'class':'panel-head'},E('h2',{},[UI.icon('traffic'),document.createTextNode('流量统计')])),trafficSlot]);
 		var exitParts={},exitJobs={},proxyGeneration=0,exitBodies=E('div',{'class':'exit-grid'});
@@ -77,9 +168,30 @@ return view.extend({
 		var networkPanel=E('section',{'class':'panel network-card'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.icon('globe'),document.createTextNode('网络检查')])]),UI.button('检测',checkExits,'small','refresh')]),exitBodies]);
 		var lan=net.lan||{},lanAddr=lan.address||'—';function row(k,v){return E('div',{'class':'definition-row'},[E('dt',{},k),E('dd',{'class':'right mono'},String(v||'—'))]);}
 		var lanPanel=UI.panel('内网 IP','lan',[E('div',{'class':'lan-primary'},[E('div',{},[E('div',{'class':'ip-address'},lanAddr),E('div',{'class':'tiny muted'},(lan.device||'LAN')+' / '+(lan.prefix||24))]),UI.button('复制',function(){return UI.copy(lanAddr);},'text small','copy')]),E('dl',{'class':'definition-list'},[row('局域网代理',net.mixed_port?lanAddr+':'+net.mixed_port:'未开启'),row('LAN DNS',lanAddr),row('WAN 接口',net.wan&&net.wan.device)])]);lanPanel.classList.add('lan-card');
-		var sites=[['baidu','百','百度','baidu.com'],['google','G','Google','gstatic.com'],['youtube','▷','YouTube','youtube.com'],['github','gh','GitHub','github.com'],['netflix','N','Netflix','netflix.com'],['openai','◎','OpenAI','openai.com']],resultNodes={};
-		var siteGrid=E('div',{'class':'test-grid'},sites.map(function(s){var result=E('div',{'class':'test-result'},'未检测');resultNodes[s[0]]=result;return E('div',{'class':'test-row'},[E('div',{'class':'test-left'},[E('span',{'class':'site-icon'},s[1]),E('div',{},[E('div',{'class':'site-name'},s[2]),E('div',{'class':'site-domain'},s[3])])]),result]);}));
-		function checkSites(){Object.keys(resultNodes).forEach(function(id){resultNodes[id].textContent='检测中…';});return UI.job('connectivity',[]).then(function(res){var result=JSON.parse(res.text);(result.results||[]).forEach(function(s){var el=resultNodes[s.id];if(!el)return;var good=s.code===0&&s.http>=200&&s.http<400;el.className='test-result'+(good?'':' warn');el.replaceChildren(E('span',{},good?'可达':s.code===28?'超时':s.code===6?'解析失败':s.http?'HTTP '+s.http:'连接失败'),E('b',{},s.latency_ms>0?Math.round(s.latency_ms)+' ms':'—'));});}).catch(function(err){Object.keys(resultNodes).forEach(function(id){resultNodes[id].textContent='检测失败';});throw err;});}
+		var sites=[['baidu','百度','baidu.com'],['google','Google','gstatic.com'],['youtube','YouTube','youtube.com'],['github','GitHub','github.com'],['netflix','Netflix','netflix.com'],['openai','OpenAI','openai.com']],resultNodes={};
+		var savedHistory, history = {};
+		try { savedHistory = JSON.parse(window.sessionStorage.getItem(siteHistoryKey)); } catch (_) {}
+		var siteGrid = E('div', {'class':'test-grid'}, sites.map(function(site){
+			var id = site[0], row = siteRow(site, savedHistory && savedHistory[id]);
+			resultNodes[id] = row; history[id] = row.samples;
+			return row.element;
+		}));
+		function checkSites(){
+			Object.values(resultNodes).forEach(function(row){ row.status('检测中…'); });
+			return UI.job('connectivity', []).then(function(res){
+				var results = JSON.parse(res.text).results, time = Date.now();
+				if (!Array.isArray(results)) throw new Error('未收到站点检测结果');
+				Object.keys(resultNodes).forEach(function(id){
+					var result = results.find(function(s){ return s && s.id === id; });
+					if (result) resultNodes[id].record(siteSample(result, time));
+					else resultNodes[id].status('未返回结果');
+				});
+				try { window.sessionStorage.setItem(siteHistoryKey, JSON.stringify(history)); } catch (_) {}
+			}).catch(function(err){
+				Object.values(resultNodes).forEach(function(row){ row.status('检测失败'); });
+				throw err;
+			});
+		}
 		var connectivity=E('section',{'class':'panel section-gap'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.icon('link'),document.createTextNode('连通性测试')])]),UI.button('开始检测',checkSites,'primary small','refresh')]),siteGrid]);
 		function paintService(){
 			stateTag.textContent=servicePending||(st.running?'运行中':'已停止');stateTag.className='tag '+(st.running?'':'neutral');
@@ -105,7 +217,7 @@ return view.extend({
 				return new Promise(function(resolve){window.setTimeout(resolve,200);}).then(check);
 			});}return check();
 		}
-		function stoppedMetrics(){last=null;Object.keys(stats).forEach(function(k){stats[k].textContent='—';});trafficSlot.replaceChildren(traffic(0,0,false));setNote('');}
+		function stoppedMetrics(){resetTrend();Object.keys(stats).forEach(function(k){stats[k].textContent='—';});trafficSlot.replaceChildren(traffic(0,0,false));setNote('');}
 		function refresh(){
 			if(servicePending||busy)return Promise.resolve();busy=true;
 			var generation=serviceGeneration,sequence=++refreshSequence;
@@ -116,9 +228,8 @@ return view.extend({
 				return Core.get('/connections').then(function(res){
 					if(!current())return;
 					var c=res.data||{},now=Date.now(),up=+c.uploadTotal||0,down=+c.downloadTotal||0;
-					if(last&&now>last.time&&up>=last.up&&down>=last.down){stats.up.textContent=UI.speed((up-last.up)*1000/(now-last.time));stats.down.textContent=UI.speed((down-last.down)*1000/(now-last.time));}
-					else{stats.up.textContent='采样中…';stats.down.textContent='采样中…';}
-					last={up:up,down:down,time:now};stats.link.textContent=String((c.connections||[]).length);stats.chip.textContent=UI.bytes(st.memory_rss);trafficSlot.replaceChildren(traffic(up,down,true));setNote('');
+					updateSpeed(now,up,down);
+					stats.link.textContent=String((c.connections||[]).length);stats.chip.textContent=UI.bytes(st.memory_rss);trafficSlot.replaceChildren(traffic(up,down,true));setNote('');
 					if(now-lastProxy>30000){lastProxy=now;Core.get('/proxies').then(function(p){if(!current())return;var ps=p.data&&p.data.proxies||{},g=ps['默认代理']||ps.PROXY||ps.Proxy;if(g&&g.now)exitParts.proxy.node.textContent=g.now;}).catch(function(){});}
 				});
 			}).catch(function(err){

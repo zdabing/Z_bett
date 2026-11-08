@@ -17,10 +17,31 @@ function logLevel(line) {
 	if (level === 'notice') return 'info';
 	return level;
 }
+function logRecord(line) {
+	var time = line.match(/\b\d\d:\d\d:\d\d\b/);
+	var body = line.replace(/^(?:[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d\d:\d\d:\d\d\s+\d{4}\s+)?(?:kern|user|daemon|cron|auth|authpriv|syslog|lpr|mail|news|uucp|ftp|local[0-7])\.[a-z]+\s+[^:]+:\s*/i, '');
+	var message = body.match(/^time=(?:"[^"]*"|\S+)\s+level=(?:"[a-z]+"|[a-z]+)\s+msg=("(?:\\.|[^"\\])*")(.*)$/i);
+	if (message) {
+		try { body = JSON.parse(message[1]) + message[2]; } catch (_) {}
+	}
+	return {time:time ? time[0] : '—', level:logLevel(line), body:body};
+}
 
 return view.extend({
  render:function(){var lines=[],filter='',level='',paused=false,busy=false,shown=[],list=E('div',{'class':'panel bb-log-list'}),state=E('span',{'class':'small muted'}),notice=E('p',{'class':'bb-update-note',role:'status'});
- function draw(){shown=lines.filter(function(l){return l.trim()&&(!level||logLevel(l)===level)&&(!filter||l.toLowerCase().indexOf(filter)>=0);});list.replaceChildren.apply(list,shown.length?shown.map(function(line){var sev=logLevel(line),time=line.match(/\b\d\d:\d\d:\d\d\b/),body=line;return E('div',{'class':'log-entry '+sev},[E('time',{'class':'log-time'},time?time[0]:'—'),UI.tag(sev||'未分类',sev==='error'?'danger':sev==='warning'?'warn':'neutral'),E('div',{'class':'log-body'},body)]);}):[UI.empty('没有匹配日志','可切换级别或清除搜索条件。')]);state.textContent=(paused?'已暂停 · ':'实时刷新 · ')+shown.length+' 条 / 最近 300 条';}
+ function draw(){
+	 shown=lines.filter(function(line){return line.trim()&&(!level||logLevel(line)===level)&&(!filter||line.toLowerCase().indexOf(filter)>=0);});
+	 var entries=shown.map(function(line){
+		 var record=logRecord(line);
+		 return E('div',{'class':'log-entry','data-level':record.level},[
+			 E('time',{'class':'log-time'},record.time),
+			 E('span',{'class':'bb-log-level'},record.level ? record.level.toUpperCase() : '未分类'),
+			 E('div',{'class':'log-body',title:line},record.body)
+		 ]);
+	 });
+	 list.replaceChildren.apply(list,entries.length?entries:[UI.empty('没有匹配日志','可切换级别或清除搜索条件。')]);
+	 state.textContent=(paused?'已暂停 · ':'实时刷新 · ')+shown.length+' 条 / 最近 300 条';
+ }
  function refresh(){if(busy)return Promise.resolve();busy=true;return callLogs().then(function(res){if(res.error)throw new Error(res.error);lines=(res.text||'').split('\n');notice.textContent='';draw();}).catch(function(err){notice.textContent='日志获取失败：'+err.message;}).finally(function(){busy=false;});}
  var chips=E('div',{'class':'chips'},[['','全部'],['info','信息'],['warning','警告'],['error','错误'],['debug','调试']].map(function(v){var b=E('button',{type:'button','class':'chip'+(!v[0]?' active':''),'aria-pressed':String(!v[0])},v[1]);b.addEventListener('click',function(){level=v[0];Array.from(chips.children).forEach(function(c){c.classList.toggle('active',c===b);c.setAttribute('aria-pressed',String(c===b));});draw();});return b;}));
  var pause=UI.button('暂停',function(){paused=!paused;pause.replaceChildren(UI.icon(paused?'refresh':'pause'),E('span',{},paused?'继续':'暂停'));draw();if(!paused)return refresh();},'','pause');

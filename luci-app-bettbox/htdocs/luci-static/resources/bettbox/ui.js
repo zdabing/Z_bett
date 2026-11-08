@@ -7,6 +7,7 @@ var startJob = rpc.declare({ object: 'bettbox', method: 'diagnostic_start', para
 var getJob = rpc.declare({ object: 'bettbox', method: 'diagnostic_status', params: ['id'] });
 var PAGES = [ ['overview','概览','grid'], ['proxies','代理','route'], ['connections','连接','link'], ['profiles','订阅','file'], ['resources','资源','layers'], ['toolbox','工具箱','terminal'], ['logs','日志','list'], ['settings','设置','settings'] ];
 var PATHS = {
+	palette:'<path d="M21 12a9 9 0 1 0-9 9h1a2 2 0 0 0 1.5-3.3 1.8 1.8 0 0 1 1.4-3H18a3 3 0 0 0 3-2.7Z"/><circle cx="7.5" cy="11" r=".8"/><circle cx="11" cy="7" r=".8"/><circle cx="16" cy="8.5" r=".8"/>',
 	eye:'<path d="M2 12c5-9 15-9 20 0-5 9-15 9-20 0Z"/><circle cx="12" cy="12" r="3"/>',
 	grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
 	route:'<path d="M4 6h15m-5-4 5 4-5 4M20 18H5m5-4-5 4 5 4"/>',link:'<path d="m10 8 3-3a5 5 0 0 1 7 7l-3 3m-3 1-3 3a5 5 0 0 1-7-7l3-3m1 7 8-8"/>',
@@ -23,6 +24,22 @@ function icon(name) {
 	// Only static, application-owned SVG paths enter innerHTML.
 	svg.innerHTML=PATHS[name]||PATHS.grid;return svg;
 }
+var ARTWORK = {
+	proxy:'Proxy', auto:'Auto', direct:'Direct', reject:'Reject', final:'Final', global:'Global',
+	chatgpt:'ChatGPT', ai:'AI', netflix:'Netflix', youtube:'YouTube', telegram:'Telegram',
+	github:'GitHub', google:'Google', baidu:'Baidu', bilibili:'Bilibili',
+	game:'Game', apple:'Apple', microsoft:'Microsoft', speedtest:'Speedtest'
+};
+function artwork(name, fallback){
+	var file=ARTWORK[name];
+	if(!file)return icon(fallback||'globe');
+	var image=E('img', {
+		'class':'bb-proxy-image bb-artwork',src:L.resource('bettbox/qure/'+file+'.svg'),
+		alt:'',width:24,height:24,decoding:'async'
+	});
+	image.addEventListener('error',function(){image.replaceWith(icon(fallback||'globe'));},{once:true});
+	return image;
+}
 function error(err){ui.addNotification(null,E('p',{},String(err && err.message || err || '操作失败')),'error');}
 function checked(res){if(!res || res.ok!==true)throw new Error(res && (res.error||res.text)||'操作失败');return res;}
 function button(label,fn,kind,ico){
@@ -31,13 +48,65 @@ function button(label,fn,kind,ico){
 		if(result && typeof result.then==='function'){el.disabled=true;return Promise.resolve(result).catch(error).finally(function(){el.disabled=false;});}});
 	return el;
 }
+var palettes = { amber:'琥珀', ocean:'海蓝', violet:'紫罗兰', rose:'玫瑰', slate:'石板灰' };
+var modes = { system:'跟随系统', light:'浅色', dark:'深色' };
+var appearanceKey = 'bettbox.appearance.v1';
+var appearance, systemScheme;
+function readAppearance(){
+	var saved;
+	try { saved = JSON.parse(localStorage.getItem(appearanceKey)); } catch (_) {}
+	return {
+		palette: saved && Object.hasOwn(palettes, saved.palette) ? saved.palette : 'amber',
+		mode: saved && Object.hasOwn(modes, saved.mode) ? saved.mode : 'system'
+	};
+}
+function paintAppearance(){
+	document.body.dataset.bbPalette = appearance.palette;
+	document.body.dataset.bbScheme = appearance.mode === 'system' ? (systemScheme.matches ? 'dark' : 'light') : appearance.mode;
+}
+function mountAppearance(){
+	if (!appearance) {
+		appearance = readAppearance();
+		systemScheme = window.matchMedia('(prefers-color-scheme: dark)');
+		systemScheme.addEventListener('change', paintAppearance);
+		window.addEventListener('storage', function(event){
+			if (event.key !== appearanceKey && event.key !== null) return;
+			appearance = readAppearance(); paintAppearance();
+		});
+	}
+	paintAppearance();
+}
+function themePicker(){
+	function choices(key, title, options){
+		return E('fieldset', {'class':'bb-theme-field'}, [
+			E('legend', {}, title),
+			E('div', {'class':'bb-theme-options'}, Object.keys(options).map(function(value){
+				var radio = E('input', {type:'radio', name:'bb-theme-'+key, value:value});
+				radio.checked = appearance[key] === value;
+				radio.addEventListener('change', function(){
+					appearance[key] = value;
+					paintAppearance();
+					try { localStorage.setItem(appearanceKey, JSON.stringify(appearance)); } catch (_) {}
+				});
+				var contents = [radio];
+				if (key === 'palette') contents.push(E('i', {'data-bb-palette':value, 'class':'bb-theme-swatch', 'aria-hidden':'true'}));
+				contents.push(E('span', {}, options[value]));
+				return E('label', {'class':'bb-theme-option'}, contents);
+			}))
+		]);
+	}
+	modal('主题', [choices('mode','外观',modes), choices('palette','配色',palettes)]);
+}
 function mount(){
 	document.body.classList.add('bb-page');
-	if(!document.getElementById('bettbox-ui-css'))document.head.appendChild(E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261029-1'}));
+	mountAppearance();
+	if(!document.getElementById('bettbox-ui-css'))document.head.appendChild(E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261106-1'}));
 }
 function page(id,title,actions,content){
 	mount();var nav=E('nav',{'class':'main-nav','aria-label':'Bettbox 页面导航'},PAGES.map(function(p){return E('a',{'class':'nav-item'+(p[0]===id?' active':''),href:L.url('admin','services','bettbox',p[0]),'aria-current':p[0]===id?'page':null},[icon(p[2]),E('span',{},p[1])]);}));
-	var heading=E('div',{'class':'page-heading'},[E('div',{'class':'heading-copy'},[E('h1',{},title)]),E('div',{'class':'heading-actions'},actions||[])]);
+	var themeButton = button('主题',themePicker,'bb-theme-trigger','palette');
+	themeButton.setAttribute('title','主题');
+	var heading=E('div',{'class':'page-heading'},[E('div',{'class':'heading-copy'},[E('h1',{},title),themeButton]),E('div',{'class':'heading-actions'},actions||[])]);
 	return E('div',{'class':'bb-app','data-bb-page':id},[nav,E('main',{'class':'shell'},[heading,E('div',{'class':'bb-page-content'},content||[])])]);
 }
 function panel(title,ico,body,actions){return E('section',{'class':'panel'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[icon(ico),document.createTextNode(title)])]),E('div',{'class':'button-row'},actions||[])]),E('div',{'class':'panel-body'},body||[])]);}
@@ -52,4 +121,4 @@ function copy(text){if(navigator.clipboard && window.isSecureContext)return navi
 function waitJob(id,budget,onProgress,reconnect){var until=Date.now()+budget,failedSince=null;return new Promise(function(resolve,reject){function check(){getJob(id).then(function(res){failedSince=null;if(res.error){reject(new Error(res.error));return;}if(onProgress)onProgress(res);if(res.done){if(res.ok)resolve(res);else reject(new Error(res.text||'后台任务失败'));}else if(Date.now()>until)reject(new Error('任务仍未完成，请刷新服务状态后确认结果'));else window.setTimeout(check,650);}).catch(function(err){if(!reconnect){reject(err);return;}if(failedSince===null)failedSince=Date.now();if(Date.now()>until||Date.now()-failedSince>=90000){var pending=new Error('连接中断，请刷新页面或重新登录后确认安装结果');pending.unconfirmed=true;reject(pending);}else window.setTimeout(check,1000);});}check();});}
 function job(kind,args,onProgress){return startJob(kind,JSON.stringify(args||[])).then(checked).then(function(start){return waitJob(start.id,185000,onProgress);});}
 function operation(result){checked(result);var budget=Number(result.timeout_ms)||630000;budget=Math.max(1000,Math.min(result.reconnect?2430000:1230000,budget));return result.id?waitJob(result.id,budget,null,result.reconnect===true):result;}
-return baseclass.extend({icon:icon,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,mount:mount,pages:PAGES});
+return baseclass.extend({icon:icon,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,mount:mount,pages:PAGES});

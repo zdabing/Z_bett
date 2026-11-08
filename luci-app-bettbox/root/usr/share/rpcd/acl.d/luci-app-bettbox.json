@@ -3,6 +3,7 @@
 		"description": "Grant access to Bettbox",
 		"read": {
 			"ubus": {
+				"luci-rpc": ["getHostHints"],
 				"bettbox": [
 					"package_info",
 					"package_check",

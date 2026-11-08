@@ -1,0 +1,82 @@
+{
+  "project": "https://github.com/aaANDkk/Qure_Style_SVG",
+  "revision": "ba24af0de3e3ae827464e4c73fcfd9beb7118ed2",
+  "assets": [
+    {
+      "file": "Proxy.svg",
+      "sha256": "964a1a107d79de197e5fd41cfbd669473e392b3c789f9f50a3506ac93164754e"
+    },
+    {
+      "file": "Auto.svg",
+      "sha256": "da27fa0c5990e218c14b822ea7bf78c22f514e5aabf4cd2a43659d8c2cf93695"
+    },
+    {
+      "file": "Direct.svg",
+      "sha256": "d4acb9ec30733ee00a675c2a698b01b0c69ae63e847c5a9218ef1a3ee4a14ca8"
+    },
+    {
+      "file": "Reject.svg",
+      "sha256": "01d98a8c7b6dde6eb7db481c7ac6478e42869b385c61f41ea5208b8eb5e19119"
+    },
+    {
+      "file": "Final.svg",
+      "sha256": "8d333e60471e2431d783fc0d9f3b167989e4bc29491ecafdaca8f8d345bef452"
+    },
+    {
+      "file": "Global.svg",
+      "sha256": "77096323909fa34e8de71fb4e31951bf75a7de8b4d588f77c69c4f710e5172ba"
+    },
+    {
+      "file": "ChatGPT.svg",
+      "sha256": "0ab29c4ad94aaba2988aa721b1d3a5f4a594aec75e783c6b2662c245980143b0"
+    },
+    {
+      "file": "AI.svg",
+      "sha256": "556570ce89735bd0fe5efb6d48b19cef6f26fc19707bfadc584db75a1f2d7ed1"
+    },
+    {
+      "file": "Netflix.svg",
+      "sha256": "20fc247a388816b5a386cd61f1fa47f00a8f909376433e83b9929cd097893a6d"
+    },
+    {
+      "file": "YouTube.svg",
+      "sha256": "43f6d75a8adece9bd3f81b879fe9fa0345068fa96003fdc65256c3cf169167b9"
+    },
+    {
+      "file": "Telegram.svg",
+      "sha256": "c6261cb3b31e72f67805ed1c8f3077ac50381be5d5b77cbabeb4c0824151c4fd"
+    },
+    {
+      "file": "GitHub.svg",
+      "sha256": "dce90ef2915f418b9e1b1e59df906e5e63814c25c32be8d587b80fa10274d384"
+    },
+    {
+      "file": "Google.svg",
+      "sha256": "5271c38daaa9113f0c81257d60c9a9272a6d8096793fdb92ebd97d178e1d1117"
+    },
+    {
+      "file": "Baidu.svg",
+      "sha256": "1a80e0067c11a89594a16815531bdb2677c8ceaff9631abcf94ef0b4ec05b846"
+    },
+    {
+      "file": "Bilibili.svg",
+      "sha256": "c4de0da4e405b9cccce3df4239357ca39960fff2f9e996d29751be8a1a73d206"
+    },
+    {
+      "file": "Game.svg",
+      "sha256": "33a4383f3c3188bb035d2b8d1f50108914ce5a990a6838704656ab601596e122"
+    },
+    {
+      "file": "Apple.svg",
+      "sha256": "ac0d6adb16a3d0d13509153c36091649fdcca8ef036e1b3f5f4d478a8b73d7d2"
+    },
+    {
+      "file": "Microsoft.svg",
+      "sha256": "7624ae36a7dd8ef97d48910bfcbc6e37b2704cb705bac1fbdc6acc4a08134b76"
+    },
+    {
+      "file": "Speedtest.svg",
+      "sha256": "b95ff186dc49a78090481f6a4055ffd2b565602966357f8a97d5519f5297c7e9"
+    }
+  ]
+}

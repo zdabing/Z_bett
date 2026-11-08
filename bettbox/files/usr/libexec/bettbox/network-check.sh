@@ -46,9 +46,17 @@ exit_info() {
 }
 
 probe() {
-	local id="$1" url="$2" rc=0
-	curl -sS --proxy "$proxy" --noproxy '' --connect-timeout 3 -m 7 -o /dev/null -w '%{http_code} %{time_total}' "$url" > "$work/$id" 2>/dev/null || rc=$?
-	printf ' %s\n' "$rc" >> "$work/$id"
+	local id="$1" url="$2" rc attempt=1
+	# DNS and the upstream proxy handshake share curl's connection budget.
+	# Confirm a timeout once, retaining both observations rather than hiding it.
+	while :; do
+		rc=0
+		curl -sS --proxy "$proxy" --noproxy '' --connect-timeout 5 -m 8 -o /dev/null -w '%{http_code} %{time_total}' "$url" > "$work/$id" 2>/dev/null || rc=$?
+		printf ' %s\n' "$rc" >> "$work/$id"
+		cat "$work/$id" >> "$work/$id.attempts"
+		[ "$rc" = 28 ] && [ "$attempt" = 1 ] || break
+		attempt=2
+	done
 }
 
 connectivity() {
@@ -60,7 +68,7 @@ connectivity() {
 	probe netflix https://www.netflix.com/ &
 	probe openai https://www.openai.com/ &
 	wait
-	ucode -e 'import {readfile} from "fs"; let result=[]; for(let id in ["baidu","google","youtube","github","netflix","openai"]){let s=split(trim(readfile(ARGV[0]+"/"+id)??"")," "); push(result,{id:id,http:int(s[0])??0,latency_ms:((+s[1])||0)*1000,code:int(s[2])??1});} print(sprintf("%J",{results:result}));' "$work"
+	ucode -e 'import {readfile} from "fs"; let result=[]; for(let id in ["baidu","google","youtube","github","netflix","openai"]){let attempts=[]; for(let line in split(trim(readfile(ARGV[0]+"/"+id+".attempts")??""),"\n")){let s=split(line," "); push(attempts,{http:int(s[0])??0,latency_ms:((+s[1])||0)*1000,code:int(s[2])??1});} let last=attempts[length(attempts)-1]; push(result,{id:id,http:last.http,latency_ms:last.latency_ms,code:last.code,attempts:attempts});} print(sprintf("%J",{results:result}));' "$work"
 }
 
 case "$1" in

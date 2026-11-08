@@ -1,4 +1,13 @@
 /* Compact router settings; stronger scope keeps shared/theme resets out. */
+.bb-app.bb-settings .device-fallback-controls{border:0;margin:0;padding:18px;min-width:0}
+.bb-app.bb-settings .device-fallback-panel>.panel-body{padding:0}
+.bb-app.bb-settings .device-fallback-controls>.setting-help{margin:0 0 14px;line-height:1.6}
+.bb-app.bb-settings .device-fallback-list{display:grid;gap:16px;margin-bottom:16px}
+.bb-app.bb-settings .device-fallback-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,.5fr) auto;gap:12px;align-items:start}
+.bb-app.bb-settings .device-fallback-row>div,.bb-app.bb-settings .device-fallback-row>label{min-width:0}
+.bb-app.bb-settings .device-fallback-row select{width:100%}
+.bb-app.bb-settings .device-fallback-row>.btn{margin-top:25px}
+@media(max-width:599px){.bb-app.bb-settings .device-fallback-row{grid-template-columns:minmax(0,1fr) auto}.bb-app.bb-settings .device-fallback-row>div{grid-column:1/-1}.bb-app.bb-settings .device-fallback-row>.btn{margin-top:25px}.bb-app.bb-settings .device-fallback-controls{padding:15px}}
 .bb-app.bb-settings .settings-layout{display:block;min-width:0}
 .bb-app.bb-settings .settings-categories{position:static;display:flex;align-items:center;gap:5px;width:max-content;max-width:100%;padding:5px;margin:0 0 16px;border:1px solid var(--bb-line);border-radius:12px;background:var(--surface)}
 .bb-app.bb-settings .category-button{display:flex;justify-content:center;align-items:center;gap:8px;width:auto;min-height:44px;padding:10px 20px;margin:0;border-radius:8px;font-size:13px;line-height:1.4}
@@ -26,6 +35,33 @@
 .bb-app.bb-settings .settings-save-bar{position:sticky;left:auto;right:auto;bottom:12px;z-index:16;width:100%;max-width:none;margin:16px 0 0;padding:10px 16px;border:1px solid var(--bb-line);border-radius:12px;background:var(--surface);box-shadow:0 3px 14px #233c3310;backdrop-filter:none;min-height:66px}
 .bb-app.bb-settings .settings-save-bar .btn{min-height:44px;padding:9px 13px;font-size:12px}
 .bb-app.bb-settings .settings-save-bar strong{font-size:12px;font-weight:500}
+.bb-app.bb-settings .device-settings{overflow:visible}
+.bb-app.bb-settings .device-settings .setting-row{align-self:start}
+.bb-app.bb-settings .device-picker{position:relative;display:block;width:100%;min-width:0;margin:0;padding:8px;border:1px solid var(--bb-line);border-radius:10px;background:var(--surface);color:inherit}
+.bb-app.bb-settings .device-picker:focus-within{border-color:var(--bb-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--bb-accent) 14%,transparent)}
+.bb-app.bb-settings .device-picker-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px}
+.bb-app.bb-settings .device-picker-chip{display:inline-flex;align-items:center;max-width:100%;gap:4px;padding:2px 3px 2px 9px;border-radius:6px;background:var(--soft);font-size:12px;color:var(--bb-accent)}
+.bb-app.bb-settings .device-picker-chip>.mono{min-width:0;overflow-wrap:anywhere}
+.bb-app.bb-settings .device-picker-remove{display:grid;place-items:center;flex:none;width:32px;height:32px;min-height:32px;margin:0;padding:6px;border:0;border-radius:4px;background:transparent;color:inherit}
+.bb-app.bb-settings .device-picker-remove .ico{width:14px;height:14px}
+.bb-app.bb-settings .device-picker-input{display:flex;align-items:center;gap:4px;min-width:0}
+.bb-app.bb-settings .device-picker-search{flex:1;min-width:0;width:100%;height:36px;min-height:36px;margin:0;padding:6px 4px;border:0;border-radius:4px;background:transparent;color:inherit;font:inherit;font-size:13px;box-shadow:none}
+.bb-app.bb-settings .device-picker-search:focus{outline:0;box-shadow:none}
+.bb-app.bb-settings .device-picker-toggle{display:grid;place-items:center;flex:none;width:36px;height:36px;min-height:36px;margin:0;padding:8px;border:0;border-radius:6px;background:transparent;color:var(--bb-accent)}
+.bb-app.bb-settings .device-picker-toggle .ico{width:16px;height:16px;transition:transform .15s}
+.bb-app.bb-settings .device-picker-toggle[aria-expanded="true"] .ico{transform:rotate(180deg)}
+.bb-app.bb-settings .device-picker-popup{position:absolute;top:100%;left:-1px;right:-1px;z-index:20;margin:6px 0 0;padding:6px;border:1px solid var(--bb-line);border-radius:10px;background:var(--surface);box-shadow:0 8px 24px #233c331a}
+.bb-app.bb-settings .device-picker-options{max-height:248px;overflow:auto;overscroll-behavior:contain}
+.bb-app.bb-settings .device-picker-option{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:48px;margin:0;padding:9px 10px;border:0;border-radius:6px;background:transparent;color:inherit;text-align:left;line-height:1.4}
+.bb-app.bb-settings .device-picker-option-copy{display:grid;gap:3px;min-width:0;font-size:13px;overflow-wrap:anywhere}
+.bb-app.bb-settings .device-picker-option-copy>.mono{font-size:12px}
+.bb-app.bb-settings .device-picker-option>.ico{flex:none;width:16px;height:16px;color:var(--bb-accent)}
+.bb-app.bb-settings .device-picker-option.selected,.bb-app.bb-settings .device-picker-option.highlighted,.bb-app.bb-settings .device-picker-option:hover,.bb-app.bb-settings .device-picker-remove:hover,.bb-app.bb-settings .device-picker-toggle:hover{background:var(--soft)}
+.bb-app.bb-settings .device-picker button:focus-visible{outline:2px solid var(--bb-accent);outline-offset:-2px}
+.bb-app.bb-settings .device-picker-message,.bb-app.bb-settings .device-picker-error{padding:8px 4px;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.bb-app.bb-settings .device-picker-error{color:var(--bb-danger,#bc4949)}
+.bb-app.bb-settings .device-picker:disabled{opacity:.65}
+.bb-app.bb-settings .device-picker [hidden]{display:none!important}
 @media(max-width:1199px){
  .bb-app.bb-settings .settings-form{grid-template-columns:minmax(0,1fr)}
  .bb-app.bb-settings .setting-row,.bb-app.bb-settings .setting-row.wide{grid-template-columns:minmax(160px,.7fr) minmax(0,1.3fr);gap:20px}
@@ -41,6 +77,8 @@
  .bb-app.bb-settings .setting-row,.bb-app.bb-settings .setting-row.wide{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;padding:8px 0;min-height:60px}
  .bb-app.bb-settings .setting-label{font-size:13px}
  .bb-app.bb-settings .setting-control>.field{height:44px;min-height:44px;font-size:16px}
+ .bb-app.bb-settings .device-picker-search{height:44px;min-height:44px;font-size:16px}
+ .bb-app.bb-settings .device-picker-remove,.bb-app.bb-settings .device-picker-toggle{width:44px;height:44px;min-height:44px}
  .bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto;gap:14px;padding:5px 0;min-height:54px}
  .bb-app.bb-settings .setting-row.flag>div{flex:none}
  .bb-app.bb-settings .settings-save-bar{bottom:0;margin-top:12px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-radius:12px;gap:8px}

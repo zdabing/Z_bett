@@ -114,3 +114,29 @@ export function device_nft(access) {
 	}
 	return join('\n', lines);
 };
+
+// Saved independently of subscriptions, and applied only after business rules.
+export function device_fallback_rules(ctx, allowed) {
+	let saved = ctx.get('bettbox', 'config', 'device_fallbacks');
+	if (saved == null || saved == '') return [];
+	let rows = null;
+	try { rows = json(saved); } catch (e) { die('设备兜底策略格式无效\n'); }
+	if (type(rows) != 'array' || length(rows) > 64) die('设备兜底策略最多 64 项\n');
+	let entries = [], rules = [];
+	for (let row in rows) {
+		if (type(row) != 'object' || type(row.addresses) != 'array' || !length(row.addresses) ||
+			type(row.target) != 'string') die('设备兜底策略需要设备地址和出口\n');
+		if (row.target != 'inherit' && (!(row.target in allowed) || match(row.target, /[,\r\n]/)))
+			die('设备兜底出口不存在于当前订阅：' + row.target + '\n');
+		for (let address in row.addresses) {
+			let item = prefix(address);
+			if (item == null) die('设备兜底 IP 或网段无效：' + address + '\n');
+			for (let old in entries)
+				if (contains(old, item) || contains(item, old)) die('设备兜底地址重复或网段重叠：' + address + '\n');
+			push(entries, item);
+			if (length(entries) > 256) die('设备兜底地址最多 256 项\n');
+			if (row.target != 'inherit') push(rules, 'SRC-IP-CIDR,' + item.address + ',' + row.target);
+		}
+	}
+	return rules;
+};

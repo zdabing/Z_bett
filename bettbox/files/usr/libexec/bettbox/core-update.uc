@@ -91,7 +91,12 @@ function release(folder,platform) {
 	if(!found || found.browser_download_url!=url || substr(found.digest??'',0,7)!='sha256:' || !valid_hash(hash) ||
 		type(found.size)!='int' || found.size<=0 || found.size>67108864)die('上游缺少匹配架构或可信 SHA-256 的核心文件');
 	let result={version:data.tag_name,arch:platform.name,url:url,sha256:hash,size:found.size,checked:time()};
-	if(writefile(folder+'/cache.json',sprintf('%J',result))==null || !rename(folder+'/cache.json',CACHE))die('无法保存核心版本信息');
+	// Keep the temporary file beside the cache: /tmp and /etc may be on different filesystems.
+	let temporary=mkdtemp('/etc/bettbox/state/core-release.XXXXXX');
+	if(!temporary)die('无法保存核心版本信息');
+	let file=temporary+'/value', ok=writefile(file,sprintf('%J',result))!=null && rename(file,CACHE);
+	unlink(file);rmdir(temporary);
+	if(!ok)die('无法保存核心版本信息');
 	return result;
 }
 function sha256(path) {
@@ -196,7 +201,7 @@ try {
 } catch(e) { failure=e; }
 // ucode supports try/catch, not JavaScript finally.
 if(stage){unlink(stage+'/mihomo');unlink(stage+'/release.json');rmdir(stage);}
-if(work){for(let name in ['release.json','cache.json','core.gz'])unlink(work+'/'+name);rmdir(work);}
+if(work){for(let name in ['release.json','core.gz'])unlink(work+'/'+name);rmdir(work);}
 if(lockHeld){try {prune();} catch(e) {}}
 if(lock)lock.close();
 if(failure)die(failure.message??(''+failure));

@@ -4,3 +4,7 @@
 *.jpg binary
 *.woff2 binary
 *.apk binary
+
+# Preserve vendored SVG bytes so source SHA-256 records remain reproducible.
+luci-app-bettbox/htdocs/luci-static/resources/bettbox/flags/*.svg -text whitespace=cr-at-eol
+luci-app-bettbox/htdocs/luci-static/resources/bettbox/qure/*.svg -text whitespace=cr-at-eol
