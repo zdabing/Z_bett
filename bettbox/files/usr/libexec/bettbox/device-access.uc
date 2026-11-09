@@ -86,8 +86,19 @@ function contains(a, b) {
 export function device_access(ctx) {
 	let mode = ctx.get('bettbox', 'config', 'device_mode') ?? 'off';
 	if (mode != 'off' && mode != 'include' && mode != 'exclude') die('设备控制模式无效\n');
-	let result = { mode: mode, enabled: mode != 'off', ipv4: [], ipv6: [] };
+	let result = { mode: mode, enabled: mode != 'off', macs: [], ipv4: [], ipv6: [] };
 	if (!result.enabled) return result;
+	let macs = ctx.get('bettbox', 'config', 'device_macs') ?? [];
+	if (type(macs) == 'string') macs = trim(macs) == '' ? [] : split(trim(macs), /\s+/);
+	if (type(macs) != 'array' || length(macs) > 256) die('设备 MAC 列表最多 256 项\n');
+	for (let mac in macs) {
+		if (type(mac) != 'string' || !match(trim(mac), /^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/))
+			die('设备 MAC 地址无效：' + mac + '\n');
+		let address = lc(trim(mac));
+		if (index(result.macs, address) < 0) push(result.macs, address);
+	}
+
+	// Retain existing IP and CIDR policies until the user replaces them.
 	let values = ctx.get('bettbox', 'config', 'device_ips') ?? [];
 	if (type(values) == 'string') values = trim(values) == '' ? [] : split(trim(values), /\s+/);
 	if (type(values) != 'array' || length(values) > 256) die('设备 IP 列表最多 256 项\n');
@@ -106,11 +117,19 @@ export function device_access(ctx) {
 export function device_nft(access) {
 	let lines = [];
 	if (!access.enabled) return '';
+	let include = access.mode == 'include';
+	let mac_set = length(access.macs) ? '{ ' + join(', ', access.macs) + ' }' : '';
+	if (mac_set && !include) push(lines, 'ether saddr ' + mac_set + ' return');
+	if (mac_set && include && !length(access.ipv4) && !length(access.ipv6))
+		return 'ether saddr != ' + mac_set + ' return';
+
+	// A whitelist bypasses traffic only if neither the MAC nor its IP matches.
+	let mac_miss = mac_set && include ? 'ether saddr != ' + mac_set + ' ' : '';
 	for (let family in [4,6]) {
 		let values = family == 4 ? access.ipv4 : access.ipv6;
 		let field = family == 4 ? 'ip' : 'ip6';
-		if (length(values)) push(lines, field + ' saddr ' + (access.mode == 'include' ? '!= ' : '') + '{ ' + join(', ', values) + ' } return');
-		else if (access.mode == 'include') push(lines, 'meta nfproto ipv' + family + ' return');
+		if (length(values)) push(lines, mac_miss + field + ' saddr ' + (include ? '!= ' : '') + '{ ' + join(', ', values) + ' } return');
+		else if (include) push(lines, mac_miss + 'meta nfproto ipv' + family + ' return');
 	}
 	return join('\n', lines);
 };

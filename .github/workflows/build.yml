@@ -155,7 +155,7 @@ jobs:
               printf "import { %s } from '%s';\n" "$export_name" "$source" > "$wrapper"
               source="$wrapper"
             fi
-            staging_dir/hostpkg/bin/ucode -cno-interp,dynlink=fs,dynlink=uci,dynlink=/usr/libexec/bettbox/script-store.uc,dynlink=/usr/libexec/bettbox/device-access.uc,dynlink=/usr/libexec/bettbox/dns-policy.uc,dynlink=/usr/libexec/bettbox/health-policy.uc \
+            staging_dir/hostpkg/bin/ucode -cno-interp,dynlink=fs,dynlink=uci,dynlink=/usr/libexec/bettbox/script-store.uc,dynlink=/usr/libexec/bettbox/device-access.uc,dynlink=/usr/libexec/bettbox/dns-policy.uc,dynlink=/usr/libexec/bettbox/health-policy.uc,dynlink=/usr/libexec/bettbox/release-download.uc \
               -o "$target" "$source"
           done
 

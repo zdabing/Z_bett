@@ -60,5 +60,18 @@
 				]
 			}
 		}
+	},
+	"luci-app-bettbox-local-update": {
+		"description": "Install locally supplied Bettbox APKs",
+		"write": {
+			"ubus": {
+				"bettbox": ["package_upload"]
+			},
+			"cgi-io": ["upload"],
+			"file": {
+				"/var/run/bettbox-ui-apk.??????/0.apk": ["write"],
+				"/var/run/bettbox-ui-apk.??????/1.apk": ["write"]
+			}
+		}
 	}
 }

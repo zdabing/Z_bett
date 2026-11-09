@@ -6,7 +6,7 @@
 
 'use strict';
 
-import { access, lsdir, popen, readfile, stat, unlink, writefile } from 'fs';
+import { access, lstat, lsdir, mkdtemp, popen, readfile, rename, rmdir, stat, statvfs, unlink, writefile } from 'fs';
 import { cursor } from 'uci';
 import { valid_script_name, valid_script_url, script_info, save_script_source, write_script, delete_script } from '/usr/libexec/bettbox/script-store.uc';
 
@@ -151,14 +151,19 @@ function network_info() {
 }
 
 function valid_job(id) { return type(id)=='string' && match(id,/^bettbox-job\.[A-Za-z0-9]+$/); }
-function create_job(kind, args) {
+const APK_UPLOAD_FILES=['0.apk','1.apk','metadata-0.json','metadata-1.json'];
+function remove_apk_upload(dir) {
+	for(let file in APK_UPLOAD_FILES)unlink(dir+'/'+file);
+	rmdir(dir);
+}
+function create_job(kind, args, upload) {
 	let service = kind == 'service' || kind == 'core' || kind == 'package', active=0;
 	for(let entry in (lsdir('/tmp') ?? [])){
 		let name=type(entry)=='string'?entry:entry?.name;
 		if(!valid_job(name))continue;
 		let dir='/tmp/'+name, st=stat(dir);
 		if(!st)continue;
-		if(time()-st.mtime>3600){for(let file in ['request','output','code','input','worker.uc','runner.sh'])unlink(dir+'/'+file);system('rmdir '+shellquote(dir)+' 2>/dev/null');}
+		if(time()-st.mtime>3600){for(let file in ['request','output','code','input','worker.uc','runner.sh'])unlink(dir+'/'+file);remove_apk_upload(dir+'/apk');rmdir(dir);}
 		else if(!access(dir+'/code') && time()-st.mtime<180){
 			let old=null;
 			try { old=json(readfile(dir+'/request')); } catch(e) {}
@@ -177,10 +182,20 @@ function create_job(kind, args) {
 	let limit=kind=='package'?2400:kind=='core'?1200:service?600:160;
 	if(kind=='package'){
 		let worker=readfile('/usr/libexec/bettbox/diagnostic.uc');
-		let script='#!/bin/sh\numask 077\ntimeout 2400 ucode '+shellquote(dir+'/worker.uc')+' '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1\nrc=$?\nprintf "%s\\n" "$rc" > '+shellquote(dir+'/code')+'\n'+unlock+'\nexit "$rc"\n';
+		let cleanup='';
+		if(upload){
+			cleanup='rm -f';
+			for(let file in APK_UPLOAD_FILES)cleanup+=' '+shellquote(dir+'/apk/'+file);
+			cleanup+='\nrmdir '+shellquote(dir+'/apk')+' 2>/dev/null || true\n';
+		}
+		let script='#!/bin/sh\numask 077\ntimeout 2400 ucode '+shellquote(dir+'/worker.uc')+' '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1\nrc=$?\n'+cleanup+'printf "%s\\n" "$rc" > '+shellquote(dir+'/code')+'\n'+unlock+'\nexit "$rc"\n';
 		if(!worker||writefile(dir+'/worker.uc',worker)==null||writefile(dir+'/runner.sh',script)==null)return {ok:false,error:'无法保存独立更新任务'};
+		if(upload && !rename(upload,dir+'/apk'))return {ok:false,error:'无法接收上传的 APK'};
 		let definition={name:'bettbox-package-update',instances:{worker:{command:['/bin/sh',dir+'/runner.sh'],stdout:false,stderr:false}}};
-		if(system('ubus -t 5 call service set '+shellquote(sprintf('%J',definition))+' >/dev/null 2>&1')!=0)return {ok:false,error:'无法启动独立 APK 更新任务'};
+		if(system('ubus -t 5 call service set '+shellquote(sprintf('%J',definition))+' >/dev/null 2>&1')!=0){
+			if(upload)remove_apk_upload(dir+'/apk');
+			return {ok:false,error:'无法启动独立 APK 更新任务'};
+		}
 		return {ok:true,id:id,timeout_ms:2430000,reconnect:true};
 	}
 	// A diagnostic file-size limit must not be inherited by config/Geo writers.
@@ -192,7 +207,7 @@ function create_job(kind, args) {
 
 // Called ONLY by write-authorized apply/service_action/core_update RPCs. The
 // read-only diagnostic_start allowlist rejects service and core mutations.
-function service_job(action) {
+function service_job(action, upload) {
 	let lock='/var/run/bettbox-service.lock', old=trim(readfile(lock+'/job')??''), st=stat(lock);
 	let ttl=650, oldRequest=null;
 	try { oldRequest=json(readfile('/tmp/'+old+'/request')); } catch(e) {}
@@ -204,9 +219,36 @@ function service_job(action) {
 	if(system('umask 077; mkdir '+shellquote(lock)+' 2>/dev/null')!=0)
 		return {ok:false,error:'服务正在切换，请稍后重试'};
 	let core=action=='core-update'||action=='core-rollback';
-	let result=create_job(action=='package-update'?'package':core?'core':'service',[action=='package-update'?'update':core?substr(action,5):action]);
+	let result=create_job(action=='package-update'?'package':core?'core':'service',[action=='package-update'?(upload?'update-local':'update'):core?substr(action,5):action],upload);
 	if(!result.ok){unlink(lock+'/job');system('rmdir '+shellquote(lock)+' 2>/dev/null');}
 	return result;
+}
+
+function package_upload(request) {
+	let action=request.args.action, dir=request.args.directory;
+	if(action=='prepare'){
+		for(let name in (lsdir('/var/run')??[])){
+			if(!match(name,/^bettbox-ui-apk\.[A-Za-z0-9]+$/))continue;
+			let old='/var/run/'+name, info=lstat(old);
+			if(info?.type=='directory' && time()-info.mtime>1800)remove_apk_upload(old);
+		}
+		let total=request.args.size;
+		let free=statvfs('/var/run')?.freesize??0;
+		if(type(total)!='int'||total<=0||total>268435456||free<total+16777216)return {ok:false,error:'APK 文件大小无效或临时空间不足'};
+		dir=mkdtemp('/var/run/bettbox-ui-apk.XXXXXX');
+		return dir?{ok:true,directory:dir}:{ok:false,error:'无法创建 APK 上传目录'};
+	}
+	if(!match(dir??'',/^\/var\/run\/bettbox-ui-apk\.[A-Za-z0-9]+$/))return {ok:false,error:'无效的 APK 上传目录'};
+	if(action=='remove'){
+		if(lstat(dir)?.type=='directory')remove_apk_upload(dir);
+		return {ok:true};
+	}
+	if(action!='install'||lstat(dir)?.type!='directory')return {ok:false,error:'APK 上传已过期，请重新选择文件'};
+	for(let name in ['0.apk','1.apk']){
+		let file=lstat(dir+'/'+name);
+		if(file?.type!='file'||file.size<=0||file.size>134217728)return {ok:false,error:'请完整上传两个有效的 APK 文件'};
+	}
+	return service_job('package-update',dir);
 }
 
 function diagnostic_start(request) {
@@ -239,6 +281,7 @@ return {
 		}},
 		package_check: {call:function(){return create_job('package-check',[]);}},
 		package_update: {call:function(){return service_job('package-update');}},
+		package_upload: {args:{action:'',directory:'',size:0},call:package_upload},
 		core_info: {call:function(){
 			let result=run_result('/usr/bin/bettbox core status');
 			if(!result.ok)return result;

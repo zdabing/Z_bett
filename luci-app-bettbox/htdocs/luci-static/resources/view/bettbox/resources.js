@@ -6,7 +6,16 @@
 var getResources=rpc.declare({object:'bettbox',method:'get_resources'}),geoUpdate=rpc.declare({object:'bettbox',method:'geo_update'}),dashboard=rpc.declare({object:'bettbox',method:'dashboard',params:['action']}),backup=rpc.declare({object:'bettbox',method:'backup_call',params:['action','file']}),backupFile=rpc.declare({object:'bettbox',method:'backup_file',params:['action','file']}),getStatus=rpc.declare({object:'bettbox',method:'get_status'});
 var getCore=rpc.declare({object:'bettbox',method:'core_info'}),checkCore=rpc.declare({object:'bettbox',method:'core_check'}),changeCore=rpc.declare({object:'bettbox',method:'core_update',params:['action']});
 var getPackage=rpc.declare({object:'bettbox',method:'package_info'}),checkPackage=rpc.declare({object:'bettbox',method:'package_check'}),updatePackage=rpc.declare({object:'bettbox',method:'package_update'});
+var packageUpload=rpc.declare({object:'bettbox',method:'package_upload',params:['action','directory','size']});
 function download(blob,name){var url=URL.createObjectURL(blob),a=E('a',{href:url,download:name});document.body.appendChild(a);a.click();a.remove();window.setTimeout(function(){URL.revokeObjectURL(url);},5000);}
+function uploadFile(file,path){
+	var form=new FormData();
+	form.append('sessionid',L.env.sessionid);form.append('filename',path);form.append('filedata',file);
+	return fetch(L.env.cgi_base+'/cgi-upload',{method:'POST',credentials:'same-origin',body:form}).then(function(res){
+		if(!res.ok)throw new Error('上传失败：HTTP '+res.status);
+		return res.json();
+	}).then(function(reply){if(reply.failure)throw new Error(reply.message||reply.failure);});
+}
 return view.extend({
 	load:function(){return Promise.all([getResources(),getStatus(),getCore().catch(function(err){return {ok:false,error:err.message};}),getPackage().catch(function(err){return {ok:false,error:err.message};})]);},
 	render:function(data){var resources=data[0]||{},status=data[1]||{},core=data[2]||{},packages=data[3]||{},coreBusy=false,packageBusy=false,list=E('div'),message=E('div',{'class':'bb-operation-state','role':'status'});
@@ -43,6 +52,7 @@ return view.extend({
 		var packageValues=E('dl',{'class':'definition-list bb-core-details'}),packageState=E('div',{'class':'bb-operation-state',role:'status'});
 		var packageCheck=UI.button('检查更新',function(){packageAction('check');},'','refresh');
 		var packageUpdate=UI.button('更新 APK',function(){packageAction('update');},'primary','download');
+		var localUpdate=UI.button('上传 APK 更新',localDialog,'','file');
 		var packageReload=UI.button('刷新页面',function(){window.location.reload();},'','refresh');packageReload.hidden=true;
 		function packageDraw(){
 			function row(label,value){return E('div',{'class':'definition-row'},[E('dt',{},label),E('dd',{},value)]);}
@@ -51,6 +61,7 @@ return view.extend({
 			packageUpdate.querySelector('span').textContent=status.running?'更新并重启服务':'更新 APK';
 			packageCheck.disabled=coreBusy||packageBusy||packages.updating||packages.supported===false;
 			packageUpdate.disabled=coreBusy||packageBusy||packages.updating||!packages.supported||packages.blocked===true||!!(packages.latest&&!packages.available);
+			localUpdate.disabled=coreBusy||packageBusy||packages.updating||!packages.supported;
 			if(!packageState.textContent && packages.updating){packageState.textContent='APK 更新正在运行，请稍后刷新';packageReload.hidden=false;}
 			if(!packageState.textContent && packages.last&&packages.last.phase==='failed')packageState.textContent='上次 APK 更新未完成：'+(packages.last.error||'请检查版本和服务');
 			if(!packageState.textContent && packages.last&&packages.last.phase==='installing'&&!packages.updating)packageState.textContent='上次 APK 更新中断，请检查版本和服务后重试';
@@ -58,24 +69,53 @@ return view.extend({
 			if(!packageState.textContent && (packages.ok===false||packages.supported===false))packageState.textContent=packages.error||packages.text||'无法读取 APK 更新信息';
 			packageState.hidden=!packageState.textContent;
 		}
-		function packageAction(action){
+		function packageAction(action,submit){
 			if(packageBusy||coreBusy)return;packageBusy=true;packageDraw();coreDraw();
 			packageState.textContent=action==='check'?'正在检查 APK 更新…':'正在更新 APK，后台重连时可能需要重新登录…';packageState.hidden=false;
-			(action==='check'?checkPackage():updatePackage()).then(UI.operation).then(function(result){
+			return (submit?submit():action==='check'?checkPackage():updatePackage()).then(UI.operation).then(function(result){
 				if(action==='check'){packages=UI.checked(JSON.parse(result.text));packageState.textContent=packages.available?'发现 APK 更新':packages.blocked?'发布版本需要手动处理':'当前 APK 已是最新版本';}
 				else {var outcome=UI.checked(JSON.parse(result.text));packageState.textContent=outcome.text||'APK 更新完成，请刷新页面';packageReload.hidden=false;return getPackage().then(UI.checked).then(function(value){packages=value;}).catch(function(){});}
 			}).catch(function(err){packageState.textContent=err.unconfirmed?err.message:(action==='check'?'检查失败：':'APK 更新失败：')+err.message;if(action==='update')packageReload.hidden=false;UI.error(err);return getPackage().then(UI.checked).then(function(value){packages=value;}).catch(function(){});})
 			.finally(function(){packageBusy=false;packageDraw();coreDraw();});
 		}
-		var packagePanel=UI.panel('Bettbox 更新','download',[packageValues,E('div',{'class':'button-row'},[packageCheck,packageUpdate,packageReload]),packageState]);packageDraw();
+		function localDialog(){
+			var inputs=['Bettbox APK','LuCI APK'].map(function(){return E('input',{'class':'field',type:'file',accept:'.apk'});});
+			UI.modal('上传 APK 更新',[
+				E('p',{},'请选择同一个官方 Release 里的 Bettbox 和 LuCI 两个 OpenWrt APK。离线更新无法核验官方发布来源，请确认文件可信。安装前会备份配置，运行中的服务会重启。'),
+				E('p',{'class':'small muted'},'当前设备架构 '+packages.architecture+'。每个文件最大 128 MiB。'),
+				UI.field('Bettbox APK',inputs[0]),UI.field('LuCI APK',inputs[1])
+			],[UI.button('上传并更新',function(){
+				if(coreBusy||packageBusy||packages.updating)throw new Error('已有更新任务，请稍后重试');
+				var files=inputs.map(function(input){return input.files[0];});
+				if(files.some(function(file){return !file||!/\.apk$/i.test(file.name)||!file.size||file.size>134217728;}))
+					throw new Error('请选择两个有效的 .apk 文件，每个不超过 128 MiB');
+				ui.hideModal();
+				return packageAction('update',function(){
+					var directory;
+					packageState.textContent='正在上传两个 APK…';
+					return packageUpload('prepare','',files[0].size+files[1].size).then(UI.checked).then(function(result){
+						directory=result.directory;
+						return uploadFile(files[0],directory+'/0.apk');
+					}).then(function(){return uploadFile(files[1],directory+'/1.apk');}).then(function(){
+						packageState.textContent='正在检查本地 APK 并安装…';
+						return packageUpload('install',directory,0);
+					}).then(UI.checked).catch(function(err){
+						if(!directory)throw err;
+						return packageUpload('remove',directory,0).catch(function(){}).then(function(){throw err;});
+					});
+				});
+			},'primary','file'),UI.button('取消',ui.hideModal)]);
+		}
+		var packagePanel=UI.panel('Bettbox 更新','download',[packageValues,E('div',{'class':'button-row'},[packageCheck,packageUpdate,localUpdate,packageReload]),packageState]);packageDraw();
+		var geoState=E('div',{'class':'bb-operation-state',role:'status',hidden:true});
 		function draw(){list.replaceChildren.apply(list,(resources.files||[]).map(function(r){var info=r.info||{};return E('div',{'class':'resource-row'},[E('div',{'class':'resource-file'},[E('div',{'class':'file-icon'},UI.icon('file')),E('div',{},[E('strong',{},r.name),E('small',{},r.file)])]),E('div',{'class':'resource-meta'},[UI.tag(r.installed?'已安装':'未下载',r.installed?'':'neutral'),info.modified?E('small',{},new Date(info.modified*1000).toLocaleString()):document.createTextNode('')]),E('div',{'class':'resource-meta mono'},r.installed?UI.bytes(info.size):'—')]);}));}
 		function refresh(){return getResources().then(function(result){resources=result;draw();});}
-		function update(){message.textContent='正在请求核心更新 Geo 数据…';return geoUpdate().then(UI.checked).then(function(){message.textContent='Geo 数据已更新';return refresh();}).catch(function(err){message.textContent='更新失败，保留现有资源：'+err.message;throw err;});}
+		function update(){geoState.hidden=false;geoState.textContent='正在请求核心更新 Geo 数据…';return geoUpdate().then(UI.checked).then(function(){geoState.textContent='Geo 数据已更新';return refresh();}).catch(function(err){geoState.textContent='更新失败，保留现有资源：'+err.message;throw err;});}
 		function exportBackup(){var file;message.textContent='正在创建备份…';return backupFile('prepare','').then(UI.checked).then(function(res){file=res.file;return backup('create',file);}).then(UI.checked).then(function(){return fetch(L.env.cgi_base+'/cgi-download',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'sessionid='+encodeURIComponent(L.env.sessionid)+'&path='+encodeURIComponent(file)});}).then(function(res){if(!res.ok)throw new Error('备份下载失败：HTTP '+res.status);if((res.headers.get('content-type')||'').indexOf('json')>=0)throw new Error('下载接口拒绝了备份文件');return res.blob();}).then(function(blob){download(blob,'bettbox-backup-'+new Date().toISOString().slice(0,10)+'.tar');message.textContent='备份已创建并下载';}).finally(function(){if(file)return backupFile('remove',file);});}
 		function restoreDialog(){var file=E('input',{'class':'field',type:'file',accept:'.tar,application/x-tar'}),result=E('p',{'class':'small muted'},'');UI.modal('恢复备份',[E('p',{},'恢复将替换 Bettbox 配置和归档中的订阅、脚本、规则，并按配置启停服务。建议先导出当前备份。'),UI.field('本地备份文件',file,'tar 格式，最大 64MB。'),result],[UI.button('上传并恢复',function(){var f=file.files&&file.files[0],remote;if(!f)throw new Error('请选择备份文件');if(f.size>64*1024*1024)throw new Error('备份不能超过 64MB');result.textContent='正在上传…';return backupFile('prepare','').then(UI.checked).then(function(res){remote=res.file;var form=new FormData();form.append('sessionid',L.env.sessionid);form.append('filename',remote);form.append('filedata',f);return fetch(L.env.cgi_base+'/cgi-upload',{method:'POST',credentials:'same-origin',body:form});}).then(function(res){if(!res.ok)throw new Error('上传失败：HTTP '+res.status);return res.json();}).then(function(reply){if(reply.failure)throw new Error(reply.message||reply.failure);result.textContent='归档已上传，正在校验并应用…';return backup('restore',remote);}).then(UI.checked).then(function(){ui.hideModal();window.location.reload();}).catch(function(err){result.textContent='恢复失败：'+err.message+'。若失败发生在应用阶段，配置可能已经写入，请检查服务状态。';throw err;}).finally(function(){if(remote)return backupFile('remove',remote);});},'danger','refresh'),UI.button('取消',ui.hideModal)]);}
 		function panelInstall(){message.textContent='正在安装 / 更新面板…';return dashboard('install').then(UI.checked).then(function(){window.location.reload();}).catch(function(err){message.textContent='面板安装失败：'+err.message;throw err;});}
 		var open=UI.button('打开面板',function(){var ctl=status.controller||'',port=ctl.substring(ctl.lastIndexOf(':')+1)||'9097',host=window.location.hostname;if(host.indexOf(':')>=0&&host.charAt(0)!=='[')host='['+host+']';window.open('http://'+host+':'+port+'/ui/','_blank','noopener');},'','arrow');open.disabled=!resources.dashboard;
-		var geo=E('section',{'class':'panel'},[E('div',{'class':'panel-head'},E('div',{},[E('h2',{},[UI.icon('globe'),document.createTextNode('Geo 数据')])])),list]);draw();
-		return UI.page('resources','资源',[UI.button('更新 Geo 数据',update,'primary','refresh')],[message,E('div',{'class':'stack'},[packagePanel,corePanel,geo,E('div',{'class':'grid-two'},[UI.panel('控制面板','grid',[E('p',{'class':'small muted'},resources.dashboard?'已安装':'未安装'),E('div',{'class':'button-row'},[open,UI.button('安装 / 更新',panelInstall,'','refresh')])]),UI.panel('配置备份','layers',[E('div',{'class':'button-row'},[UI.button('导出备份',exportBackup,'','download'),UI.button('恢复备份',restoreDialog,'','refresh')])])])])]);
+		var geo=UI.panel('Geo 数据','globe',[list,E('div',{'class':'button-row'},[UI.button('更新 Geo 数据',update,'primary','refresh')]),geoState]);draw();
+		return UI.page('resources','资源',[],[message,E('div',{'class':'stack'},[packagePanel,corePanel,geo,E('div',{'class':'grid-two'},[UI.panel('控制面板','grid',[E('p',{'class':'small muted'},resources.dashboard?'已安装':'未安装'),E('div',{'class':'button-row'},[open,UI.button('安装 / 更新',panelInstall,'','refresh')])]),UI.panel('配置备份','layers',[E('div',{'class':'button-row'},[UI.button('导出备份',exportBackup,'','download'),UI.button('恢复备份',restoreDialog,'','refresh')])])])])]);
 	},handleSaveApply:null,handleSave:null,handleReset:null
 });

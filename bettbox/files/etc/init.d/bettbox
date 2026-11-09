@@ -112,6 +112,9 @@ bettbox_network_settings() {
 		printf '%s=%s\n' "$key" "$value"
 	done
 	printf 'dns.listen=%s\n' "$(uci -q get bettbox.dns.listen)"
+	# An empty MAC list has the same routing contract as older snapshots.
+	value=$(uci -q get bettbox.config.device_macs)
+	[ -z "$value" ] || printf 'device_macs=%s\n' "$value"
 }
 
 service_started() {

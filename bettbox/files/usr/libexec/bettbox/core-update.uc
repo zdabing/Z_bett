@@ -1,6 +1,7 @@
 #!/usr/bin/ucode
 // Official stable releases only. Download and verify before a serialized switch.
 import { access, chmod, lstat, lsdir, mkdir, mkdtemp, open, popen, readfile, readlink, rename, rmdir, stat, symlink, unlink, writefile } from 'fs';
+import { fetch_release } from '/usr/libexec/bettbox/release-download.uc';
 
 const ROOT='/etc/bettbox/core';
 const CACHE='/etc/bettbox/state/core-release.json';
@@ -72,16 +73,9 @@ function info() {
 		previous_source:previous=='none'?null:previous=='package'?'package':'managed',
 		previous:previous!='none'?version(binary(previous)):null};
 }
-function fetch(url,path,maxsize) {
-	let seconds=maxsize<=2097152?35:120;
-	command('curl -fLsS --proto '+q('=https')+' --proto-redir '+q('=https')+
-		' --connect-timeout 10 --max-time '+seconds+' --retry 1 --retry-delay 1 --max-filesize '+maxsize+
-		' -H '+q('Accept: application/vnd.github+json')+' -H '+q('User-Agent: Bettbox-OpenWrt')+' -o '+q(path)+' '+q(url),true);
-	let st=stat(path);if(!st || st.size<=0 || st.size>maxsize)die('下载文件大小无效');
-}
 function release(folder,platform) {
 	if(!platform.name)die('当前架构暂不支持一键更新核心');
-	let path=folder+'/release.json';fetch(API,path,2097152);
+	let path=folder+'/release.json';fetch_release(command,q,API,path,2097152);
 	let data=metadata(path);
 	if(!data || type(data.draft)!='bool' || data.draft || type(data.prerelease)!='bool' || data.prerelease || !valid_tag(data.tag_name) || type(data.assets)!='array')die('上游未返回有效的稳定版信息');
 	let filename='mihomo-linux-'+platform.name+'-'+data.tag_name+'.gz', found=null;
@@ -177,7 +171,7 @@ try {
 			if(!newer(latest.version,current.current))print('当前核心已是最新稳定版\n');
 			else {
 				space('/tmp',latest.size+16777216);
-				let archive=work+'/core.gz';fetch(latest.url,archive,67108864);
+				let archive=work+'/core.gz';fetch_release(command,q,latest.url,archive,67108864);
 				if(stat(archive).size!=latest.size || sha256(archive)!=latest.sha256)die('核心下载 SHA-256 校验失败，旧核心未切换');
 				let fd=open(archive,'r');if(!fd || !fd.seek(-4,2))die('无效 gzip 核心文件');
 				let tail=fd.read(4);fd.close();

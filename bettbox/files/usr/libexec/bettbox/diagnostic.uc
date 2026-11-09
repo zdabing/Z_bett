@@ -40,8 +40,10 @@ if (request.kind == 'exit') {
 	command='ucode /usr/libexec/bettbox/script-update.uc';
 	for(let arg in args)command+=' '+q(arg);
 } else if(request.kind=='package' || request.kind=='package-check') {
-	if((request.kind=='package' && (length(args)!=1 || args[0]!='update')) || (request.kind=='package-check' && length(args)!=0))die('bad package action');
-	command='/usr/bin/bettbox package '+(request.kind=='package'?'update':'check');
+	if(request.kind=='package-check' && length(args)==0)command='/usr/bin/bettbox package check';
+	else if(request.kind=='package' && length(args)==1 && args[0]=='update')command='/usr/bin/bettbox package update';
+	else if(request.kind=='package' && length(args)==1 && args[0]=='update-local')command='/usr/bin/bettbox package update-local '+q(dir+'/apk');
+	else die('bad package action');
 } else if(request.kind=='core' || request.kind=='core-check') {
 	let action=request.kind=='core-check'?'check':args[0];
 	if((request.kind=='core-check' && length(args)!=0) || (request.kind=='core' && (length(args)!=1 || !(action in ['update','rollback']))))die('bad core action');
