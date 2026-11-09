@@ -13,7 +13,7 @@ import tempfile
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
-TAG = 'v2026.10.27'
+TAG = 'v2026.11.08'
 REPO = 'zdabing/Z_bett'
 
 def command(*args):
@@ -37,7 +37,7 @@ def main():
         assert strip_release(before) == strip_release(after), 'build/install contract changed: full build required'
     release = json.loads(download('https://api.github.com/repos/' + REPO + '/releases/tags/' + TAG))
     assert not release['draft'] and not release['prerelease']
-    filename = 'bettbox-1.19.33-r4-' + target + '.apk'
+    filename = 'bettbox-1.19.33-r7-' + target + '.apk'
     asset = next(a for a in release['assets'] if a['name'] == filename)
     payload = download(asset['browser_download_url'])
     assert asset['size'] == len(payload) and asset['digest'] == 'sha256:' + hashlib.sha256(payload).hexdigest(), 'release digest mismatch'
