@@ -12,6 +12,13 @@ on:
         description: New release tag (vX.Y.Z or vX.Y.Z-rN), required when publishing
         type: string
         required: false
+      build_target:
+        description: Build for NanoPi R5C (ARM64) or both architectures
+        type: choice
+        default: aarch64_generic
+        options:
+          - aarch64_generic
+          - all
       reuse_run:
         description: Optional previous run ID; reuse verified APK payloads only when product sources and build definitions match
         type: string
@@ -36,7 +43,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REUSE_RUN: ${{ inputs.reuse_run }}
-        run: python3 .github/scripts/release.py provenance --run-id "$REUSE_RUN"
+          BUILD_TARGET: ${{ inputs.build_target }}
+        run: python3 .github/scripts/release.py provenance --run-id "$REUSE_RUN" --target "$BUILD_TARGET"
       - name: Validate requested release tag
         if: inputs.publish
         env:
@@ -60,11 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: x86_64
-            sdk_dir: targets/x86/64
-          - target: aarch64_generic
-            sdk_dir: targets/armsr/armv8
+        target: ${{ fromJSON(inputs.build_target == 'all' && '["x86_64","aarch64_generic"]' || '["aarch64_generic"]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,7 +85,10 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           VER=25.12.6
-          DIR=${{ matrix.sdk_dir }}
+          case "${{ matrix.target }}" in
+            x86_64) DIR=targets/x86/64 ;;
+            aarch64_generic) DIR=targets/armsr/armv8 ;;
+          esac
           # Resolve the exact SDK filename from sha256sums (fixed-name fetch, no
           # directory listing needed — listings 502 on the CDN intermittently)
           # and fall back across mirrors.
@@ -230,11 +237,13 @@ jobs:
       - name: Assemble matching architecture releases
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
-        run: python3 .github/scripts/release.py assemble --tag "$RELEASE_TAG" --input artifacts --output release-assets
+          BUILD_TARGET: ${{ inputs.build_target }}
+        run: python3 .github/scripts/release.py assemble --tag "$RELEASE_TAG" --target "$BUILD_TARGET" --input artifacts --output release-assets
       - name: Publish after GitHub checksum verification
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          BUILD_TARGET: ${{ inputs.build_target }}
           RELEASE_COMMIT: ${{ github.sha }}
           RELEASE_REPOSITORY: ${{ github.repository }}
-        run: python3 .github/scripts/release.py publish --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" --repository "$RELEASE_REPOSITORY" --input release-assets
+        run: python3 .github/scripts/release.py publish --tag "$RELEASE_TAG" --target "$BUILD_TARGET" --commit "$RELEASE_COMMIT" --repository "$RELEASE_REPOSITORY" --input release-assets

@@ -63,7 +63,7 @@ apk add --allow-untrusted ./bettbox-[0-9]*.apk ./luci-app-bettbox-[0-9]*.apk bet
 
 ## 构建与发布
 
-GitHub Actions 的 **Build OpenWrt 25 packages** 工作流支持手动构建。默认只生成构建产物；勾选 `publish` 并填写更新日志中对应的 `release_tag`，两架构构建及校验通过后发布 Release、四个 APK 和 `bettbox-update.json` 在线更新清单。
+GitHub Actions 的 **Build OpenWrt 25 packages** 工作流支持手动构建。默认构建 NanoPi R5C 使用的 `aarch64_generic`，选择 `all` 可同时构建 x86_64。勾选 `publish` 并填写对应的 `release_tag` 后，工作流会为每个选中的架构发布两个 APK，并生成 `bettbox-update.json` 在线更新清单。
 
 也可在对应架构的全新 OpenWrt 25.12 SDK 中注册本地 feed：
 

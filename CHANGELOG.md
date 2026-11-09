@@ -2,7 +2,7 @@
 
 ## v2026.11.09 · 2026-11-09
 
-面向 OpenWrt 25.12，提供 **x86_64** 和 **aarch64_generic（ARM64）** 安装包。请一起更新同一架构的 `bettbox 1.19.33-r8` 和 `luci-app-bettbox 1.19.7-r8`。
+面向 NanoPi R5C 使用的 OpenWrt 25.12 **aarch64_generic（ARM64）** 安装包。请一起更新 `bettbox 1.19.33-r8` 和 `luci-app-bettbox 1.19.7-r8`。
 
 - 设备控制支持按来源 MAC 设置白名单和黑名单。主 LAN 上同一 MAC 的 IPv4、IPv6 和普通 DNS 使用同一接管策略。旧 IP／网段条目继续生效，可在选定对应 MAC 后手动移除。
 - 设置页隔离浏览器自动填充，避免账号、密钥、数字和文本输入被误计为修改或随其他设置保存。

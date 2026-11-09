@@ -69,7 +69,7 @@ def metadata(tool, path):
     return package_document(tool, path)['info']
 
 
-def provenance(run_id):
+def provenance(run_id, architectures=TARGETS):
     require(re.fullmatch('[0-9]+', run_id), 'invalid build run ID')
     workflow = json.loads(run(['gh', 'api', 'repos/' + REPOSITORY + '/actions/runs/' + run_id]))
     require(workflow.get('path') == '.github/workflows/build.yml' and workflow.get('event') == 'workflow_dispatch'
@@ -79,7 +79,7 @@ def provenance(run_id):
     require(re.fullmatch('[a-f0-9]{40}', commit), 'invalid artifact source commit')
     jobs = json.loads(run(['gh', 'api', 'repos/' + REPOSITORY + '/actions/runs/' + run_id + '/jobs?per_page=100']))['jobs']
     require(any(job['name'] == 'Source checks' and job.get('conclusion') == 'success' for job in jobs), 'source checks did not pass')
-    for target in TARGETS:
+    for target in architectures:
         job = next((job for job in jobs if job['name'] == 'SDK ' + target + ' (.apk)'), None)
         passed = {step['name'] for step in (job or {}).get('steps', []) if step.get('conclusion') == 'success'}
         require({'Build packages', 'Validate router ucode syntax', 'Preserve built APKs'} <= passed,
@@ -177,12 +177,12 @@ def collect(target, apk_tool, source, output):
     return fragment
 
 
-def assemble(tag, artifacts, output):
+def assemble(tag, artifacts, output, architectures=TARGETS):
     require(len(tag) < 64 and TAG.fullmatch(tag), 'release tag must be vX.Y.Z or vX.Y.Z-rN')
     artifacts, output = Path(artifacts), Path(output)
     output.mkdir(parents=True, exist_ok=False)
     targets = {}
-    for target in TARGETS:
+    for target in architectures:
         matches = list(artifacts.rglob('manifest-' + target + '.json'))
         require(len(matches) == 1, 'expected one artifact manifest for ' + target)
         fragment = json.loads(matches[0].read_text(encoding='utf-8'))
@@ -208,14 +208,18 @@ def assemble(tag, artifacts, output):
     return manifest
 
 
-def publish(tag, commit, repository, directory):
+def publish(tag, commit, repository, directory, architectures=TARGETS):
     require(len(tag) < 64 and TAG.fullmatch(tag) and re.fullmatch('[a-f0-9]{40}', commit), 'invalid release tag or commit')
     require(repository == REPOSITORY, 'updater publishing is restricted to ' + REPOSITORY)
     directory = Path(directory)
     manifest = json.loads((directory / 'bettbox-update.json').read_text(encoding='utf-8'))
     require(manifest.get('tag') == tag and manifest.get('schema') == 1, 'manifest tag mismatch')
-    files = sorted(directory.glob('*.apk')) + [directory / 'bettbox-update.json']
-    require(len(files) == 5, 'expected four architecture-qualified APKs and one update manifest')
+    require(set(manifest.get('targets', {})) == set(architectures), 'release manifest architectures differ from build targets')
+    files = sorted(directory.glob('*.apk'))
+    filenames = {name + '-' + package_version(name) + '-' + target + '.apk'
+                 for target in architectures for name in NAMES}
+    require({path.name for path in files} == filenames, 'expected exactly two matching APKs per selected architecture')
+    files.append(directory / 'bettbox-update.json')
     notes_text = release_notes(tag)
     # Never clobber an existing release/tag: downloaded versions stay immutable.
     existing = subprocess.run(['gh', 'api', 'repos/' + repository + '/git/ref/tags/' + tag], capture_output=True, text=True)
@@ -257,6 +261,7 @@ if __name__ == '__main__':
     check.add_argument('tag')
     reuse = commands.add_parser('provenance')
     reuse.add_argument('--run-id', required=True)
+    reuse.add_argument('--target', choices=('all', *TARGETS), default='all')
     repack_args = commands.add_parser('repack')
     for option in ('target', 'apk-tool', 'input', 'output'):
         repack_args.add_argument('--' + option, required=True)
@@ -266,20 +271,22 @@ if __name__ == '__main__':
     assembly = commands.add_parser('assemble')
     for option in ('tag', 'input', 'output'):
         assembly.add_argument('--' + option, required=True)
+    assembly.add_argument('--target', choices=('all', *TARGETS), default='all')
     release_args = commands.add_parser('publish')
     for option in ('tag', 'commit', 'repository', 'input'):
         release_args.add_argument('--' + option, required=True)
+    release_args.add_argument('--target', choices=('all', *TARGETS), default='all')
     args = parser.parse_args()
     if args.action == 'validate-tag':
         require(len(args.tag) < 64 and TAG.fullmatch(args.tag), 'release tag must be vX.Y.Z or vX.Y.Z-rN')
         release_notes(args.tag)
     elif args.action == 'provenance':
-        provenance(args.run_id)
+        provenance(args.run_id, TARGETS if args.target == 'all' else (args.target,))
     elif args.action == 'repack':
         repack(args.target, args.apk_tool, args.input, args.output)
     elif args.action == 'collect':
         collect(args.target, args.apk_tool, args.input, args.output)
     elif args.action == 'assemble':
-        assemble(args.tag, args.input, args.output)
+        assemble(args.tag, args.input, args.output, TARGETS if args.target == 'all' else (args.target,))
     else:
-        publish(args.tag, args.commit, args.repository, args.input)
+        publish(args.tag, args.commit, args.repository, args.input, TARGETS if args.target == 'all' else (args.target,))

@@ -25,4 +25,4 @@ export function fetch_release(run, quote, url, path, maximum) {
 
 	let size = stat(path)?.size;
 	if (!size || size > maximum) die('下载文件大小无效');
-}
+};
