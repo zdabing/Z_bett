@@ -8,3 +8,5 @@
 # Preserve vendored SVG bytes so source SHA-256 records remain reproducible.
 luci-app-bettbox/htdocs/luci-static/resources/bettbox/flags/*.svg -text whitespace=cr-at-eol
 luci-app-bettbox/htdocs/luci-static/resources/bettbox/qure/*.svg -text whitespace=cr-at-eol
+bettbox/files/usr/libexec/bettbox/managed-routing.js -text whitespace=cr-at-eol
+bettbox/files/usr/libexec/bettbox/managed-routing.json -text whitespace=cr-at-eol

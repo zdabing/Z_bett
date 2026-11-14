@@ -43,6 +43,7 @@ config core 'config'
 	# watchdog: procd respawn + controller health check
 	option watchdog '1'
 	option watchdog_interval '30'
+	option traffic_retention '7'
 	# full read-only DNS/HTTP checks; 0 disables periodic checks, manual remains available
 	option health_interval '300'
 	# age identity for encrypted subscriptions (per-subscription overrides)
@@ -65,22 +66,7 @@ config tun 'tun'
 	option dns_hijack 'any:53'
 
 config dns 'dns'
-	# 0 = 保留订阅自带 DNS（上游默认行为）；1 = 用下面的设置整段覆写
-	option override '0'
 	option listen '0.0.0.0:1053'
-	option ipv6 '0'
-	# fake-ip | redir-host
-	option enhanced_mode 'fake-ip'
-	option fake_ip_range '198.18.0.1/16'
-	option respect_rules '0'
-	list nameserver 'https://223.5.5.5/dns-query'
-	list nameserver 'https://doh.pub/dns-query'
-	list default_nameserver '223.5.5.5'
-	list default_nameserver '119.29.29.29'
-	list fallback 'https://1.1.1.1/dns-query'
-	list fallback 'https://8.8.8.8/dns-query'
-	list proxy_server_nameserver '223.5.5.5'
-	list proxy_server_nameserver '119.29.29.29'
 
 config quic 'quic'
 	option block '0'

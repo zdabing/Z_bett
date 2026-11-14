@@ -17,10 +17,9 @@
 					"script_check",
 					"get_logs",
 					"api_proxy",
-					"toolbox_call",
 					"get_network",
 					"get_resources",
-					"traffic_history",
+					"managed_catalog",
 					"diagnostic_start",
 					"diagnostic_status"
 				]

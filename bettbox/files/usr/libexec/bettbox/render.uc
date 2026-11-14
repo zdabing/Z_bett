@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0
 //
 // bettbox config renderer: profile JSON (+ bettbox-forge output) + UCI ->
-// /var/run/bettbox/config.yaml, mirroring Bettbox's applyPatch semantics:
+// /var/run/bettbox/config.yaml, adapting Bettbox's configuration patches:
 //   - router general/dns/tun/sniffer/experimental/geox patches
 //   - loopback protection + QUIC-block prepend rules (exact upstream strings)
-//   - per-profile rule override (prepend/replace) and disabled groups -> PASS
+//   - per-profile rule additions and disabled groups -> PASS
 //   - profile.store-selected / store-fake-ip
 //
 // usage: render.uc <base.json> <out.yaml>
@@ -212,9 +212,8 @@ let patch = {
 	'tcp-concurrent': (uci('config', 'tcp_concurrent') == '1'),
 	'unified-delay': (uci('config', 'unified_delay') == '1'),
 	'keep-alive-interval': num(uci('config', 'keep_alive_interval'), 30),
-	// LAN clients' application/process identities are unavailable on the router.
-	// Pin this off even if a subscription or legacy UCI option enables it.
-	'find-process-mode': 'off',
+	// Track local processes when statistics is enabled. Forwarded devices have no local process.
+	'find-process-mode': uci('config', 'traffic_history') == '1' ? 'strict' : 'off',
 	'global-ua': uci('config', 'global_ua') ?? 'clash.meta/v1.19.34',
 	'allow-lan': allow_lan,
 	'bind-address': bind_address,
@@ -224,7 +223,8 @@ let patch = {
 	profile: {
 		'store-selected': true,
 		'store-fake-ip': true,
-		'bettbox-traffic-profile': uci('config', 'traffic_history') == '1' ? sid ?? '' : ''
+		'bettbox-traffic-profile': uci('config', 'traffic_history') == '1' ? sid ?? '' : '',
+		'bettbox-traffic-retention': num(uci('config', 'traffic_retention'), 7)
 	}
 };
 
@@ -265,44 +265,10 @@ for (let k in ['mmdb', 'geoip', 'geosite', 'asn']) {
 }
 patch['geox-url'] = geox;
 
-// DNS — upstream semantics: the subscription's DNS section is authoritative
-// (its rule-set filters, nameserver-policy, #DIRECT/#group annotations are
-// crafted by the provider); we only patch enable+listen on top so dnsmasq can
-// forward to the core. A full replace happens only when the user explicitly
-// turns on "覆写 DNS" (dns.override=1), matching upstream overrideDns.
+// Keep subscription or script DNS by default and set the router's listener.
 if (devices.enabled && mode != 'off' && !match(uci('dns', 'listen') ?? '0.0.0.0:1053', /^(0\.0\.0\.0|\[::\]):[0-9]+$/))
 	die('设备控制需要 DNS 监听 0.0.0.0:端口 或 [::]:端口\n');
-if (uci('dns', 'override') == '1') {
-	let nameservers = filter(uci_list('dns', 'nameserver'), v => length(v) > 0);
-	if (length(nameservers) == 0)
-		nameservers = [ '223.5.5.5', '119.29.29.29' ];
-	let dns = {
-		enable: true,
-		listen: uci('dns', 'listen') ?? '0.0.0.0:1053',
-		ipv6: (uci('dns', 'ipv6') == '1'),
-		'enhanced-mode': uci('dns', 'enhanced_mode') ?? 'fake-ip',
-		'fake-ip-range': uci('dns', 'fake_ip_range') ?? '198.18.0.1/16',
-		nameserver: nameservers
-	};
-	let defaults = filter(uci_list('dns', 'default_nameserver'), v => length(v) > 0);
-	if (length(defaults) > 0)
-		dns['default-nameserver'] = defaults;
-	let fallback = filter(uci_list('dns', 'fallback'), v => length(v) > 0);
-	if (length(fallback) > 0)
-		dns.fallback = fallback;
-	let psn = filter(uci_list('dns', 'proxy_server_nameserver'), v => length(v) > 0);
-	if (length(psn) > 0)
-		dns['proxy-server-nameserver'] = psn;
-	let dns_fip = (base?.dns != null) ? base.dns['fake-ip-filter'] : null;
-	if (dns_fip != null)
-		dns['fake-ip-filter'] = dns_fip;
-	let dns_nsp = (base?.dns != null) ? base.dns['nameserver-policy'] : null;
-	if (dns_nsp != null)
-		dns['nameserver-policy'] = dns_nsp;
-	if (uci('dns', 'respect_rules') == '1')
-		dns['respect-rules'] = true;
-	patch.dns = dns;
-} else if (type(base?.dns) == 'object' && base.dns.enable !== false) {
+if (type(base?.dns) == 'object' && base.dns.enable !== false) {
 	// keep the profile DNS; only ensure it serves on the loopback listener
 	patch.dns = {
 		enable: true,
@@ -393,7 +359,6 @@ if (uci('quic', 'block') == '1') {
 		push(prepend, 'AND,((NETWORK,UDP),(DST-PORT,443)),REJECT');
 }
 
-let replace_rules = null;
 if (sid != null) {
 	let preset = uci(sid, 'rule_preset');
 	let text = uci('config', 'rule_presets');
@@ -412,25 +377,19 @@ if (sid != null) {
 		let ov = null;
 		try { ov = json(ov_text); } catch (e) { ov = null; }
 		if (type(ov) == 'object' && type(ov.rules) == 'array') {
-			if (ov.mode == 'replace')
-				replace_rules = ov.rules;
-			else
-				prepend = concat(prepend, ov.rules);
+			prepend = concat(prepend, ov.rules);
 		}
 	}
 }
-// profile-carried override (upstream override-rules patch)
+// Profile-carried rule additions.
 let override = base['override-rules'] ?? null;
 if (type(override) == 'object' && type(override.rules) == 'array') {
-	if (override.mode == 'replace')
-		replace_rules = override.rules;
-	else
-		prepend = concat(prepend, override.rules);
+	prepend = concat(prepend, override.rules);
 }
 
 if (type(base.rules) != 'array')
 	base.rules = [];
-base.rules = (replace_rules != null) ? concat(prepend, replace_rules) : concat(prepend, base.rules);
+base.rules = concat(prepend, base.rules);
 delete base['override-rules'];
 
 /* ---------- disabled groups -> PASS (upstream disabled-groups) ---------- */
@@ -446,18 +405,15 @@ if (type(disabled) == 'array' && length(disabled) > 0 && type(base['proxy-groups
 		if (type(rule) != 'string')
 			return rule;
 		let parts = split(rule, ',');
-		let target = (parts[0] == 'MATCH' || (parts[0] == 'GEOIP' && length(parts) == 2)) ? parts[1] : parts[2];
-		if (target != null && is_disabled[target]) {
-			let idx = (length(parts) == 2) ? 1 : 2;
-			let out = [];
-			let pos = 0;
-			for (let seg in parts) {
-				push(out, (pos == idx) ? 'PASS' : seg);
-				pos++;
-			}
-			return join(',', out);
-		}
-		return rule;
+		let action = uc(trim(parts[0])), idx = length(parts) - 1;
+		if (action == 'SUB-RULE') return rule;
+		// Logical rules contain commas inside their expression. The target
+		// follows it, before any optional src/no-resolve suffixes.
+		while (idx > 1 && index(['src', 'no-resolve'], trim(parts[idx])) >= 0) idx--;
+		let has_target = idx >= 2 || (idx == 1 && (action == 'MATCH' || action == 'FINAL'));
+		if (!has_target || !is_disabled[trim(parts[idx])]) return rule;
+		parts[idx] = 'PASS';
+		return join(',', parts);
 	});
 	delete base['disabled-groups'];
 }

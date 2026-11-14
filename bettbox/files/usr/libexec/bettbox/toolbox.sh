@@ -12,11 +12,6 @@ proxy_arg() {
 	[ -n "$mp" ] && [ "$mp" != "0" ] && echo "-x http://127.0.0.1:$mp"
 }
 
-api_json() {
-	# api_json <path> -> parsed JSON via ucode (json() works for parsing here)
-	api_call GET "$1" | ucode -e 'import { readfile } from "fs"; let s = readfile("/dev/stdin"); print(s)'
-}
-
 # ---------- DNS 查询 ----------
 
 dns_query() {
@@ -112,14 +107,21 @@ media_unlock() {
 # ---------- 路由追踪 (rule-match trace, upstream core/toolbox/route_trace.go semantics) ----------
 
 trace_match() {
-	# trace_match <host> — which rule the target hits and via which chain.
-	local host="$1"
-	[ -n "$host" ] || die "usage: bettbox trace <host|domain>"
-	api_call GET /rules > /tmp/bettbox-rules.$$
-	api_call GET /proxies > /tmp/bettbox-proxies.$$
-	printf '%s' "$host" > /tmp/bettbox-host.$$
-	ucode /usr/libexec/bettbox/trace_match.uc /tmp/bettbox-rules.$$ /tmp/bettbox-proxies.$$ "$host" /tmp/bettbox-host.$$ 2>&1
-	rm -f /tmp/bettbox-rules.$$ /tmp/bettbox-proxies.$$ /tmp/bettbox-host.$$
+	[ -n "$1" ] || die 'usage: bettbox trace <target> [tcp|udp] [port]'
+	core_tool route-trace --data-urlencode "target=$1" --data-urlencode "network=${2:-tcp}" --data-urlencode "port=${3:-443}"
+}
+
+traffic_stats() {
+	core_tool traffic-stats --data-urlencode "start=$1" --data-urlencode "end=$2" --data-urlencode "host=$3"
+}
+
+core_tool() {
+	local tool="$1" hp secret
+	shift
+	hp=$(api_host_port)
+	secret=$(api_secret)
+	curl -fsS --connect-timeout 3 -m 24 -G -H "Authorization: Bearer $secret" \
+		"$@" "http://$hp/bettbox/$tool" || die '当前运行的核心无法提供此工具，请检查 Bettbox 随包核心和服务状态'
 }
 
 # ---------- MRS 速查 (upstream core/toolbox/mrs_lookup.go semantics) ----------
@@ -339,11 +341,12 @@ ping) shift; local_ping "$@" ;;
 speedtest) shift; speed_test "$@" ;;
 media) media_unlock ;;
 trace) shift; trace_match "$@" ;;
+traffic-stats) shift; traffic_stats "$@" ;;
 mrs) shift; mrs_lookup "$@" ;;
 nat) nat_detect ;;
 age) shift; age_tool "$@" ;;
 iperf) shift; iperf_run "$@" ;;
 *)
-	die "usage: toolbox.sh dns|ip|ping|speedtest|media|trace|mrs|nat|age|iperf ..."
+	die "usage: toolbox.sh dns|ip|ping|speedtest|media|trace|traffic-stats|mrs|nat|age|iperf ..."
 	;;
 esac

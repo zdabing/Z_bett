@@ -31,6 +31,16 @@ fi
 members=''
 n=0
 total=0
+failed=0
+: > "$work/prefixes"
+# Bettbox merges the outputs of the managed script, one for each member.
+if [ "$sid" = new ]; then
+	printf '{}\n' > "$work/managed.json"
+else
+	uci -q get "bettbox.$sid.managed_routing" > "$work/managed.json" || printf '{}\n' > "$work/managed.json"
+fi
+ucode /usr/libexec/bettbox/managed-routing.uc "$work/managed.json" "$work/managed.js" || exit 1
+opts=$(uci_get "bettbox.$sid.managed_options")
 for member in "$@"; do
 	case "$member" in ''|*[!A-Za-z0-9_-]*) die '无效的成员订阅 ID' ;; esac
 	case " $members " in *" $member "*) die '成员订阅不能重复' ;; esac
@@ -38,25 +48,35 @@ for member in "$@"; do
 		[ -z "$(uci_get "bettbox.$member.merge_members")" ] || die '成员必须是普通订阅'
 	members="${members:+$members }$member"
 	src=$(profile_file "$member")
-	[ -s "$src" ] || die '成员订阅没有可用配置'
+	if [ ! -s "$src" ]; then failed=$((failed + 1)); continue; fi
 	size=$(wc -c < "$src") || exit 1
 	[ "$size" -le 4194304 ] || die '成员订阅超过 4 MiB'
 	total=$((total + size))
 	[ "$total" -le 8388608 ] || die '成员订阅合计超过 8 MiB'
-	n=$((n + 1))
-	timeout 5 yq -o=json -I=0 '.' "$src" > "$work/$n.json" || die '成员订阅 YAML 无效'
+	next=$((n + 1))
+	if ! timeout 5 yq -o=json -I=0 '.' "$src" > "$work/input.json" ||
+		! timeout 30 bettbox-forge run --script "$work/managed.js" --config "$work/input.json" \
+			${opts:+--options "$opts"} --out "$work/$next.json" 2> "$work/forge.log"; then
+		rm -f "$work/$next.json"
+		failed=$((failed + 1))
+		log "merge member $member could not be prepared"
+		continue
+	fi
+	n=$next
+	prefix=$(uci_get "bettbox.$member.merge_prefix")
+	if [ -z "$prefix" ]; then
+		prefix=$(uci_get "bettbox.$member.label")
+		printf 'auto:%s\n' "${prefix:-$member}" >> "$work/prefixes"
+	else
+		printf 'custom:%s\n' "$prefix" >> "$work/prefixes"
+	fi
 done
-[ "$n" -ge 2 ] && [ "$n" -le 8 ] || die '请选择 2 至 8 份订阅'
+[ "$n" -gt 0 ] || die '没有可以合并的成员配置'
 
-report=$(timeout 10 ucode -e '
-	import { readfile, writefile } from "fs";
-	import { merge_profiles } from "/usr/libexec/bettbox/profile-merge.uc";
-	let profiles = [];
-	for (let i = 1; i < length(ARGV); i++) push(profiles, json(readfile(ARGV[i])));
-	let merged = merge_profiles(profiles);
-	if (writefile(ARGV[0], sprintf("%J", merged)) == null) die("无法写入合并配置");
-	print(sprintf("%J", {ok: true, proxies: length(merged.proxies), groups: length(merged["proxy-groups"]), rules: length(merged.rules ?? []), group_names: map(slice(merged["proxy-groups"], 0, 12), group => group.name)}));
-' "$work/result.yaml" "$work"/[1-8].json) || exit 1
+# Merge with the packaged Bettbox code even when a standalone Mihomo is active.
+report=$(timeout 15 /usr/bin/mihomo bettbox-merge "$work/result.yaml" "$work/prefixes" "$work"/[1-8].json) ||
+	die '无法合并订阅'
+report=$(ucode -e 'let report=json(ARGV[0]); report.failed=int(ARGV[1]); print(sprintf("%J", report));' "$report" "$failed") || exit 1
 
 core=$(core_binary)
 if ! timeout 30 "$core" -t -d "$BETTBOX_ETC" -f "$work/result.yaml" > "$work/validate.log" 2>&1; then
@@ -74,7 +94,10 @@ if [ "$action" = create ]; then
 fi
 target=$(profile_file "$sid")
 if [ -e "$target" ]; then
-	if [ "$action" = refresh ] && cmp -s "$work/result.yaml" "$target"; then exit 0; fi
+	if [ "$action" = refresh ] && cmp -s "$work/result.yaml" "$target"; then
+		printf '%s\n' "$report"
+		exit 0
+	fi
 	cp "$target" "$work/previous.yaml" || exit 1
 fi
 

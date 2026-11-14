@@ -54,8 +54,6 @@ jobs:
         run: |
           sh -n bettbox/files/usr/bin/bettbox
           sh -n bettbox/files/etc/init.d/bettbox
-          sh -n bettbox/files/usr/libexec/bettbox/cron.sh
-          sh -n bettbox/files/usr/libexec/bettbox/router-settings.sh
           for script in bettbox/files/usr/libexec/bettbox/*.sh; do sh -n "$script" || exit 1; done
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo fmt --manifest-path bettbox/forge/Cargo.toml -- --check
@@ -154,8 +152,7 @@ jobs:
                         "$SOURCE_ROOT"/luci-app-bettbox/root/usr/share/rpcd/ucode/bettbox.uc; do
             printf 'Checking %s\n' "$source"
             target="ucode-checks/$(basename "$source").ucb"
-            # Exporting helpers must be checked as imported modules, including
-            # newly added device-access, DNS-policy and health-policy helpers.
+            # Exporting helpers must be checked as imported modules.
             export_name=$(sed -n 's/^export function \([A-Za-z0-9_]*\).*/\1/p' "$source" | head -n 1)
             if [ -n "$export_name" ]; then
               wrapper="ucode-checks/$(basename "$source")-wrapper.uc"

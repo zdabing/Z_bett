@@ -12,9 +12,8 @@ PKG_RELEASE:=9
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0
 
-# Engine: upstream mihomo (same base as Bettbox core/Clash.Meta). Bettbox's
-# private core IPC (toolbox actions, suspend, permission helpers) is replaced
-# on the router by ucode/shell against mihomo's REST API.
+# The packaged Mihomo embeds Bettbox's profile merger and toolbox algorithms.
+# OpenWrt exposes them through the local CLI and Mihomo's controller.
 # download.pl appends the source filename to each mirror URL, so use the
 # github archive path prefix (codeload URLs cannot take an appended name).
 PKG_SOURCE:=v$(PKG_VERSION).tar.gz
@@ -25,7 +24,7 @@ PKG_BUILD_DIR:=$(BUILD_DIR)/mihomo-$(PKG_VERSION)
 PKG_BUILD_DEPENDS:=golang/host rust/host
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
-PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./traffic-history.go
+PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./upstream
 RUST_PKG_LOCKED:=1
 
 GO_PKG:=github.com/metacubex/mihomo
@@ -42,7 +41,9 @@ CARGO_PKG_VARS+=TARGET_AR="$(TARGET_AR)"
 # rquickjs 0.12 ships musl bindings for these two supported build targets.
 define Build/Prepare
 	$(call Build/Prepare/Default)
-	$(CP) ./traffic-history.go $(PKG_BUILD_DIR)/tunnel/statistic/bettbox_traffic.go
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/bettbox
+	$(CP) ./upstream/*.go $(PKG_BUILD_DIR)/bettbox/
+	$(CP) ./upstream/route.go.install $(PKG_BUILD_DIR)/hub/route/bettbox.go
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/.bettbox-forge
 	$(CP) ./forge/Cargo.toml ./forge/Cargo.lock ./forge/src $(PKG_BUILD_DIR)/.bettbox-forge/
 endef

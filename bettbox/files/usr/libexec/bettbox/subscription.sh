@@ -102,7 +102,13 @@ update_one() (
 update() {
 	[ -n "$1" ] || die "usage: subscription.sh update <sid>"
 	case "$1" in *[!A-Za-z0-9_-]*) die 'invalid subscription id' ;; esac
-	if [ -n "$(uci_get "bettbox.$1.merge_members")" ]; then
+	local members member
+	members=$(uci_get "bettbox.$1.merge_members")
+	if [ -n "$members" ]; then
+		for member in $members; do
+			[ -n "$(uci_get "bettbox.$member.url")" ] || continue
+			update_one "$member" || log "merge member $member refresh failed; using saved profile"
+		done
 		sh /usr/libexec/bettbox/profile-merge.sh refresh "$1" ''
 	else
 		update_one "$1" && refresh_merges "$1"
@@ -110,16 +116,14 @@ update() {
 }
 
 refresh_merges() {
-	local sid member members changed blocked result=0
+	local sid member members changed result=0
 	for sid in $(uci -q show bettbox | sed -n 's/^bettbox\.\([A-Za-z0-9_-]*\)\.merge_members=.*/\1/p'); do
 		members=$(uci_get "bettbox.$sid.merge_members")
 		changed=0
-		blocked=0
 		for member in $members; do
 			case " $1 " in *" $member "*) changed=1 ;; esac
-			case " $2 " in *" $member "*) blocked=1 ;; esac
 		done
-		[ "$changed" = 1 ] && [ "$blocked" = 0 ] || continue
+		[ "$changed" = 1 ] || continue
 		sh /usr/libexec/bettbox/profile-merge.sh refresh "$sid" '' || result=1
 	done
 	return "$result"
@@ -131,7 +135,7 @@ update_all() {
 		if update_one "$sid"; then updated="$updated $sid"; else failed="$failed $sid"; fi
 		sleep 2
 	done
-	refresh_merges "$updated" "$failed" || result=1
+	refresh_merges "$updated" || result=1
 	[ -z "$failed" ] || result=1
 	return "$result"
 }
@@ -150,7 +154,7 @@ cron() {
 			sleep 2
 		fi
 	done
-	refresh_merges "$updated" "$failed" || result=1
+	refresh_merges "$updated" || result=1
 	[ -z "$failed" ] || result=1
 	return "$result"
 }

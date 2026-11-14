@@ -152,7 +152,7 @@ try {
 		ensure();
 		if(!valid_target(ARGV[1]) || (ARGV[2]!='none' && !valid_target(ARGV[2])))die('无效核心回退记录');
 		set_pointer('current',ARGV[1]);set_pointer('previous',ARGV[2]);
-	} else if(action in ['check','update','rollback']) {
+	} else if(action in ['check','update','rollback','package']) {
 		ensure();
 		if(action!='check'){
 			lock=open(ROOT+'/update.lock','a');
@@ -162,10 +162,12 @@ try {
 		}
 		work=mkdtemp('/tmp/bettbox-core.XXXXXX');if(!work)die('无法创建下载目录');
 		if(action=='check') {release(work,arch());print(sprintf('%J',info()));}
-		else if(action=='rollback'){
-			let target=pointer('previous','none');
+		else if(action=='rollback' || action=='package'){
+			let target=action=='package'?'package':pointer('previous','none');
+			if(action=='package' && target==pointer('current','package'))die('已在使用随包核心');
 			if(target=='none'||target==pointer('current','package'))die('没有可回退的上一核心');
-			command('/etc/init.d/bettbox core_switch '+q(target),true);prune();print('已回退上一核心\n');
+			command('/etc/init.d/bettbox core_switch '+q(target),true);prune();
+			print(action=='package'?'已切回随包核心\n':'已回退上一核心\n');
 		} else {
 			let platform=arch(), latest=release(work,platform), current=info();
 			if(!newer(latest.version,current.current))print('当前核心已是最新稳定版\n');
@@ -191,7 +193,7 @@ try {
 				command('/etc/init.d/bettbox core_switch '+q(target),true);prune();print('核心已更新至 '+latest.version+'\n');
 			}
 		}
-	} else die('usage: bettbox core status|check|update|rollback');
+	} else die('usage: bettbox core status|check|update|rollback|package');
 } catch(e) { failure=e; }
 // ucode supports try/catch, not JavaScript finally.
 if(stage){unlink(stage+'/mihomo');unlink(stage+'/release.json');rmdir(stage);}

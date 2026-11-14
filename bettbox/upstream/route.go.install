@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: GPL-3.0
+package route
+
+import (
+	"strconv"
+
+	"github.com/metacubex/chi/render"
+	"github.com/metacubex/http"
+	"github.com/metacubex/mihomo/bettbox"
+)
+
+func bettboxTrace(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	port, _ := strconv.Atoi(query.Get("port"))
+	render.JSON(w, r, bettbox.Trace(r.Context(), bettbox.RouteTraceParams{
+		Target: query.Get("target"), Network: query.Get("network"), Port: port,
+	}))
+}
+
+func bettboxTrafficStats(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	top, _ := strconv.Atoi(query.Get("top"))
+	render.JSON(w, r, bettbox.TrafficStats(bettbox.TrafficStatsQuery{
+		Start: query.Get("start"), End: query.Get("end"), Top: top, Host: query.Get("host"),
+	}))
+}

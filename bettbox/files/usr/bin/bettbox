@@ -26,13 +26,14 @@ usage: bettbox <command> [args]
     ping <host> [count] [interval] [tcpport]
     speedtest [down_bytes] [up_bytes]
     media
-    trace <host>                          rule-match tracing
+    trace <target> [tcp|udp] [port]         rule-match tracing
+    traffic-stats <start> <end> [host]      date range in YYYY-MM-DD
     mrs <domain>                          geosite reverse lookup
     nat                                   STUN mapping detection
     age encrypt <pub>|decrypt <ident>     data on stdin
     iperf <host> [seconds]
   extras
-    core status | check | update | rollback   manage the independent Mihomo core
+    core status | check | update | rollback | package
     package status | check | update           update Bettbox and LuCI APKs
     dashboard install | remove               zashboard external-ui
     backup create <file> | restore <file>    local tar backup
@@ -88,7 +89,7 @@ subscription|subscriptions)
 	# Accept commands written by older versions of cron.sh.
 	sh "$LIBEXEC/subscription.sh" "$@"
 	;;
-dns|ip|ping|speedtest|media|trace|mrs|nat|age|iperf)
+dns|ip|ping|speedtest|media|trace|traffic-stats|mrs|nat|age|iperf)
 	sh "$LIBEXEC/toolbox.sh" "$cmd" "$@"
 	;;
 dashboard)

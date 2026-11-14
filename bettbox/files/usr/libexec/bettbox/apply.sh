@@ -25,22 +25,35 @@ apply() (
 	local base="$work/base.json"
 	yq -o=json -I=0 '.' "$src" > "$base" || die "profile is not valid YAML"
 
+	local managed
+	managed=$(uci_get "bettbox.$sid.use_managed")
+	[ -z "$(uci_get "bettbox.$sid.merge_members")" ] || managed=0
 	# JS override (Bettbox script contract) via bettbox-forge
-	if [ "$(uci_get bettbox.$sid.use_script)" = "1" ]; then
+	if [ "$(uci_get bettbox.$sid.use_script)" = "1" ] || [ "$managed" = "1" ]; then
 		local script
 		script=$(uci_get bettbox.$sid.script)
 		local script_file="$BETTBOX_SCRIPTS/$script.js"
+		if [ "$managed" = "1" ]; then
+			script_file="$work/managed.js"
+			uci -q get "bettbox.$sid.managed_routing" > "$work/managed.json" || printf '{}\n' > "$work/managed.json"
+			ucode /usr/libexec/bettbox/managed-routing.uc "$work/managed.json" "$script_file" || return 1
+		fi
 		if [ -f "$script_file" ] && command -v bettbox-forge >/dev/null; then
 			local opts out="$work/scripted.json" err="$work/forge.err"
 			opts=$(uci_get bettbox.$sid.custom_options)
+			if [ "$managed" = "1" ]; then
+				opts=$(uci_get "bettbox.$sid.managed_options")
+			fi
 			if timeout 60 bettbox-forge run --script "$script_file" --config "$base" \
 				${opts:+--options "$opts"} --out "$out" 2> "$err"; then
 				cp "$out" "$base"
 			else
+				[ "$managed" != "1" ] || die '托管分流脚本执行失败'
 				log "override script failed, falling back to unscripted profile: $(cat "$err")"
 			fi
 			rm -f "$out" "$err"
 		else
+			[ "$managed" != "1" ] || die '缺少内置托管脚本或 Bettbox Forge'
 			log "override script '$script' not found, skipping"
 		fi
 	fi

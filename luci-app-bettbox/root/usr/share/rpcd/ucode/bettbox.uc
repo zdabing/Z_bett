@@ -91,9 +91,13 @@ function profile_list() {
 			label: s.label ?? sid,
 			url: s.url ?? '',
 			merge_members: s.merge_members ? split(s.merge_members, ' ') : [],
+			merge_prefix: s.merge_prefix ?? '',
 			auto_update: (s.auto_update == '1'),
 			update_interval: int(s.update_interval) ?? 1440,
 			use_script: (s.use_script == '1'),
+			use_managed: (s.use_managed == '1'),
+			managed_routing: s.managed_routing ?? '{}',
+			managed_options: s.managed_options ?? '{}',
 				script: s.script ?? '',
 				age_identity: s.age_identity ?? '',
 				custom_options: s.custom_options ?? '{}',
@@ -180,7 +184,7 @@ function create_job(kind, args, upload) {
 	// Release admission when the worker actually finishes, even if its page was
 	// closed. A completed job must not leave the watchdog disabled indefinitely.
 	let unlock=service?'if [ "$(cat /var/run/bettbox-service.lock/job 2>/dev/null)" = '+shellquote(id)+' ]; then rm -f /var/run/bettbox-service.lock/job; rmdir /var/run/bettbox-service.lock 2>/dev/null || true; fi':'';
-	let subscription = kind == 'profile-merge' || kind == 'profile-update';
+	let subscription = kind in ['profile-merge', 'profile-update', 'profile-regenerate'];
 	let limit=kind=='package'?2400:kind=='core' || kind=='profile-update'?1200:service || subscription?600:160;
 	if(kind=='package'){
 		let worker=readfile('/usr/libexec/bettbox/diagnostic.uc');
@@ -220,7 +224,7 @@ function service_job(action, upload) {
 	}
 	if(system('umask 077; mkdir '+shellquote(lock)+' 2>/dev/null')!=0)
 		return {ok:false,error:'服务正在切换，请稍后重试'};
-	let core=action=='core-update'||action=='core-rollback';
+	let core=action in ['core-update','core-rollback','core-package'];
 	let result=create_job(action=='package-update'?'package':core?'core':'service',[action=='package-update'?(upload?'update-local':'update'):core?substr(action,5):action],upload);
 	if(!result.ok){unlink(lock+'/job');system('rmdir '+shellquote(lock)+' 2>/dev/null');}
 	return result;
@@ -260,7 +264,7 @@ function diagnostic_start(request) {
 	if(type(args)!='array'||length(args)>8) return {ok:false,error:'invalid diagnostic arguments'};
 	for(let arg in args) if(type(arg)!='string'||length(arg)>65536) return {ok:false,error:'invalid diagnostic argument'};
 	if(kind=='exit' && !(args[0] in ['direct','proxy'])) return {ok:false,error:'invalid exit mode'};
-	if(kind=='toolbox' && !(args[0] in ['dns','ip','ping','speedtest','media','trace','mrs','nat','age','iperf'])) return {ok:false,error:'invalid tool'};
+	if(kind=='toolbox' && !(args[0] in ['dns','ip','ping','speedtest','media','trace','traffic-stats','mrs','nat','age','iperf'])) return {ok:false,error:'invalid tool'};
 	if(kind=='health' && (length(args)!=1 || type(args[0])!='string' || length(args[0])>253 || !match(args[0],/^[A-Za-z0-9_][A-Za-z0-9._-]*$/)))return {ok:false,error:'invalid health target'};
 	return create_job(kind,args);
 }
@@ -292,34 +296,21 @@ return {
 		core_check: {call:function(){return create_job('core-check',[]);}},
 		core_update: {args:{action:''},call:function(request){
 			let action=request.args.action;
-			if(!(action in ['update','rollback']))return {ok:false,error:'invalid core action'};
+			if(!(action in ['update','rollback','package']))return {ok:false,error:'invalid core action'};
 			return service_job('core-'+action);
 		}},
 		get_network: {call:function(){return network_info();}},
 		get_resources: {call:function(){return resource_info();}},
-		traffic_history: {
-			args: { dimension: '' },
-			call: function(request) {
-				let dimension = request.args.dimension;
-				if (!(dimension in ['devices', 'domains', 'subscriptions']))
-					return { ok: false, error: '无效的流量统计维度' };
-				let file = '/etc/bettbox/bettbox-traffic.json', saved = {}, info = lstat(file);
-				if (info?.type == 'file' && info.size <= 4194304) {
-					try { saved = json(readfile(file)); } catch(e) {}
+		managed_catalog: {
+			call: function() {
+				try {
+					let catalog = json(readfile('/usr/libexec/bettbox/managed-routing.json'));
+					let options = run_result('/usr/bin/bettbox-forge options --script /usr/libexec/bettbox/managed-routing.js 2>/dev/null');
+					if (!options.ok) return { ok: false, error: '无法读取内置托管脚本开关' };
+					return { ok: true, catalog: catalog, options: json(options.text).options };
+				} catch (e) {
+					return { ok: false, error: '无法读取内置分流目录' };
 				}
-				let days = [], now = time(), clock = localtime(now);
-				let midday = now + (12 - clock.hour) * 3600 - clock.min * 60 - clock.sec;
-				for (let offset = 6; offset >= 0; offset--) {
-					let day = localtime(midday - offset * 86400);
-					let date = sprintf('%04d-%02d-%02d', day.year, day.mon, day.mday);
-					if (type(saved?.[date]?.[dimension]) == 'object')
-						push(days, { date: date, counts: saved[date][dimension] });
-				}
-				let labels = {};
-				if (dimension == 'subscriptions') cursor().foreach('bettbox', 'subscription', s => {
-					labels[s['.name']] = s.label ?? s['.name'];
-				});
-				return { ok: true, days: days, labels: labels, enabled: cursor().get('bettbox', 'config', 'traffic_history') == '1' };
 			}
 		},
 		backup_file: {args:{action:'',file:''},call:function(request){
@@ -386,11 +377,13 @@ return {
 			}
 		},
 		update_profile: {
-			args: { sid: '', all: '0', background: '0' },
+			args: { sid: '', all: '0', background: '0', regenerate: '0' },
 			call: function(request) {
 				let all = (request.args.all == '1');
 				if (!all && !valid_sid(request.args.sid))
 					return { error: 'invalid sid' };
+				if (!all && request.args.regenerate == '1')
+					return create_job('profile-regenerate', [request.args.sid]);
 				if (request.args.background == '1')
 					return create_job('profile-update', all ? [] : [request.args.sid]);
 				let cmd = all ? '/usr/bin/bettbox update-all' : '/usr/bin/bettbox update ' + shellquote(request.args.sid);
@@ -401,7 +394,7 @@ return {
 			args: { action: '', sid: '', label: '', members: '[]' },
 			call: function(request) {
 				let action = request.args.action, sid = request.args.sid, label = request.args.label, members;
-				if (!(action in ['preview', 'create', 'edit']) || (action == 'edit' && !valid_sid(sid)) ||
+				if (!(action in ['preview', 'create', 'edit']) || (sid && !valid_sid(sid)) || (action == 'edit' && !sid) ||
 				    length(label) > 256 || length(request.args.members) > 1024)
 					return { ok: false, error: '无效的合并请求' };
 				try { members = json(request.args.members); } catch(e) {}
@@ -409,7 +402,7 @@ return {
 					return { ok: false, error: '请选择 2 至 8 份订阅' };
 				for (let sid in members)
 					if (!valid_sid(sid)) return { ok: false, error: '无效的成员订阅' };
-				return create_job('profile-merge', [action, action == 'edit' ? sid : 'new', label, ...members]);
+				return create_job('profile-merge', [action, action == 'create' ? 'new' : sid || 'new', label, ...members]);
 			}
 		},
 		del_profile: {
@@ -549,20 +542,6 @@ return {
 		get_logs: {
 			call: function() {
 				return { text: run("logread | grep -E 'bettbox|mihomo' | tail -n 300") };
-			}
-		},
-		toolbox_call: {
-			args: { tool: '', args_json: '[]' },
-			call: function(request) {
-				let tool = request.args.tool;
-				if (!(tool in ['dns', 'ip', 'ping', 'speedtest', 'media', 'trace', 'mrs', 'nat', 'age', 'iperf']))
-					return { error: 'bad tool' };
-				let argv = [];
-				let list = [];
-				try { list = json(request.args.args_json ?? '[]'); } catch (e) { list = []; }
-				for (let a in list)
-					push(argv, shellquote((type(a) == 'string') ? a : sprintf('%J', a)));
-				return { text: run('/usr/bin/bettbox ' + tool + ' ' + join(' ', argv) + ' 2>&1') };
 			}
 		},
 		set_script_source: {

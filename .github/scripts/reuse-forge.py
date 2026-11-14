@@ -38,10 +38,18 @@ def main():
         metadata = re.compile(r'^(' + keys + r'):=.*$', re.M)
         if package == 'bettbox':
             after = after.replace(
-                'PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./traffic-history.go\n',
+                "# The packaged Mihomo embeds Bettbox's profile merger and toolbox algorithms.\n"
+                "# OpenWrt exposes them through the local CLI and Mihomo's controller.\n",
+                "# Engine: upstream mihomo (same base as Bettbox core/Clash.Meta). Bettbox's\n"
+                "# private core IPC (toolbox actions, suspend, permission helpers) is replaced\n"
+                "# on the router by ucode/shell against mihomo's REST API.\n",
+            ).replace(
+                'PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./upstream\n',
                 'PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src\n',
             ).replace(
-                '\t$(CP) ./traffic-history.go $(PKG_BUILD_DIR)/tunnel/statistic/bettbox_traffic.go\n',
+                '\t$(INSTALL_DIR) $(PKG_BUILD_DIR)/bettbox\n'
+                '\t$(CP) ./upstream/*.go $(PKG_BUILD_DIR)/bettbox/\n'
+                '\t$(CP) ./upstream/route.go.install $(PKG_BUILD_DIR)/hub/route/bettbox.go\n',
                 '',
             )
         assert metadata.sub(r'\1:=verified', before) == metadata.sub(r'\1:=verified', after), 'build/install contract changed: full build required'

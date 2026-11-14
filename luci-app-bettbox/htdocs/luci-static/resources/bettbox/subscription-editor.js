@@ -2,7 +2,6 @@
 'require baseclass';
 'require rpc';
 'require uci';
-'require bettbox.core as Core';
 'require bettbox.ui as UI';
 'require bettbox.subscription-controls as H';
 
@@ -10,11 +9,18 @@ var optionsRPC = rpc.declare({ object: 'bettbox', method: 'script_options', para
 var commitRPC = rpc.declare({ object: 'uci', method: 'commit', params: ['config'] });
 var applyRPC = rpc.declare({ object: 'bettbox', method: 'apply' });
 var deleteRPC = rpc.declare({ object: 'bettbox', method: 'del_profile', params: ['sid'] });
+var catalogRPC = rpc.declare({ object: 'bettbox', method: 'managed_catalog' });
+var refreshMergeRPC = rpc.declare({ object: 'bettbox', method: 'update_profile', params: ['sid','all','background','regenerate'] });
 
 return baseclass.extend({
 	open: function(config) {
 		var p = config.profile, scripts = config.scripts, original = H.object(p.custom_options);
 		var name = p.label || p.id, auto = !!p.auto_update, useScript = !!p.use_script;
+		var useManaged = !!p.use_managed && !config.script, managed = H.object(p.managed_routing);
+		var managedOptions = H.object(p.managed_options), managedDefaults = {};
+		var catalog, catalogPending, catalogError = '', originalManaged = p.managed_routing || '{}', originalManagedOptions = p.managed_options || '{}';
+		if (!Array.isArray(managed.routes)) managed.routes = [];
+		if (!Array.isArray(managed.customRegions)) managed.customRegions = [];
 		var selected = config.script || p.script || (scripts[0] && scripts[0].name) || '';
 		if (config.script) useScript = true;
 		var tab = config.tab || 'basic', dirty = !!config.script && (config.script !== p.script || !p.use_script), committed = false, ruleTouched = false;
@@ -28,6 +34,7 @@ return baseclass.extend({
 		}
 		var label = input(name), url = input(p.url, 'password', { autocomplete: 'off' });
 		var merged = (p.merge_members || []).length > 0;
+		var mergePrefix = input(p.merge_prefix, 'text', { maxlength: 32 });
 		var age = input(p.age_identity, 'password', { placeholder: '使用全局密钥', autocomplete: 'off' });
 		var interval = input(String(p.update_interval || 1440), 'number', { min: '1', max: '10080', step: '1' });
 		var period = E('select', { 'class': 'field', 'aria-label': '更新周期' }, [60, 360, 720, 1440].map(function(v) { return E('option', { value: String(v) }, '每 ' + (v / 60) + ' 小时'); }).concat([E('option', { value: 'custom' }, '自定义')]));
@@ -48,8 +55,7 @@ return baseclass.extend({
 		preset.addEventListener('change', changed);
 		var presetName = input('', 'text', { maxlength: '64', placeholder: '输入名称可将下方规则保存为预设' });
 		rules.value = Array.isArray(oldRules.rules) ? oldRules.rules.join('\n') : '';
-		var ruleMode = E('select', { 'class': 'field', 'aria-label': '规则处理方式' }, [E('option', { value: 'prepend' }, '追加在订阅规则之前'), E('option', { value: 'replace' }, '替换订阅规则')]); ruleMode.value = oldRules.mode === 'replace' ? 'replace' : 'prepend';
-		[rules, ruleMode].forEach(function(el) { el.addEventListener('input', function() { ruleTouched = true; changed(); }); el.addEventListener('change', function() { ruleTouched = true; changed(); }); });
+		rules.addEventListener('input', function() { ruleTouched = true; changed(); });
 
 		function entry(script) {
 			if (!cache[script]) cache[script] = { values: Object.assign(Object.create(null), script === p.script ? original : {}), defaults: {}, groups: [], loaded: false, promise: null, error: '' };
@@ -104,36 +110,122 @@ return baseclass.extend({
 				keys.length ? grid : E('p', { 'class': 'muted' }, '此脚本未声明可视化开关。'), empty])); update();
 		}
 		function section(title, children) { return E('section', { 'class': 'hub-form-section' }, [E('h3', {}, title)].concat(children)); }
+		function managedControls() {
+			var toggle = H.toggle(useManaged, '启用内置托管脚本', function(value) {
+				useManaged = value;
+				if (value) useScript = false;
+				changed(); renderTab();
+			});
+			var elements = [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '内置分流目录'), merged ? null : toggle])];
+			if (!useManaged && !merged) return section('托管分流', elements);
+			if (!catalog && !catalogError && !catalogPending) {
+				catalogPending = catalogRPC().then(UI.checked).then(function(result) {
+					catalog = result.catalog;
+					managedDefaults = H.object(result.options);
+				}).catch(function(err) { catalogError = err.message; }).finally(function() {
+					catalogPending = null;
+					if (tab === 'managed' && box.element.isConnected) renderTab();
+				});
+			}
+			if (!catalog) {
+				elements.push(E('p', {}, catalogError || '正在读取内置目录…'));
+				return section('托管分流', elements);
+			}
+			var service = E('select', { 'class': 'field', 'aria-label': '目录服务' }, catalog.services.map(function(item, index) {
+				return E('option', { value: index }, item.name);
+			}));
+			function addRoute(item) {
+				managed.routes.push({name: item.name, icon: item.icon, sets: (item.sets || []).slice(), enabled: true});
+				changed(); renderTab();
+			}
+			elements.push(E('div', { 'class': 'hub-input-action' }, [
+				service, UI.button('添加目录服务', function() { addRoute(catalog.services[Number(service.value)]); }),
+				UI.button('添加自定义分流', function() { addRoute({name: ''}); })
+			]));
+			var regions = catalog.regions.map(function(region) {
+				var active = Array.isArray(managed.regions) ? managed.regions : catalog.regions.filter(function(item) { return item.default; }).map(function(item) { return item.name; });
+				return H.field(region.name, H.toggle(active.includes(region.name), region.name, function(value) {
+					managed.regions = active.filter(function(name) { return name !== region.name; });
+					if (value) managed.regions.push(region.name);
+					changed(); renderTab();
+				}));
+			});
+			elements.push(E('div', { 'class': 'hub-form-grid' }, regions));
+			managed.customRegions.forEach(function(region, index) {
+				var name = input(region.name), pattern = input(region.regex);
+				name.addEventListener('input', function() { region.name = name.value.trim(); });
+				pattern.addEventListener('input', function() { region.regex = pattern.value.trim(); });
+				elements.push(section('自定义地区', [
+					H.field('地区名称', name), H.field('节点名称正则', pattern),
+					UI.button('删除地区', function() { managed.customRegions.splice(index, 1); changed(); renderTab(); })
+				]));
+			});
+			elements.push(UI.button('添加自定义地区', function() {
+				managed.customRegions.push({name:'',regex:''});
+				changed(); renderTab();
+			}));
+			var options = Object.keys(managedDefaults).map(function(key) {
+				var value = Object.prototype.hasOwnProperty.call(managedOptions, key) ? managedOptions[key] : managedDefaults[key];
+				return H.field(key, H.toggle(value, key, function(next) { managedOptions[key] = next; changed(); }));
+			});
+			if (options.length) elements.push(section('脚本开关', [E('div', { 'class': 'hub-form-grid' }, options)]));
+			var order = E('textarea', { 'class': 'field', rows: 3, placeholder: '每行一个策略组名称' });
+			order.value = Array.isArray(managed.order) ? managed.order.join('\n') : '';
+			order.addEventListener('input', function() {
+				managed.order = Array.from(new Set(order.value.split('\n').map(function(value) { return value.trim(); }).filter(Boolean)));
+				changed();
+			});
+			elements.push(H.field('策略组顺序', order));
+			managed.routes.forEach(function(route, index) {
+				var name = input(route.name), sets = E('textarea', { 'class': 'field mono', rows: 3, placeholder: 'geosite:openai\ndomain:https://example.com/rules.mrs' });
+				var target = E('select', { 'class': 'field' }, [E('option', { value: '' }, '建立策略组')].concat(catalog.targets.map(function(value) { return E('option', { value: value }, value); })));
+				target.value = route.target || '';
+				sets.value = (route.sets || []).join('\n');
+				name.addEventListener('input', function() { route.name = name.value.trim(); });
+				sets.addEventListener('input', function() { route.sets = sets.value.split('\n').map(function(value) { return value.trim(); }).filter(Boolean); changed(); });
+				target.addEventListener('change', function() { route.target = target.value; changed(); });
+				elements.push(section('分流 ' + (index + 1), [
+					H.field('启用', H.toggle(!!route.enabled, '启用分流 ' + (index + 1), function(value) { route.enabled = value; changed(); })),
+					H.field('名称', name), H.field('出口', target), H.field('规则集', sets),
+					E('div', { 'class': 'button-row' }, [
+						UI.button('上移', function() {
+							if (!index) return;
+							managed.routes.splice(index, 1);
+							managed.routes.splice(index - 1, 0, route);
+							changed(); renderTab();
+						}),
+						UI.button('删除分流', function() { managed.routes.splice(index, 1); changed(); renderTab(); })
+					])
+				]));
+			});
+			return section('托管分流', elements);
+		}
 		function renderTab() {
 			Array.from(tabs.children).forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
 			error.textContent = '';
 			if (tab === 'basic') {
 				var reveal = UI.button('显示', function() { url.type = url.type === 'password' ? 'text' : 'password'; reveal.querySelector('span').textContent = url.type === 'password' ? '显示' : '隐藏'; }, 'text', 'eye');
 				var autoToggle = H.toggle(auto, '自动更新', function(value) { auto = value; interval.disabled = period.disabled = !value; changed(); }); interval.disabled = period.disabled = !auto;
-				content.replaceChildren(section('订阅信息', [E('div', { 'class': 'hub-form-grid' }, [H.field('名称', label, true), merged ? E('p', {}, '合并配置随成员订阅更新。') : H.field('订阅链接', E('div', { 'class': 'hub-input-action' }, [url, reveal]), true)])]),
+				content.replaceChildren(section('订阅信息', [E('div', { 'class': 'hub-form-grid' }, [H.field('名称', label, true), merged ? E('p', {}, '合并配置随成员订阅更新。') : H.field('订阅链接', E('div', { 'class': 'hub-input-action' }, [url, reveal]), true), merged ? null : H.field('合并时的节点前缀', mergePrefix)])]),
 					...(merged ? [] : [E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '自动更新'), autoToggle]), E('div', { 'class': 'hub-form-grid' }, [H.field('更新周期', period), H.field('间隔（分钟）', interval)])])]), error);
 			} else if (tab === 'script') {
 				scriptSelect.disabled = !useScript;
-				content.replaceChildren(E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '覆写脚本'), H.toggle(useScript, '启用覆写脚本', function(value) { useScript = value; scriptSelect.disabled = !value; changed(); if (value) loadOptions(selected); else drawOptions(); })]), H.field('选择脚本', scriptSelect)]), optionsHost, error); drawOptions();
+				content.replaceChildren(E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '覆写脚本'), H.toggle(useScript, '启用覆写脚本', function(value) { useScript = value; if (value) useManaged = false; scriptSelect.disabled = !value; changed(); if (value) loadOptions(selected); else drawOptions(); })]), H.field('选择脚本', scriptSelect)]), optionsHost, error); drawOptions();
+			} else if (tab === 'managed') {
+				content.replaceChildren(managedControls(), error);
 			} else {
-				var fetchRules = UI.button('读取当前规则', function() {
-					return Core.get('/rules').then(function(res) {
-						if (!res.data || !Array.isArray(res.data.rules)) throw new Error('核心未返回有效规则');
-						rules.value = res.data.rules.map(function(r) { return [r.type, r.payload, r.proxy].filter(function(v) { return v != null && v !== ''; }).join(','); }).join('\n'); ruleMode.value = 'replace'; ruleTouched = true; changed();
-					}).catch(function(err) { error.textContent = '读取失败：' + err.message; });
-				}, 'text', 'download');
 				var remove = UI.button('删除订阅', function() {
 					return H.confirm('删除订阅', '确定删除“' + (label.value || p.id) + '”？', '删除订阅', true).then(function(yes) {
 						if (!yes) return; busy = true; box.setBusy(true);
 						return deleteRPC(p.id).then(UI.checked).then(config.onSaved).then(function() { busy = false; box.setBusy(false); return box.close(true); }).catch(function(err) { error.textContent = err.message; }).finally(function() { busy = false; box.setBusy(false); });
 					});
 				}, 'danger', 'close'); remove.disabled = config.active; if (config.active) remove.title = '请先选用其他订阅';
-				content.replaceChildren(section('订阅加密', [H.field('age 密钥', age)]), E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-options-heading' }, [E('h3', {}, '自定义规则'), fetchRules]), H.field('分流预设', preset), H.field('规则处理方式', ruleMode), H.field('规则内容', rules), H.field('另存为分流预设', presetName)]), E('section', { 'class': 'hub-form-section hub-delete-section' }, [E('h3', {}, '删除订阅'), remove]), error);
+				content.replaceChildren(section('订阅加密', [H.field('age 密钥', age)]), E('section', { 'class': 'hub-form-section' }, [E('h3', {}, '附加规则'), H.field('分流预设', preset), H.field('规则内容', rules), H.field('另存为分流预设', presetName)]), E('section', { 'class': 'hub-form-section hub-delete-section' }, [E('h3', {}, '删除订阅'), remove]), error);
 			}
 			box.body.scrollTop = 0;
 		}
 		scriptSelect.addEventListener('change', function() { selected = scriptSelect.value; category = 'all'; search = ''; changed(); loadOptions(selected); });
-		[['basic','基本信息'],['script','脚本开关'],['advanced','高级']].forEach(function(item) {
+		[['basic','基本信息'],['script','脚本开关'],['managed','托管分流'],['advanced','高级']].forEach(function(item) {
 			var b = E('button', { type: 'button', role: 'tab', 'data-tab': item[0] }, item[1]); b.addEventListener('click', function() { tab = item[0]; renderTab(); }); tabs.appendChild(b);
 		});
 		function save() {
@@ -144,6 +236,19 @@ return baseclass.extend({
 			if (!merged && (!Number.isInteger(intervalValue) || intervalValue < 1 || intervalValue > 10080)) { error.textContent = '更新间隔应为 1 至 10080 分钟'; return; }
 			if (useScript && (!selected || !scripts.some(function(s) { return s.name === selected; }))) { error.textContent = '请选择存在的覆写脚本'; return; }
 			if (useScript && !options.loaded && selected !== p.script) { error.textContent = '脚本开关尚未成功提取，请重试'; return; }
+			if (useManaged || merged) {
+				var enabled = managed.routes.filter(function(route) { return route.enabled; });
+				var names = enabled.map(function(route) { return route.name; });
+				var regionNames = managed.customRegions.map(function(region) { return region.name; });
+				if (new Set(regionNames).size !== regionNames.length || managed.customRegions.some(function(region) {
+					if (!region.name || !region.regex || catalog && catalog.regions.some(function(item) { return item.name === region.name; })) return true;
+					try { new RegExp(region.regex); return false; } catch (err) { return true; }
+				})) { error.textContent = '请检查自定义地区名称和正则'; return; }
+				if (new Set(names).size !== names.length || enabled.some(function(route) {
+					return !route.name || !route.sets.length || catalog && catalog.reserved.includes(route.name) ||
+						route.sets.some(function(set) { return !/^(?:(?:geosite|geoip):[A-Za-z0-9_@.!-]+|(?:domain|ipcidr):https?:\/\/\S+)$/.test(set); });
+				})) { error.textContent = '请检查分流名称和规则集'; return; }
+			}
 			var list = rules.value.split('\n').map(function(v) { return v.trim(); }).filter(Boolean);
 			var newPreset = presetName.value.trim();
 			if (newPreset && (!list.length || list.length > 512 || newPreset.length > 64 || /[\r\n]/.test(newPreset) ||
@@ -157,8 +262,17 @@ return baseclass.extend({
 				uci.set('bettbox', p.id, 'url', url.value.trim());
 				uci.set('bettbox', p.id, 'auto_update', auto ? '1' : '0');
 				uci.set('bettbox', p.id, 'update_interval', String(intervalValue));
+				if (mergePrefix.value.trim()) uci.set('bettbox', p.id, 'merge_prefix', mergePrefix.value.trim());
+				else if (p.merge_prefix) uci.unset('bettbox', p.id, 'merge_prefix');
 			}
 			uci.set('bettbox', p.id, 'use_script', useScript ? '1' : '0'); uci.set('bettbox', p.id, 'script', selected);
+			var routing = JSON.stringify(managed), routingOptions = JSON.stringify(managedOptions);
+			var regenerate = merged && (routing !== originalManaged || routingOptions !== originalManagedOptions);
+			if (useManaged !== !!p.use_managed || useManaged || regenerate) {
+				uci.set('bettbox', p.id, 'use_managed', useManaged ? '1' : '0');
+				uci.set('bettbox', p.id, 'managed_routing', routing);
+				uci.set('bettbox', p.id, 'managed_options', routingOptions);
+			}
 			uci.set('bettbox', p.id, 'custom_options', JSON.stringify(options ? options.values : original));
 			if (age.value.trim()) uci.set('bettbox', p.id, 'age_identity', age.value.trim()); else uci.unset('bettbox', p.id, 'age_identity');
 			if (newPreset) {
@@ -171,10 +285,11 @@ return baseclass.extend({
 				else uci.unset('bettbox', p.id, 'rule_preset');
 			}
 			if (ruleTouched) {
-				if (list.length) uci.set('bettbox', p.id, 'override_rules', JSON.stringify({ mode: ruleMode.value, rules: list })); else uci.unset('bettbox', p.id, 'override_rules');
+				if (list.length) uci.set('bettbox', p.id, 'override_rules', JSON.stringify({ rules: list })); else uci.unset('bettbox', p.id, 'override_rules');
 			}
 			return uci.save().then(function() { return commitRPC('bettbox'); }).then(function(res) {
 				if (res && res.error) throw new Error('配置提交失败'); committed = true;
+				if (regenerate) { status.textContent = '正在重新合并…'; return refreshMergeRPC(p.id, '0', '1', '1').then(UI.operation); }
 				if (config.active) { status.textContent = '正在应用配置…'; return applyRPC().then(UI.operation); }
 			}).then(config.onSaved).then(function() { busy = false; box.setBusy(false); dirty = false; return box.close(true); }).catch(function(err) {
 				error.textContent = (committed ? '配置已保存，应用或刷新失败：' : '保存失败：') + err.message; status.textContent = '请检查后重试';

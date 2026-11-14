@@ -6,7 +6,10 @@
 [ -f /etc/config/bettbox ] || exit 0
 
 changed=0
-for key in bettbox.config.find_process_mode bettbox.ntp; do
+for key in bettbox.config.find_process_mode bettbox.ntp \
+	bettbox.dns.override bettbox.dns.ipv6 bettbox.dns.enhanced_mode bettbox.dns.fake_ip_range \
+	bettbox.dns.respect_rules bettbox.dns.nameserver bettbox.dns.default_nameserver \
+	bettbox.dns.fallback bettbox.dns.proxy_server_nameserver; do
 	if uci -q get "$key" >/dev/null; then
 		uci -q delete "$key" || exit 1
 		changed=1

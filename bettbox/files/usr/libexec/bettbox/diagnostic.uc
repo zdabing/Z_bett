@@ -20,7 +20,7 @@ if (request.kind == 'exit') {
 	command='/usr/libexec/bettbox/network-check.sh delay '+q(args[0])+' '+q(args[1]);
 } else if (request.kind == 'toolbox') {
 	let tool = args[0];
-	if (!(tool in ['dns','ip','ping','speedtest','media','trace','mrs','nat','age','iperf'])) die('bad diagnostic tool');
+	if (!(tool in ['dns','ip','ping','speedtest','media','trace','traffic-stats','mrs','nat','age','iperf'])) die('bad diagnostic tool');
 	command = '/usr/libexec/bettbox/toolbox.sh ' + q(tool);
 	for (let i = 1; i < length(args); i++) {
 		if (tool == 'age' && i == 3) {
@@ -46,6 +46,9 @@ if (request.kind == 'exit') {
 } else if (request.kind == 'profile-update') {
 	if (length(args) > 1) die('bad profile update action');
 	command = length(args) ? '/usr/bin/bettbox update ' + q(args[0]) : '/usr/bin/bettbox update-all';
+} else if (request.kind == 'profile-regenerate') {
+	if (length(args) != 1) die('bad profile regeneration action');
+	command = 'sh /usr/libexec/bettbox/profile-merge.sh refresh ' + q(args[0]) + " ''";
 } else if(request.kind=='package' || request.kind=='package-check') {
 	if(request.kind=='package-check' && length(args)==0)command='/usr/bin/bettbox package check';
 	else if(request.kind=='package' && length(args)==1 && args[0]=='update')command='/usr/bin/bettbox package update';
@@ -53,7 +56,7 @@ if (request.kind == 'exit') {
 	else die('bad package action');
 } else if(request.kind=='core' || request.kind=='core-check') {
 	let action=request.kind=='core-check'?'check':args[0];
-	if((request.kind=='core-check' && length(args)!=0) || (request.kind=='core' && (length(args)!=1 || !(action in ['update','rollback']))))die('bad core action');
+	if((request.kind=='core-check' && length(args)!=0) || (request.kind=='core' && (length(args)!=1 || !(action in ['update','rollback','package']))))die('bad core action');
 	command='/usr/bin/bettbox core '+action;
 } else die('bad diagnostic kind');
 let fd = popen(command + ' 2>&1', 'r');

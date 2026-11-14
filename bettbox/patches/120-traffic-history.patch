@@ -1,44 +1,123 @@
+--- a/main.go
++++ b/main.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"context"
+ 	"encoding/base64"
++	"encoding/json"
+ 	"flag"
+ 	"fmt"
+ 	"io"
+@@ -15,6 +16,7 @@
+ 	"strings"
+ 	"syscall"
+ 
++	"github.com/metacubex/mihomo/bettbox"
+ 	"github.com/metacubex/mihomo/common/cmd"
+ 	"github.com/metacubex/mihomo/component/age"
+ 	"github.com/metacubex/mihomo/component/generator"
+@@ -78,6 +80,20 @@
+ }
+ 
+ func main() {
++	args := flag.Args()
++	if len(args) > 0 && args[0] == "bettbox-merge" {
++		if len(args) < 4 {
++			fmt.Fprintln(os.Stderr, "usage: mihomo bettbox-merge OUTPUT PREFIXES MEMBER...")
++			os.Exit(2)
++		}
++		report, err := bettbox.MergeFiles(args[1], args[2], args[3:])
++		if err != nil {
++			fmt.Fprintln(os.Stderr, err)
++			os.Exit(1)
++		}
++		_ = json.NewEncoder(os.Stdout).Encode(report)
++		return
++	}
+ 	// Defensive programming: panic when code mistakenly calls net.DefaultResolver
+ 	net.DefaultResolver.PreferGo = true
+ 	net.DefaultResolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
 --- a/config/config.go
 +++ b/config/config.go
-@@ -177,8 +177,9 @@
+@@ -177,8 +177,10 @@
  
  // Profile config
  type Profile struct {
 -	StoreSelected bool
 -	StoreFakeIP   bool
-+	BettboxTrafficProfile string
-+	StoreSelected         bool
-+	StoreFakeIP           bool
++	BettboxTrafficProfile   string
++	BettboxTrafficRetention int
++	StoreSelected           bool
++	StoreFakeIP             bool
  }
  
  // TLS config
-@@ -361,8 +362,9 @@
+@@ -361,8 +363,10 @@
  }
  
  type RawProfile struct {
 -	StoreSelected bool `yaml:"store-selected" json:"store-selected"`
 -	StoreFakeIP   bool `yaml:"store-fake-ip" json:"store-fake-ip"`
-+	BettboxTrafficProfile string `yaml:"bettbox-traffic-profile" json:"bettbox-traffic-profile"`
-+	StoreSelected         bool   `yaml:"store-selected" json:"store-selected"`
-+	StoreFakeIP           bool   `yaml:"store-fake-ip" json:"store-fake-ip"`
++	BettboxTrafficProfile   string `yaml:"bettbox-traffic-profile" json:"bettbox-traffic-profile"`
++	BettboxTrafficRetention int    `yaml:"bettbox-traffic-retention" json:"bettbox-traffic-retention"`
++	StoreSelected           bool   `yaml:"store-selected" json:"store-selected"`
++	StoreFakeIP             bool   `yaml:"store-fake-ip" json:"store-fake-ip"`
  }
  
  type RawGeoXUrl struct {
-@@ -861,8 +863,9 @@
+@@ -861,8 +865,10 @@
  
  func parseProfile(cfg *RawConfig) (*Profile, error) {
  	return &Profile{
 -		StoreSelected: cfg.Profile.StoreSelected,
 -		StoreFakeIP:   cfg.Profile.StoreFakeIP,
-+		BettboxTrafficProfile: cfg.Profile.BettboxTrafficProfile,
-+		StoreSelected:         cfg.Profile.StoreSelected,
-+		StoreFakeIP:           cfg.Profile.StoreFakeIP,
++		BettboxTrafficProfile:   cfg.Profile.BettboxTrafficProfile,
++		BettboxTrafficRetention: cfg.Profile.BettboxTrafficRetention,
++		StoreSelected:           cfg.Profile.StoreSelected,
++		StoreFakeIP:             cfg.Profile.StoreFakeIP,
  	}, nil
+ }
+ 
+--- a/tunnel/statistic/manager.go
++++ b/tunnel/statistic/manager.go
+@@ -11,6 +11,9 @@
+ )
+ 
+ var DefaultManager *Manager
++
++// BettboxClosed observes the final counters of a tracker once.
++var BettboxClosed func(*TrackerInfo)
+ 
+ func init() {
+ 	DefaultManager = &Manager{
+@@ -50,10 +53,14 @@
+ 
+ func (m *Manager) Leave(c Tracker) {
+ 	m.historyMu.Lock()
+-	defer m.historyMu.Unlock()
+ 	// A tracker can be closed by both the API and its relay goroutine.
+-	if _, loaded := m.connections.LoadAndDelete(c.ID()); loaded {
++	_, loaded := m.connections.LoadAndDelete(c.ID())
++	if loaded {
+ 		m.recordClosed(c.Info())
++	}
++	m.historyMu.Unlock()
++	if loaded && BettboxClosed != nil {
++		BettboxClosed(c.Info())
+ 	}
  }
  
 --- a/hub/executor/executor.go
 +++ b/hub/executor/executor.go
-@@ -41,6 +41,7 @@
+@@ -14,6 +14,7 @@
+ 	"github.com/metacubex/mihomo/adapter"
+ 	"github.com/metacubex/mihomo/adapter/inbound"
+ 	"github.com/metacubex/mihomo/adapter/outboundgroup"
++	"github.com/metacubex/mihomo/bettbox"
+ 	"github.com/metacubex/mihomo/component/auth"
+ 	"github.com/metacubex/mihomo/component/ca"
+ 	"github.com/metacubex/mihomo/component/dialer"
+@@ -41,6 +42,7 @@
  	"github.com/metacubex/mihomo/log"
  	"github.com/metacubex/mihomo/ntp/ntp"
  	"github.com/metacubex/mihomo/tunnel"
@@ -46,88 +125,59 @@
  )
  
  var mux sync.Mutex
-@@ -439,6 +440,7 @@
+@@ -82,6 +84,10 @@
+ }
+ 
+ // ApplyConfig dispatch configure to all parts without ExternalController
++func init() {
++	statistic.BettboxClosed = bettbox.ObserveTrafficTracker
++}
++
+ func ApplyConfig(cfg *config.Config, force bool) {
+ 	mux.Lock()
+ 	defer mux.Unlock()
+@@ -237,6 +243,11 @@
+ }
+ 
+ func updateDNS(c *config.DNS, generalIPv6 bool) {
++	mode := ""
++	if c.Enable {
++		mode = c.EnhancedMode.String()
++	}
++	bettbox.SetDNSMode(mode)
+ 	if !c.Enable {
+ 		resolver.DefaultResolver = nil
+ 		resolver.DefaultHostMapper = nil
+@@ -439,6 +450,13 @@
  
  func updateProfile(cfg *config.Config) {
  	profileCfg := cfg.Profile
-+	statistic.ConfigureTrafficHistory(profileCfg.BettboxTrafficProfile)
++	bettbox.InitTrafficStats(C.Path.HomeDir())
++	options := bettbox.DefaultTrafficStatsOptions()
++	options.Enable = profileCfg.BettboxTrafficProfile != ""
++	if profileCfg.BettboxTrafficRetention > 0 {
++		options.RetentionDays = profileCfg.BettboxTrafficRetention
++	}
++	bettbox.ConfigureTrafficStats(options, profileCfg.BettboxTrafficProfile)
  
  	profile.StoreSelected.Store(profileCfg.StoreSelected)
  	if profileCfg.StoreSelected {
-@@ -534,6 +536,7 @@
+@@ -534,6 +552,7 @@
  	listener.Cleanup()
  	tproxy.CleanupTProxyIPTables()
  	resolver.StoreFakePoolState()
-+	statistic.FlushTrafficHistory()
++	bettbox.FlushTrafficStats()
  
  	log.Warnln("Mihomo shutting down")
  }
---- a/tunnel/statistic/manager.go
-+++ b/tunnel/statistic/manager.go
-@@ -27,24 +27,31 @@
- }
- 
- type Manager struct {
--	historyMu     sync.Mutex
--	closed        [closedConnectionLimit]*ClosedConnection
--	closedHead    int
--	closedCount   int
--	connections   xsync.Map[string, Tracker]
--	uploadTemp    atomic.Int64
--	downloadTemp  atomic.Int64
--	uploadBlip    atomic.Int64
--	downloadBlip  atomic.Int64
--	uploadTotal   atomic.Int64
--	downloadTotal atomic.Int64
--	pid           int32
--	memory        uint64
-+	historyMu       sync.Mutex
-+	closed          [closedConnectionLimit]*ClosedConnection
-+	closedHead      int
-+	closedCount     int
-+	trafficProfiles map[string]*trafficSample
-+	connections     xsync.Map[string, Tracker]
-+	uploadTemp      atomic.Int64
-+	downloadTemp    atomic.Int64
-+	uploadBlip      atomic.Int64
-+	downloadBlip    atomic.Int64
-+	uploadTotal     atomic.Int64
-+	downloadTotal   atomic.Int64
-+	pid             int32
-+	memory          uint64
- }
- 
- func (m *Manager) Join(c Tracker) {
- 	m.historyMu.Lock()
- 	defer m.historyMu.Unlock()
-+	if profile := TrafficProfile(); profile != "" {
-+		if m.trafficProfiles == nil {
-+			m.trafficProfiles = make(map[string]*trafficSample)
-+		}
-+		m.trafficProfiles[c.ID()] = &trafficSample{profile: profile}
-+	}
- 	m.connections.Store(c.ID(), c)
- }
- 
-@@ -54,6 +61,8 @@
- 	// A tracker can be closed by both the API and its relay goroutine.
- 	if _, loaded := m.connections.LoadAndDelete(c.ID()); loaded {
- 		m.recordClosed(c.Info())
-+		recordTraffic(c.Info(), m.trafficProfiles[c.ID()])
-+		delete(m.trafficProfiles, c.ID())
- 	}
- }
- 
-@@ -126,6 +135,12 @@
- 
- func (m *Manager) handle() {
- 	ticker := time.NewTicker(time.Second)
-+	go func() {
-+		flush := time.NewTicker(5 * time.Minute)
-+		for range flush.C {
-+			FlushTrafficHistory()
-+		}
-+	}()
- 
- 	for range ticker.C {
- 		m.uploadBlip.Store(m.uploadTemp.Swap(0))
+--- a/hub/route/server.go
++++ b/hub/route/server.go
+@@ -125,6 +125,8 @@
+ 		r.Get("/traffic", traffic)
+ 		r.Get("/memory", memory)
+ 		r.Get("/version", version)
++		r.Get("/bettbox/route-trace", bettboxTrace)
++		r.Get("/bettbox/traffic-stats", bettboxTrafficStats)
+ 		r.Mount("/configs", configRouter())
+ 		r.Mount("/proxies", proxyRouter())
+ 		r.Mount("/group", groupRouter())

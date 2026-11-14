@@ -1,7 +1,7 @@
 #!/usr/bin/ucode
 // SPDX-License-Identifier: GPL-3.0
 // Download/validate a bounded candidate; install exactly the version previewed.
-import { access, lsdir, mkdtemp, popen, readfile, rmdir, stat, unlink, writefile } from 'fs';
+import { lsdir, mkdtemp, popen, readfile, rmdir, stat, unlink, writefile } from 'fs';
 import { valid_script_name, valid_script_url, script_info, script_metadata, write_script } from '/usr/libexec/bettbox/script-store.uc';
 
 const ROOT = '/etc/bettbox/scripts';
