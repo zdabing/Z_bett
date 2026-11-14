@@ -20,7 +20,7 @@ return view.extend({
 		var tabs = E('div', { 'class': 'chips bb-connection-tabs', 'aria-label': '连接状态' }), tabButtons = {};
 
 		if (!document.getElementById('bettbox-connections-css'))
-			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261029-1' }));
+			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261114-3' }));
 
 		function target(c) { var m = c.metadata || {}; return m.host || m.destinationIP || '—'; }
 		function date(value) { return value ? new Date(value).toLocaleString() : '—'; }
@@ -64,9 +64,9 @@ return view.extend({
 			return E('tr', { 'class': isClosed(c) ? 'bb-connection-closed' : '' }, [
 				E('td', {}, [E('div', { 'class': 'cell-title' }, target(c)), E('div', { 'class': 'cell-meta' }, (m.network || '').toUpperCase() + ' · ' + (m.destinationPort || ''))]),
 				E('td', { 'class': 'mono' }, m.sourceIP || '—'),
-				E('td', {}, [E('div', {}, (c.chains || []).join(' → ') || '—'), E('div', { 'class': 'cell-meta' }, c.rule || '')]),
+				E('td', {}, [E('div', {}, (c.chains || []).join(' → ') || '—'), c.rule ? UI.tag(c.rule, 'neutral') : document.createTextNode('')]),
 				E('td', { 'class': 'mono' }, '↓ ' + UI.bytes(c.download) + ' / ↑ ' + UI.bytes(c.upload)),
-				E('td', {}, [status(c), E('div', { 'class': 'cell-meta' }, rate(c))]), E('td', {}, detailButton(c))]);
+				E('td', {}, [status(c), E('div', { 'class': 'cell-meta mono' }, rate(c))]), E('td', {}, detailButton(c))]);
 		}
 		function card(c) {
 			var m = c.metadata || {};
@@ -169,9 +169,12 @@ return view.extend({
 				protocol = p[0]; Array.from(chips.children).forEach(function(x) { x.classList.toggle('active', x === b); x.setAttribute('aria-pressed', String(x === b)); }); pageNo = 0; draw();
 			}); chips.appendChild(b);
 		});
-		var root = UI.page('connections', '连接', [pause, clearHistory, closeAll], [
+		var stateLeft = E('div', { 'class': 'bb-connection-state-left' }, [tabs, summary]);
+		var stateActions = E('div', { 'class': 'button-row' }, [pause, clearHistory, closeAll]);
+		var root = UI.page('connections', '连接', [], [
+			E('div', { 'class': 'toolbar bb-connection-state' }, [stateLeft, stateActions]),
 			E('div', { 'class': 'toolbar bb-connection-filters' }, [UI.search('搜索目标、来源 IP 或规则…', function(value) { filter = value.toLowerCase(); pageNo = 0; draw(); }), sortSelect, chips]),
-			E('div', { 'class': 'toolbar bb-connection-state' }, [tabs, summary]), notice, list, pager]);
+			notice, list, pager]);
 		draw(); poll.add(refresh, 4); refresh(); return root;
 	},
 	handleSaveApply: null, handleSave: null, handleReset: null

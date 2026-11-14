@@ -48,21 +48,33 @@ function button(label,fn,kind,ico){
 		if(result && typeof result.then==='function'){el.disabled=true;return Promise.resolve(result).catch(error).finally(function(){el.disabled=false;});}});
 	return el;
 }
-var palettes = { amber:'琥珀', ocean:'海蓝', violet:'紫罗兰', rose:'玫瑰', slate:'石板灰' };
+var styles = { meridian:'Meridian 橙彩玻璃', apple:'Apple 清爽卡片', host:'跟随宿主主题' };
+var styleLabels = { meridian:'橙彩玻璃', apple:'Apple 卡片', host:'跟随宿主' };
+var styleOrder = ['meridian', 'apple', 'host'];
 var modes = { system:'跟随系统', light:'浅色', dark:'深色' };
 var appearanceKey = 'bettbox.appearance.v1';
-var appearance, systemScheme;
+var appearance, systemScheme, appearanceListeners = [];
 function readAppearance(){
 	var saved;
 	try { saved = JSON.parse(localStorage.getItem(appearanceKey)); } catch (_) {}
-	return {
-		palette: saved && Object.hasOwn(palettes, saved.palette) ? saved.palette : 'amber',
-		mode: saved && Object.hasOwn(modes, saved.mode) ? saved.mode : 'system'
-	};
+	var style = saved && Object.hasOwn(styles, saved.style) ? saved.style : 'meridian';
+	var mode = saved && Object.hasOwn(modes, saved.mode) ? saved.mode : 'system';
+	return { style: style, mode: mode };
+}
+function notifyAppearance(){
+	appearanceListeners = appearanceListeners.filter(function(fn){ return fn() !== false; });
 }
 function paintAppearance(){
-	document.body.dataset.bbPalette = appearance.palette;
+	document.body.dataset.bbStyle = appearance.style;
 	document.body.dataset.bbScheme = appearance.mode === 'system' ? (systemScheme.matches ? 'dark' : 'light') : appearance.mode;
+	notifyAppearance();
+}
+function setAppearance(patch){
+	if (!appearance) mountAppearance();
+	if (patch.style && Object.hasOwn(styles, patch.style)) appearance.style = patch.style;
+	if (patch.mode && Object.hasOwn(modes, patch.mode)) appearance.mode = patch.mode;
+	paintAppearance();
+	try { localStorage.setItem(appearanceKey, JSON.stringify(appearance)); } catch (_) {}
 }
 function mountAppearance(){
 	if (!appearance) {
@@ -76,38 +88,76 @@ function mountAppearance(){
 	}
 	paintAppearance();
 }
-function themePicker(){
-	function choices(key, title, options){
-		return E('fieldset', {'class':'bb-theme-field'}, [
-			E('legend', {}, title),
-			E('div', {'class':'bb-theme-options'}, Object.keys(options).map(function(value){
-				var radio = E('input', {type:'radio', name:'bb-theme-'+key, value:value});
-				radio.checked = appearance[key] === value;
-				radio.addEventListener('change', function(){
-					appearance[key] = value;
-					paintAppearance();
-					try { localStorage.setItem(appearanceKey, JSON.stringify(appearance)); } catch (_) {}
-				});
-				var contents = [radio];
-				if (key === 'palette') contents.push(E('i', {'data-bb-palette':value, 'class':'bb-theme-swatch', 'aria-hidden':'true'}));
-				contents.push(E('span', {}, options[value]));
-				return E('label', {'class':'bb-theme-option'}, contents);
-			}))
+function appearanceControls(compact){
+	mountAppearance();
+	var wrap = E('div', {'class':'bb-appearance-controls'});
+	var styleRow = E('div', {'class':'bb-style-grid', role:'radiogroup', 'aria-label':'界面风格'}, Object.keys(styles).map(function(key){
+		var radio = E('input', {type:'radio', name:'bb-style-'+(compact?'modal':'page'), value:key});
+		radio.checked = appearance.style === key;
+		radio.addEventListener('change', function(){ setAppearance({style:key}); });
+		return E('label', {'class':'bb-style-card'+(appearance.style===key?' active':''), 'data-style':key}, [
+			radio,
+			E('span', {'class':'bb-style-radio', 'aria-hidden':'true'}),
+			E('span', {'class':'bb-style-name'}, styles[key])
 		]);
+	}));
+	var modeRow = E('div', {'class':'bb-mode-segmented', role:'radiogroup', 'aria-label':'外观模式'}, Object.keys(modes).map(function(key){
+		var b = E('button', {type:'button', 'class':'bb-mode-btn'+(appearance.mode===key?' active':''), 'data-mode':key, 'aria-pressed':String(appearance.mode===key)}, modes[key]);
+		b.addEventListener('click', function(){ setAppearance({mode:key}); });
+		return b;
+	}));
+	function sync(){
+		if (!wrap.isConnected && wrap._mounted) return false;
+		if (wrap.isConnected) wrap._mounted = true;
+		Array.from(styleRow.children).forEach(function(card){
+			var on = card.dataset.style === appearance.style;
+			card.classList.toggle('active', on);
+			card.querySelector('input').checked = on;
+		});
+		Array.from(modeRow.children).forEach(function(b){
+			var on = b.dataset.mode === appearance.mode;
+			b.classList.toggle('active', on);
+			b.setAttribute('aria-pressed', String(on));
+		});
 	}
-	modal('主题', [choices('mode','外观',modes), choices('palette','配色',palettes)]);
+	appearanceListeners.push(sync);
+	wrap.appendChild(E('div', {'class':'bb-appearance-group'}, [E('div', {'class':'bb-appearance-label'}, '界面风格'), styleRow]));
+	wrap.appendChild(E('div', {'class':'bb-appearance-group'}, [E('div', {'class':'bb-appearance-label'}, '明暗模式'), modeRow]));
+	return wrap;
+}
+function themePicker(){
+	modal('主题与风格', [appearanceControls(true)]);
 }
 function mount(){
 	document.body.classList.add('bb-page');
 	mountAppearance();
-	if(!document.getElementById('bettbox-ui-css'))document.head.appendChild(E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261106-1'}));
+	if(!document.getElementById('bettbox-ui-css'))document.head.appendChild(E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261114-3'}));
 }
 function page(id,title,actions,content){
-	mount();var nav=E('nav',{'class':'main-nav','aria-label':'Bettbox 页面导航'},PAGES.map(function(p){return E('a',{'class':'nav-item'+(p[0]===id?' active':''),href:L.url('admin','services','bettbox',p[0]),'aria-current':p[0]===id?'page':null},[icon(p[2]),E('span',{},p[1])]);}));
-	var themeButton = button('主题',themePicker,'bb-theme-trigger','palette');
-	themeButton.setAttribute('title','主题');
-	var heading=E('div',{'class':'page-heading'},[E('div',{'class':'heading-copy'},[E('h1',{},title),themeButton]),E('div',{'class':'heading-actions'},actions||[])]);
-	return E('div',{'class':'bb-app','data-bb-page':id},[nav,E('main',{'class':'shell'},[heading,E('div',{'class':'bb-page-content'},content||[])])]);
+	mount();
+	var links=E('div',{'class':'bb-nav-links'},PAGES.map(function(p){return E('a',{'class':'nav-item'+(p[0]===id?' active':''),href:L.url('admin','services','bettbox',p[0]),'aria-current':p[0]===id?'page':null},[icon(p[2]),E('span',{},p[1])]);}));
+	var styleBtn=E('button',{type:'button','class':'bb-nav-chip',title:'切换界面风格 (Meridian / Apple / 跟随宿主)'},[icon('palette'),E('span',{},styleLabels[appearance.style]||'橙彩玻璃')]);
+	styleBtn.addEventListener('click',function(){
+		var idx=styleOrder.indexOf(appearance.style);
+		setAppearance({style:styleOrder[(idx+1)%styleOrder.length]});
+	});
+	var schemeBtn=E('button',{type:'button','class':'bb-nav-chip',title:'切换浅色/深色模式'},[icon('eye'),E('span',{},modes[appearance.mode])]);
+	schemeBtn.addEventListener('click',function(){
+		var resolved=document.body.dataset.bbScheme;
+		setAppearance({mode:resolved==='dark'?'light':'dark'});
+	});
+	var quick=E('div',{'class':'bb-nav-appearance'},[styleBtn,schemeBtn]);
+	function syncNav(){
+		if (!quick.isConnected && quick._mounted) return false;
+		if (quick.isConnected) quick._mounted = true;
+		styleBtn.querySelector('span').textContent=styleLabels[appearance.style]||'橙彩玻璃';
+		var resolved=document.body.dataset.bbScheme;
+		schemeBtn.querySelector('span').textContent=appearance.mode==='system'?(resolved==='dark'?'深色(系统)':'浅色(系统)'):modes[appearance.mode];
+	}
+	appearanceListeners.push(syncNav); syncNav();
+	var nav=E('nav',{'class':'main-nav','aria-label':'Bettbox 页面导航'},[links,quick]);
+	var toolbar=E('div',{'class':'heading-actions'},actions||[]);
+	return E('div',{'class':'bb-app','data-bb-page':id},[nav,E('main',{'class':'shell','aria-label':title},[toolbar,E('div',{'class':'bb-page-content'},content||[])])]);
 }
 function panel(title,ico,body,actions){return E('section',{'class':'panel'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[icon(ico),document.createTextNode(title)])]),E('div',{'class':'button-row'},actions||[])]),E('div',{'class':'panel-body'},body||[])]);}
 function tag(text,kind){return E('span',{'class':'tag '+(kind||'')},String(text));}
@@ -121,4 +171,4 @@ function copy(text){if(navigator.clipboard && window.isSecureContext)return navi
 function waitJob(id,budget,onProgress,reconnect){var until=Date.now()+budget,failedSince=null;return new Promise(function(resolve,reject){function check(){getJob(id).then(function(res){failedSince=null;if(res.error){reject(new Error(res.error));return;}if(onProgress)onProgress(res);if(res.done){if(res.ok)resolve(res);else reject(new Error(res.text||'后台任务失败'));}else if(Date.now()>until)reject(new Error('任务仍未完成，请刷新服务状态后确认结果'));else window.setTimeout(check,650);}).catch(function(err){if(!reconnect){reject(err);return;}if(failedSince===null)failedSince=Date.now();if(Date.now()>until||Date.now()-failedSince>=90000){var pending=new Error('连接中断，请刷新页面或重新登录后确认安装结果');pending.unconfirmed=true;reject(pending);}else window.setTimeout(check,1000);});}check();});}
 function job(kind,args,onProgress){return startJob(kind,JSON.stringify(args||[])).then(checked).then(function(start){return waitJob(start.id,185000,onProgress);});}
 function operation(result){checked(result);var budget=Number(result.timeout_ms)||630000;budget=Math.max(1000,Math.min(result.reconnect?2430000:1230000,budget));return result.id?waitJob(result.id,budget,null,result.reconnect===true):result;}
-return baseclass.extend({icon:icon,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,mount:mount,pages:PAGES});
+return baseclass.extend({icon:icon,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,mount:mount,themePicker:themePicker,appearanceControls:appearanceControls,pages:PAGES});

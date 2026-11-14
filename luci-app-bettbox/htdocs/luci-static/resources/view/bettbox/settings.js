@@ -31,9 +31,8 @@ var SCHEMA = [
 		{ opt: 'test_url', kind: 'value', icon: 'gauge', label: _('测延迟 URL'), ph: 'https://www.gstatic.com/generate_204' }
 	] },
 	{ section: 'config', title: _('设备 MAC 控制'), opts: [
-		{ opt: 'device_mode', kind: 'list', label: _('设备控制模式'), list: [ ['off','关闭（全部设备进入分流）'], ['include','白名单（仅指定设备进入分流）'], ['exclude','黑名单（指定设备直连）'] ] },
-		{ opt: 'device_macs', kind: 'list-multi', label: _('选择设备 / 自定义 MAC') },
-		{ opt: 'device_ips', kind: 'list-multi', label: _('旧 IP / 网段'), legacy: true, sub: _('旧名单仍生效。确认选中了对应的 MAC 后，可以移除旧条目。') }
+		{ opt: 'device_mode', kind: 'list', label: _('设备控制模式'), list: [ ['off',_('关闭')], ['include',_('白名单')], ['exclude',_('黑名单')] ] },
+		{ opt: 'device_macs', kind: 'list-multi', label: _('设备名单') }
 	] },
 	{ section: 'tun', title: _('TUN 虚拟网卡'), opts: [
 		{ opt: 'stack', kind: 'list', icon: 'tunnel', label: 'TUN 栈', sub: _('上游默认 mips'), list: [ ['mips'], ['mixed'], ['gvisor'], ['system'] ] },
@@ -47,17 +46,6 @@ var SCHEMA = [
 	{ section: 'dns', title: _('DNS'), opts: [
 		{ opt: 'listen', kind: 'value', icon: 'server', label: _('监听地址'), ph: '0.0.0.0:1053' },
 		{ opt: 'real_ip_domains', kind: 'list-multi', icon: 'globe', label: _('真实 IP 域名（每行一个）'), ph: 'nas.example.com\n+.example.com', wide: true }
-	] },
-	{ section: 'dns', title: _('高级 DNS 设置'), disclosure: true, opts: [
-		{ opt: 'override', kind: 'flag', icon: 'shield', label: _('覆写 DNS'), sub: _('关闭时沿用订阅或脚本的 DNS 配置') },
-		{ opt: 'enhanced_mode', kind: 'list', icon: 'tune', label: _('增强模式'), list: [ ['fake-ip'], ['redir-host'] ] },
-		{ opt: 'fake_ip_range', kind: 'value', icon: 'globe', label: 'fake-ip-range', ph: '198.18.0.1/16' },
-		{ opt: 'respect_rules', kind: 'flag', icon: 'map', label: 'respect-rules', sub: _('DNS 连接跟随规则') },
-		{ opt: 'ipv6', kind: 'flag', icon: 'globe', label: _('IPv6 解析') },
-		{ opt: 'nameserver', kind: 'list-multi', icon: 'server', label: 'nameserver', wide: true },
-		{ opt: 'default_nameserver', kind: 'list-multi', icon: 'server', label: 'default-nameserver', wide: true },
-		{ opt: 'fallback', kind: 'list-multi', icon: 'server', label: 'fallback', wide: true },
-		{ opt: 'proxy_server_nameserver', kind: 'list-multi', icon: 'server', label: 'proxy-server-nameserver', sub: _('解析节点域名专用（国内可达）'), wide: true }
 	] },
 	{ section: 'quic', title: _('QUIC'), opts: [
 		{ opt: 'block', kind: 'flag', icon: 'bolt', label: _('禁用 QUIC'), sub: _('注入 UDP:443 REJECT 前置规则') },
@@ -80,6 +68,7 @@ var SCHEMA = [
 		{ opt: 'watchdog_interval', kind: 'value', icon: 'clock', label: _('检查间隔 (秒)') },
 		{ opt: 'health_interval', kind: 'value', icon: 'activity', label: _('网络检测间隔 (秒)'), ph: '300；0 关闭定期检测' },
 		{ opt: 'traffic_history', kind: 'flag', icon: 'activity', label: _('记录历史流量') },
+		{ opt: 'traffic_retention', kind: 'list', label: _('流量记录保留'), list: [ ['7', _('7 天')], ['14', _('14 天')], ['30', _('30 天')] ], ph: '7' },
 		{ opt: 'age_identity', kind: 'value', icon: 'key', label: _('age 身份密钥 (全局)'), sub: _('加密订阅解密密钥'), pass: true, ph: 'AGE-SECRET-KEY-…', wide: true }
 	] },
 	{ section: 'backup', title: _('备份 WebDAV'), opts: [
@@ -96,8 +85,7 @@ var SCHEMA = [
 
 function fieldFor(cfg,o,profiles){
 	var value=cfg[o.opt],control;
-	if(o.opt==='device_macs')return DevicePicker.create(value,validateMacs,true);
-	if(o.opt==='device_ips')return DevicePicker.create(value,validateDevices);
+	if(o.opt==='device_macs')return DevicePicker.create(value,validateMacs,true,cfg.device_ips||[]);
 	if(o.kind==='flag'){control=E('button',{type:'button','class':'switch'+(value==='1'?'':' off'),role:'switch','aria-checked':String(value==='1'),'aria-label':o.label});control.checked=value==='1';control.addEventListener('click',function(){control.checked=!control.checked;control.classList.toggle('off',!control.checked);control.setAttribute('aria-checked',String(control.checked));control.dispatchEvent(new Event('change',{bubbles:true}));});return control;}
 	if(o.opt==='profile'){control=E('select',{'class':'field','aria-label':o.label},profiles.map(function(p){return E('option',{value:p.id},p.label||p.id);}));if(value&&!profiles.some(function(p){return p.id===value;}))control.appendChild(E('option',{value:value},value));control.value=value||'';return control;}
 	if(o.kind==='list'){control=E('select',{'class':'field','aria-label':o.label},(o.list||[]).map(function(item){return E('option',{value:item[0]},item[1]||item[0]);}));control.value=value||o.list[0][0];return control;}
@@ -151,15 +139,22 @@ function validateDevices(values){
 }
 return view.extend({
 	load:function(){return Promise.all([uci.load('bettbox'),callProfiles(),callProxyGroups('GET','/proxies','').catch(function(){return null;})]);},
-	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['devices','设备控制','lan'],['tun','TUN','route'],['dns','DNS','globe'],['backup','备份','layers'],['other','其他','grid']];
-		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261114-1'}));
+	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['devices','设备控制','lan'],['tun','TUN','route'],['dns','DNS','globe'],['backup','备份','layers'],['other','高级','grid']];
+		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261114-5'}));
 		var requested=new URLSearchParams(window.location.search).get('category');
 		if(categories.some(function(c){return c[0]===requested;}))selected=requested;
 		content.setAttribute('aria-label',categories.find(function(c){return c[0]===selected;})[1]+'设置');
 		var state=E('strong',{},'当前配置');
+		var modeHelp=E('p',{'class':'device-setting-help',id:'bettbox-device-mode-help'});
+		var modeDescriptions={
+			off:_('全部设备进入分流。'),
+			include:_('仅名单中的设备进入分流。'),
+			exclude:_('名单中的设备直连，其余设备进入分流。')
+		};
 		function syncDeviceControls(){
 			var mode=inputs.find(function(it){return it.option.opt==='device_mode';}),transport=inputs.find(function(it){return it.option.opt==='transparent_mode';});
 			if(!mode||!transport)return;
+			modeHelp.textContent=modeDescriptions[mode.control.value]||'';
 			var selected=mode.control.value!=='off'&&transport.control.value!=='off';
 			inputs.forEach(function(it){
 				var owned=it.option.opt==='hijack_dnsmasq'?selected:it.section==='tun'&&['auto_route','auto_redirect','strict_route'].indexOf(it.option.opt)>=0?selected&&transport.control.value==='tun':null;
@@ -179,23 +174,37 @@ return view.extend({
 		function changed(){var count=inputs.filter(function(it){return JSON.stringify(it.read())!==it.original;}).length;
 			if(JSON.stringify(fallbackValues())!==originalFallbacks)count++;
 			state.textContent=count?'有 '+count+' 项修改':'当前配置';syncDeviceControls();}
+		var devicePicker;
 		SCHEMA.forEach(function(sec,index){
-			var cfg=uci.get('bettbox',sec.section)||{},form=E('div',{'class':'settings-form'});
+			var cat=category(sec),headingId='bettbox-settings-section-'+index;
+			var cfg=uci.get('bettbox',sec.section)||{},form=E('div',{'class':cat==='devices'?'device-settings-form':'settings-form'});
 			sec.opts.forEach(function(o){
-				if(o.legacy&&!cfg[o.opt]?.length)return;
 				var control=fieldFor(cfg,o,profiles),read=watchField(control,o,changed),id='bettbox-setting-'+sec.section+'-'+o.opt;
 				control.id=id;inputs.push({section:sec.section,option:o,control:control,read:read,original:JSON.stringify(read())});
 				if(control.input)control.input.id=id+'-input';
+				var label=E('label',{'class':'setting-label',for:control.input?id+'-input':id},o.label);
+				var field=E('div',{'class':'setting-control'},control);
+				if(cat==='devices'){
+					var children=[label,field];
+					if(o.opt==='device_mode'){
+						control.setAttribute('aria-describedby',modeHelp.id);
+						children.push(modeHelp);
+					} else {
+						devicePicker=control;
+						var helpId=id+'-help';
+						control.input.setAttribute('aria-describedby',helpId);
+						children.push(E('p',{'class':'device-setting-help',id:helpId},_('按名称或 IP 选择设备，保存时按 MAC 匹配。')));
+						inputs.push({section:sec.section,option:{opt:'device_ips',kind:'list-multi'},control:control,
+							read:control.legacyAddresses,original:JSON.stringify(control.legacyAddresses())});
+					}
+					form.appendChild(E('div',{'class':'device-setting'},children));
+					return;
+				}
 				var wide=o.opt==='age_identity';
-				form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(wide?' wide':'')+(o.kind==='list-multi'?' multiline':'')},[
-					E('div',{},[E('label',{'class':'setting-label',for:control.input?id+'-input':id},o.label),(o.legacy||o.opt==='override')?E('div',{'class':'small muted'},o.sub):null]),E('div',{'class':'setting-control'},control)]));
+				form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(wide?' wide':'')+(o.kind==='list-multi'?' multiline':'')},[label,field]));
 			});
-			var cat=category(sec),headingId='bettbox-settings-section-'+index;
-			var panel=sec.disclosure?E('details',{'class':'panel settings-panel dns-advanced','aria-labelledby':headingId},[
-				E('summary',{id:headingId},sec.title),form
-			]):E('section',{'class':'panel settings-panel'+(cat==='devices'?' device-settings':''),'aria-labelledby':headingId},[
-				E('div',{'class':'panel-head'},E('h2',{id:headingId},[UI.icon(cat==='general'?'settings':cat==='network'?'lan':cat==='tun'?'route':cat==='dns'?'globe':'grid'),document.createTextNode(sec.title)])),form]);
-			if(sec.disclosure)panel.open=cfg.override==='1';
+			var panel=E('section',{'class':'panel settings-panel'+(cat==='devices'?' device-settings':''),'aria-labelledby':headingId},[
+				E('div',{'class':'panel-head'},E('h2',{id:headingId},[UI.icon(cat==='general'?'settings':cat==='network'||cat==='devices'?'lan':cat==='tun'?'route':cat==='dns'?'globe':'grid'),document.createTextNode(sec.title)])),form]);
 			panel.hidden=cat!==selected;sections.push({panel:panel,category:cat});content.appendChild(panel);
 		});
 		var fallbackList=E('div',{'class':'device-fallback-list'});
@@ -227,19 +236,30 @@ return view.extend({
 		var fallbackPanel=UI.panel('设备兜底策略','route',[fallbackControls]);
 		fallbackPanel.classList.add('settings-panel','device-fallback-panel');fallbackPanel.hidden=selected!=='devices';
 		sections.push({panel:fallbackPanel,category:'devices'});content.appendChild(fallbackPanel);
+		var appearancePanel=UI.panel('外观风格','palette',[UI.appearanceControls(false)]);
+		appearancePanel.classList.add('settings-panel','bb-appearance-panel');appearancePanel.hidden=selected!=='general';
+		var generalIndex=sections.findIndex(function(s){return s.category==='general';});
+		if(generalIndex>=0){
+			sections.splice(generalIndex+1,0,{panel:appearancePanel,category:'general'});
+			sections[generalIndex].panel.after(appearancePanel);
+		}else{
+			sections.push({panel:appearancePanel,category:'general'});content.appendChild(appearancePanel);
+		}
+		if(selected==='devices')devicePicker.loadDevices();
 		syncDeviceControls();
 		var nav=E('nav',{'class':'settings-categories','aria-label':'设置类别'},categories.map(function(c){
 			var b=E('button',{type:'button','class':'category-button'+(selected===c[0]?' active':''),'aria-pressed':String(selected===c[0])},[UI.icon(c[2]),E('span',{},c[1])]);
 			b.addEventListener('click',function(){
 				selected=c[0];Array.from(nav.children).forEach(function(x){x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});
 				sections.forEach(function(s){s.panel.hidden=s.category!==selected;});content.setAttribute('aria-label',c[1]+'设置');
+				if(selected==='devices')devicePicker.loadDevices();
 				inputs.forEach(function(it){it.read();});
 				var url=new URL(window.location.href);url.searchParams.set('category',selected);window.history.replaceState({},'',url.href);
 			});return b;
 		}));
 		function save(){
 			var saved=false;
-			inputs.filter(function(it){return it.option.opt==='device_macs'||it.option.legacy;}).forEach(function(it){it.control.validate();});
+			devicePicker.validate();
 			fallbackRows.forEach(function(row){row.picker.validate();if(!row.picker.value)throw new Error('请为兜底策略选择设备或输入 IP / 网段');});
 			var fallbacks=fallbackValues();
 			validateDevices([].concat.apply([],fallbacks.map(function(row){return row.addresses;})));

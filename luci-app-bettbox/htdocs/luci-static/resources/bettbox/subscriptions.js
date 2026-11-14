@@ -26,7 +26,7 @@ function load(fresh) {
 }
 function mount() {
 	[['bettbox-subscriptions-css','subscriptions.css'],['bettbox-scripts-css','scripts.css']].forEach(function(item) {
-		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=20261030-2' }));
+		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=20261114-3' }));
 	});
 }
 
@@ -55,7 +55,13 @@ return baseclass.extend({
 		}
 		function update(id, all) {
 			if (busy) return; busy = true; notice.textContent = '正在更新订阅…'; draw();
-			return updateRPC(id, all ? '1' : '0', '1').then(UI.operation).then(refresh).then(function() { notice.textContent = '订阅已更新'; }).catch(function(err) { notice.textContent = '更新失败：' + err.message; }).finally(function() { busy = false; draw(); });
+			return updateRPC(id, all ? '1' : '0', '1').then(UI.operation).then(function(result) {
+				return refresh().then(function() {
+					var report;
+					try { report = JSON.parse(result.text); } catch (err) {}
+					notice.textContent = report && report.failed ? '合并完成，跳过 ' + report.failed + ' 个无法处理的成员' : '订阅已更新';
+				});
+			}).catch(function(err) { notice.textContent = '更新失败：' + err.message; }).finally(function() { busy = false; draw(); });
 		}
 		function choose(p) {
 			if (busy || p.id === active) return; busy = true; notice.textContent = '正在选用订阅…'; draw();
@@ -137,8 +143,10 @@ return baseclass.extend({
 				return mergeRPC(action, profile ? profile.id : '', label.value.trim(), JSON.stringify(ids)).then(UI.operation).then(UI.checked).then(function(job) {
 					if (action !== 'preview') return refresh().then(function() { box.setBusy(false); return box.close(true); });
 					var result = JSON.parse(job.text);
-					status.textContent = '节点 ' + result.proxies + ' 个，策略组 ' + result.groups + ' 个，规则 ' + result.rules + ' 条';
-					if (result.group_names.length) status.textContent += '。策略组 ' + result.group_names.join('、');
+					status.textContent = '节点 ' + result.proxies + ' 个，策略组 ' + result.groups + ' 个';
+					if (result.duplicates) status.textContent += '，已去重 ' + result.duplicates + ' 个节点';
+					if (result.conflicts) status.textContent += '，' + result.conflicts + ' 项 DNS 或 hosts 冲突沿用靠前成员';
+					if (result.failed) status.textContent += '，跳过 ' + result.failed + ' 个无法处理的成员';
 				}).catch(function(err) { status.textContent = err.message; }).finally(function() { box.setBusy(false); });
 			}
 			(profile ? profile.merge_members : ['', '']).forEach(addMember);
@@ -172,7 +180,9 @@ return baseclass.extend({
 			var b = E('button', { type: 'button', role: 'tab', id: 'bettbox-sub-tab-' + item[0], 'aria-controls': panel.id }, [E('span', {}, item[1]), E('em', {}, '0')]); buttons[item[0]] = b;
 			b.addEventListener('click', function() { section = item[0]; var url = new URL(window.location.href); url.searchParams.set('section', section); window.history.replaceState({}, '', url.href); draw(); }); tabs.appendChild(b);
 		});
-		createManager(); root = UI.page('profiles', '订阅', [], [E('div', { 'class': 'subscription-hub' }, [E('div', { 'class': 'hub-section-bar' }, [tabs, summary]), notice, panel])]);
-		actions = root.querySelector('.heading-actions'); draw(); return root;
+		createManager();
+		actions = E('div', { 'class': 'button-row hub-section-actions' });
+		root = UI.page('profiles', '订阅', [], [E('div', { 'class': 'subscription-hub' }, [E('div', { 'class': 'hub-section-bar' }, [E('div', { 'class': 'hub-section-left' }, [tabs, summary]), actions]), notice, panel])]);
+		draw(); return root;
 	}
 });

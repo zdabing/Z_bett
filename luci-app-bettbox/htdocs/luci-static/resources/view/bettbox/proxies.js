@@ -400,7 +400,7 @@ return view.extend({
 			cancelButton.hidden = quiet || !requests.size;
 			host.classList.toggle('v4-inactive', inactive());
 			if (inactive()) { banner.hidden = true; host.classList.remove('stale'); host.replaceChildren(inactiveCard()); return; }
-			count.textContent = snapshot ? String(groups.length) : '—';
+			count.textContent = snapshot ? groups.length + ' 个策略组' : '—';
 			allButton.disabled = !groups.length || offline || allTesting;
 			collapseButton.disabled = !groups.length || !!filter;
 			var closed = groups.every(function(group) { return !expanded.has(group.name); });
@@ -578,9 +578,12 @@ return view.extend({
 			return refreshPromise;
 		}
 
-		var controls = E('div', { 'class': 'v4-controls' }, [search, E('div', { 'class': 'v4-control-actions' }, [sort, viewButton, collapseButton, settingsButton])]);
+		refreshButton.classList.add('v4-action-btn');
+		cancelButton.classList.add('v4-action-btn');
+		allButton.classList.add('v4-action-btn');
+		var controls = E('div', { 'class': 'v4-controls' }, [search, E('div', { 'class': 'v4-control-actions' }, [count, sort, viewButton, collapseButton, settingsButton, refreshButton, cancelButton, allButton])]);
 		if (typeof IntersectionObserver !== 'undefined') gridObserver = new IntersectionObserver(function(entries) { entries.forEach(function(entry) { if (entry.isIntersecting && entry.target.loadNodes) entry.target.loadNodes(); }); }, { rootMargin: '480px' });
-		var root = UI.page('proxies', '代理', [refreshButton, cancelButton, allButton], [controls, banner, host]);
+		var root = UI.page('proxies', '代理', [], [controls, banner, host]);
 		function dispose() { if (disposed) return; disposed = true; dataGeneration++; cancelTests(); if (gridObserver) gridObserver.disconnect(); lifecycle.disconnect(); window.removeEventListener('pagehide', dispose); }
 		// LuCI may attach the returned view after other body mutations. A view
 		// which has not mounted yet must not be mistaken for a removed view.
@@ -593,7 +596,7 @@ return view.extend({
 			if (mounted || removed) dispose();
 		}); lifecycle.observe(document.body, { childList: true, subtree: true });
 		window.addEventListener('pagehide', dispose);
-		root.classList.add('v4-proxies'); root.querySelector('h1').appendChild(count);
+		root.classList.add('v4-proxies');
 		host.appendChild(E('div', { 'class': 'v4-loading', role: 'status' }, [UI.icon('refresh'), document.createTextNode('正在读取服务状态…')]));
 		poll.add(function() {
 			if (disposed || !root.isConnected) return Promise.resolve();

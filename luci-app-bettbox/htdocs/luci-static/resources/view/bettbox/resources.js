@@ -23,6 +23,7 @@ return view.extend({
 		var checkButton=UI.button('检查更新',function(){coreAction('check');},'','refresh');
 		var updateButton=UI.button('更新核心',function(){coreAction('update');},'primary','download');
 		var rollbackButton=UI.button('回退上一版',function(){coreAction('rollback');},'','refresh');
+		var packagedButton=UI.button('切回随包核心',function(){coreAction('package');},'','refresh');
 		function coreDraw(){
 			function row(label,value){return E('div',{'class':'definition-row'},[E('dt',{},label),E('dd',{},value)]);}
 			coreValues.replaceChildren(row('当前版本',[E('span',{'class':'mono'},core.current||'未知'),core.source?UI.tag(core.source==='managed'?'独立更新':'随包核心','neutral'):document.createTextNode('')]),
@@ -33,6 +34,8 @@ return view.extend({
 			checkButton.disabled=coreBusy||packageBusy||packages.updating||core.supported===false;
 			updateButton.disabled=coreBusy||packageBusy||packages.updating||!core.supported||!!(core.latest&&!core.available);
 			rollbackButton.disabled=coreBusy||packageBusy||packages.updating||!core.rollback;
+			packagedButton.hidden=core.source!=='managed'||core.previous_source==='package';
+			packagedButton.disabled=coreBusy||packageBusy||packages.updating;
 			if(!coreBusy && !coreState.textContent && core.ok===false)coreState.textContent=core.error||core.text||'无法读取核心信息';
 			if(!coreBusy && !coreState.textContent && core.supported===false)coreState.textContent='当前架构暂不支持一键更新';
 			coreState.hidden=!coreState.textContent;
@@ -40,15 +43,15 @@ return view.extend({
 		function refreshCore(){return Promise.all([getCore(),getStatus()]).then(function(result){core=UI.checked(result[0]);status=result[1];coreDraw();});}
 		function coreAction(action){
 			if(coreBusy||packageBusy)return;coreBusy=true;coreDraw();packageDraw();
-			coreState.textContent=action==='check'?'正在检查稳定版…':action==='rollback'?'正在回退核心…':'正在下载、校验并更新核心…';
+			coreState.textContent=action==='check'?'正在检查稳定版…':action==='rollback'?'正在回退核心…':action==='package'?'正在切回随包核心…':'正在下载、校验并更新核心…';
 			coreState.hidden=false;
 			(action==='check'?checkCore():changeCore(action)).then(UI.operation).then(function(result){
 				if(action==='check'){core=UI.checked(JSON.parse(result.text));coreState.textContent=core.available?'发现新版本 '+core.latest:'检查完成';coreDraw();}
-				else {coreState.textContent=action==='rollback'?'核心已回退':'核心更新完成';return refreshCore();}
+				else {coreState.textContent=action==='rollback'?'核心已回退':action==='package'?'已切回随包核心':'核心更新完成';return refreshCore();}
 			}).catch(function(err){return refreshCore().catch(function(){}).then(function(){coreState.textContent=(action==='check'?'检查失败：':'操作失败：')+err.message;UI.error(err);});})
 			.finally(function(){coreBusy=false;coreDraw();packageDraw();});
 		}
-		var corePanel=UI.panel('Mihomo 核心','chip',[coreValues,E('div',{'class':'button-row'},[checkButton,updateButton,rollbackButton]),coreState]);coreDraw();
+		var corePanel=UI.panel('Mihomo 核心','chip',[coreValues,E('div',{'class':'button-row'},[checkButton,updateButton,rollbackButton,packagedButton]),coreState]);coreDraw();
 		var packageValues=E('dl',{'class':'definition-list bb-core-details'}),packageState=E('div',{'class':'bb-operation-state',role:'status'});
 		var packageCheck=UI.button('检查更新',function(){packageAction('check');},'','refresh');
 		var packageUpdate=UI.button('更新 APK',function(){packageAction('update');},'primary','download');
@@ -115,7 +118,7 @@ return view.extend({
 		function restoreDialog(){var file=E('input',{'class':'field',type:'file',accept:'.tar,application/x-tar'}),result=E('p',{'class':'small muted'},'');UI.modal('恢复备份',[E('p',{},'恢复将替换 Bettbox 配置和归档中的订阅、脚本、规则，并按配置启停服务。建议先导出当前备份。'),UI.field('本地备份文件',file,'tar 格式，最大 64MB。'),result],[UI.button('上传并恢复',function(){var f=file.files&&file.files[0],remote;if(!f)throw new Error('请选择备份文件');if(f.size>64*1024*1024)throw new Error('备份不能超过 64MB');result.textContent='正在上传…';return backupFile('prepare','').then(UI.checked).then(function(res){remote=res.file;var form=new FormData();form.append('sessionid',L.env.sessionid);form.append('filename',remote);form.append('filedata',f);return fetch(L.env.cgi_base+'/cgi-upload',{method:'POST',credentials:'same-origin',body:form});}).then(function(res){if(!res.ok)throw new Error('上传失败：HTTP '+res.status);return res.json();}).then(function(reply){if(reply.failure)throw new Error(reply.message||reply.failure);result.textContent='归档已上传，正在校验并应用…';return backup('restore',remote);}).then(UI.checked).then(function(){ui.hideModal();window.location.reload();}).catch(function(err){result.textContent='恢复失败：'+err.message+'。若失败发生在应用阶段，配置可能已经写入，请检查服务状态。';throw err;}).finally(function(){if(remote)return backupFile('remove',remote);});},'danger','refresh'),UI.button('取消',ui.hideModal)]);}
 		function panelInstall(){message.textContent='正在安装 / 更新面板…';return dashboard('install').then(UI.checked).then(function(){window.location.reload();}).catch(function(err){message.textContent='面板安装失败：'+err.message;throw err;});}
 		var open=UI.button('打开面板',function(){var ctl=status.controller||'',port=ctl.substring(ctl.lastIndexOf(':')+1)||'9097',host=window.location.hostname;if(host.indexOf(':')>=0&&host.charAt(0)!=='[')host='['+host+']';window.open('http://'+host+':'+port+'/ui/','_blank','noopener');},'','arrow');open.disabled=!resources.dashboard;
-		var geo=UI.panel('Geo 数据','globe',[list,E('div',{'class':'button-row'},[UI.button('更新 Geo 数据',update,'primary','refresh')]),geoState]);draw();
-		return UI.page('resources','资源',[],[message,E('div',{'class':'stack'},[packagePanel,corePanel,geo,E('div',{'class':'grid-two'},[UI.panel('控制面板','grid',[E('p',{'class':'small muted'},resources.dashboard?'已安装':'未安装'),E('div',{'class':'button-row'},[open,UI.button('安装 / 更新',panelInstall,'','refresh')])]),UI.panel('配置备份','layers',[E('div',{'class':'button-row'},[UI.button('导出备份',exportBackup,'','download'),UI.button('恢复备份',restoreDialog,'','refresh')])])])])]);
+		var geo=UI.panel('Geo 数据','globe',[list,geoState],[UI.button('更新 Geo 数据',update,'primary small','refresh')]);draw();
+		return UI.page('resources','资源',[],[message,E('div',{'class':'stack'},[E('div',{'class':'grid-two'},[packagePanel,corePanel]),geo,E('div',{'class':'grid-two'},[UI.panel('控制面板','grid',[E('p',{'class':'small muted'},resources.dashboard?'已安装':'未安装'),E('div',{'class':'button-row'},[open,UI.button('安装 / 更新',panelInstall,'','refresh')])]),UI.panel('配置备份','layers',[E('div',{'class':'button-row'},[UI.button('导出备份',exportBackup,'','download'),UI.button('恢复备份',restoreDialog,'','refresh')])])])])]);
 	},handleSaveApply:null,handleSave:null,handleReset:null
 });

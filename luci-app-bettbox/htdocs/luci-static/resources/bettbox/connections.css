@@ -1,13 +1,19 @@
-.bb-app[data-bb-page="connections"] .bb-connection-state{justify-content:space-between;gap:12px;flex-wrap:wrap}
+.bb-app[data-bb-page="connections"] .bb-connection-state{justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.bb-app[data-bb-page="connections"] .bb-connection-state-left{display:flex;align-items:center;gap:14px;flex-wrap:wrap;min-width:0}
 .bb-app[data-bb-page="connections"] .bb-connection-state .chips{flex:0 1 auto}
-.bb-app[data-bb-page="connections"] .bb-connection-tabs{gap:8px}
+.bb-app[data-bb-page="connections"] .bb-connection-tabs{gap:3px;padding:3px;border:1px solid var(--bb-line);border-radius:11px;background:var(--subtle)}
+.bb-app[data-bb-page="connections"] .bb-connection-tabs .chip{border:0;background:transparent;min-height:32px;padding:5px 11px;border-radius:8px}
+.bb-app[data-bb-page="connections"] .bb-connection-tabs .chip.active{background:var(--surface);color:var(--bb-accent);box-shadow:0 1px 3px #0001}
 .bb-app[data-bb-page="connections"] .bb-connection-traffic{display:flex;gap:18px;flex-wrap:wrap;padding:10px 0 6px;font-size:12px}
+.bb-app[data-bb-page="connections"] .connection-summary{font-family:var(--mono);font-variant-numeric:tabular-nums;gap:14px}
+.bb-app[data-bb-page="connections"] .data-table td .tag{margin-top:4px}
 .bb-app[data-bb-page="connections"] .bb-connection-closed .cell-title{color:var(--secondary)}
 .bb-app[data-bb-page="connections"] .connection-card time{overflow-wrap:anywhere}
 .bb-app[data-bb-page="connections"] .connection-card .connection-chain{margin-top:8px}
 @media(max-width:599px){
  .bb-app[data-bb-page="connections"] .bb-connection-filters .search{flex-basis:100%}
- .bb-app[data-bb-page="connections"] .bb-connection-state{align-items:flex-start}
- .bb-app[data-bb-page="connections"] .bb-connection-tabs .chip{padding:8px 12px}
+ .bb-app[data-bb-page="connections"] .bb-connection-state{align-items:stretch}
+ .bb-app[data-bb-page="connections"] .bb-connection-state-left{width:100%;justify-content:space-between}
+ .bb-app[data-bb-page="connections"] .bb-connection-tabs .chip{padding:7px 11px;min-height:38px}
  .bb-app[data-bb-page="connections"] .connection-summary{margin:0;min-height:28px}
 }
