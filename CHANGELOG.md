@@ -1,5 +1,13 @@
 # 更新日志
 
+## v2026.11.14 · 2026-11-14
+
+面向 NanoPi R5C 使用的 OpenWrt 25.12 `aarch64_generic`。请配套安装 `bettbox 1.19.34-r9` 和 `luci-app-bettbox 1.19.7-r9`。
+
+- 随包 Mihomo 更新到 v1.19.34，包含上游 TUN 自动路由修复，继续提供连接历史和闲置内存回收。
+- 修复部分 OpenWrt 版本缺少 ucode `statvfs` 时 Bettbox 管理接口无法加载的问题。上传 APK 前使用 `df` 检查临时空间。
+- 将手动 DNS 覆写移入「高级 DNS 设置」。默认沿用订阅或脚本的 DNS，已开启覆写的设备升级后仍使用原有设置。DNS 监听和真实 IP 域名可直接在 DNS 页编辑。
+
 ## v2026.11.09 · 2026-11-09
 
 面向 NanoPi R5C 使用的 OpenWrt 25.12 **aarch64_generic（ARM64）** 安装包。请一起更新 `bettbox 1.19.33-r8` 和 `luci-app-bettbox 1.19.7-r8`。

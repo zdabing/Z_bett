@@ -45,11 +45,13 @@ var SCHEMA = [
 		{ opt: 'dns_hijack', kind: 'value', icon: 'server', label: 'dns-hijack', ph: 'any:53' }
 	] },
 	{ section: 'dns', title: _('DNS'), opts: [
-		{ opt: 'override', kind: 'flag', icon: 'shield', label: _('覆写 DNS'), sub: _('关闭则使用订阅/脚本自带 DNS') },
 		{ opt: 'listen', kind: 'value', icon: 'server', label: _('监听地址'), ph: '0.0.0.0:1053' },
+		{ opt: 'real_ip_domains', kind: 'list-multi', icon: 'globe', label: _('真实 IP 域名（每行一个）'), ph: 'nas.example.com\n+.example.com', wide: true }
+	] },
+	{ section: 'dns', title: _('高级 DNS 设置'), disclosure: true, opts: [
+		{ opt: 'override', kind: 'flag', icon: 'shield', label: _('覆写 DNS'), sub: _('关闭时沿用订阅或脚本的 DNS 配置') },
 		{ opt: 'enhanced_mode', kind: 'list', icon: 'tune', label: _('增强模式'), list: [ ['fake-ip'], ['redir-host'] ] },
 		{ opt: 'fake_ip_range', kind: 'value', icon: 'globe', label: 'fake-ip-range', ph: '198.18.0.1/16' },
-		{ opt: 'real_ip_domains', kind: 'list-multi', icon: 'globe', label: _('真实 IP 域名（每行一个）'), ph: 'nas.example.com\n+.example.com', wide: true },
 		{ opt: 'respect_rules', kind: 'flag', icon: 'map', label: 'respect-rules', sub: _('DNS 连接跟随规则') },
 		{ opt: 'ipv6', kind: 'flag', icon: 'globe', label: _('IPv6 解析') },
 		{ opt: 'nameserver', kind: 'list-multi', icon: 'server', label: 'nameserver', wide: true },
@@ -149,7 +151,7 @@ function validateDevices(values){
 return view.extend({
 	load:function(){return Promise.all([uci.load('bettbox'),callProfiles(),callProxyGroups('GET','/proxies','').catch(function(){return null;})]);},
 	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['devices','设备控制','lan'],['tun','TUN','route'],['dns','DNS','globe'],['backup','备份','layers'],['other','其他','grid']];
-		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261107-1'}));
+		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261114-1'}));
 		var requested=new URLSearchParams(window.location.search).get('category');
 		if(categories.some(function(c){return c[0]===requested;}))selected=requested;
 		content.setAttribute('aria-label',categories.find(function(c){return c[0]===selected;})[1]+'设置');
@@ -185,11 +187,14 @@ return view.extend({
 				if(control.input)control.input.id=id+'-input';
 				var wide=o.opt==='age_identity';
 				form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(wide?' wide':'')+(o.kind==='list-multi'?' multiline':'')},[
-					E('div',{},[E('label',{'class':'setting-label',for:control.input?id+'-input':id},o.label),o.legacy?E('div',{'class':'small muted'},o.sub):null]),E('div',{'class':'setting-control'},control)]));
+					E('div',{},[E('label',{'class':'setting-label',for:control.input?id+'-input':id},o.label),(o.legacy||o.opt==='override')?E('div',{'class':'small muted'},o.sub):null]),E('div',{'class':'setting-control'},control)]));
 			});
 			var cat=category(sec),headingId='bettbox-settings-section-'+index;
-			var panel=E('section',{'class':'panel settings-panel'+(cat==='devices'?' device-settings':''),'aria-labelledby':headingId},[
+			var panel=sec.disclosure?E('details',{'class':'panel settings-panel dns-advanced','aria-labelledby':headingId},[
+				E('summary',{id:headingId},sec.title),form
+			]):E('section',{'class':'panel settings-panel'+(cat==='devices'?' device-settings':''),'aria-labelledby':headingId},[
 				E('div',{'class':'panel-head'},E('h2',{id:headingId},[UI.icon(cat==='general'?'settings':cat==='network'?'lan':cat==='tun'?'route':cat==='dns'?'globe':'grid'),document.createTextNode(sec.title)])),form]);
+			if(sec.disclosure)panel.open=cfg.override==='1';
 			panel.hidden=cat!==selected;sections.push({panel:panel,category:cat});content.appendChild(panel);
 		});
 		var fallbackList=E('div',{'class':'device-fallback-list'});

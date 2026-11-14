@@ -33,8 +33,10 @@ def main():
     for package in ('bettbox', 'luci-app-bettbox'):
         before = command('git', 'show', previous + ':' + package + '/Makefile')
         after = (ROOT / package / 'Makefile').read_text().strip()
-        strip_release = lambda text: re.sub(r'^PKG_RELEASE:=.*$', 'PKG_RELEASE:=verified', text, flags=re.M)
-        assert strip_release(before) == strip_release(after), 'build/install contract changed: full build required'
+        # Forge is built from the local Rust crate, independently of the Go archive.
+        keys = 'PKG_RELEASE|PKG_VERSION|PKG_HASH' if package == 'bettbox' else 'PKG_RELEASE'
+        metadata = re.compile(r'^(' + keys + r'):=.*$', re.M)
+        assert metadata.sub(r'\1:=verified', before) == metadata.sub(r'\1:=verified', after), 'build/install contract changed: full build required'
     release = json.loads(download('https://api.github.com/repos/' + REPO + '/releases/tags/' + TAG))
     assert not release['draft'] and not release['prerelease']
     filename = 'bettbox-1.19.33-r7-' + target + '.apk'

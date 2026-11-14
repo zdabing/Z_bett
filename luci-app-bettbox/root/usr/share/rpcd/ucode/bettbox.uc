@@ -6,7 +6,7 @@
 
 'use strict';
 
-import { access, lstat, lsdir, mkdtemp, popen, readfile, rename, rmdir, stat, statvfs, unlink, writefile } from 'fs';
+import { access, lstat, lsdir, mkdtemp, popen, readfile, rename, rmdir, stat, unlink, writefile } from 'fs';
 import { cursor } from 'uci';
 import { valid_script_name, valid_script_url, script_info, save_script_source, write_script, delete_script } from '/usr/libexec/bettbox/script-store.uc';
 
@@ -233,7 +233,7 @@ function package_upload(request) {
 			if(info?.type=='directory' && time()-info.mtime>1800)remove_apk_upload(old);
 		}
 		let total=request.args.size;
-		let free=statvfs('/var/run')?.freesize??0;
+		let free=int(trim(run("df -Pk /var/run | tail -n 1 | awk '{print $4}'")))*1024;
 		if(type(total)!='int'||total<=0||total>268435456||free<total+16777216)return {ok:false,error:'APK 文件大小无效或临时空间不足'};
 		dir=mkdtemp('/var/run/bettbox-ui-apk.XXXXXX');
 		return dir?{ok:true,directory:dir}:{ok:false,error:'无法创建 APK 上传目录'};

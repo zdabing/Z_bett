@@ -6,8 +6,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=bettbox
-PKG_VERSION:=1.19.33
-PKG_RELEASE:=8
+PKG_VERSION:=1.19.34
+PKG_RELEASE:=9
 
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0
@@ -19,7 +19,7 @@ PKG_LICENSE:=GPL-3.0
 # github archive path prefix (codeload URLs cannot take an appended name).
 PKG_SOURCE:=v$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://github.com/MetaCubeX/mihomo/archive/refs/tags/
-PKG_HASH:=e7c596b37ff27ec487d19b1920f73e0c97a78067ea35766530ee9659ade72711
+PKG_HASH:=e3284a44f1052f1c454c90d418faa244516c2470bf232b455ea18fc4f5fa6028
 PKG_BUILD_DIR:=$(BUILD_DIR)/mihomo-$(PKG_VERSION)
 
 PKG_BUILD_DEPENDS:=golang/host rust/host
