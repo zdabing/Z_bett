@@ -5,7 +5,7 @@
 . /usr/libexec/bettbox/common.sh
 umask 077
 
-DEFAULT_UA="clash.meta/v1.19.33"
+DEFAULT_UA="clash.meta/v1.19.34"
 NOW=$(date +%s)
 
 # parse "upload=1; download=2; total=3; expire=4" from raw header line
@@ -101,21 +101,44 @@ update_one() (
 
 update() {
 	[ -n "$1" ] || die "usage: subscription.sh update <sid>"
-	update_one "$1"
+	case "$1" in *[!A-Za-z0-9_-]*) die 'invalid subscription id' ;; esac
+	if [ -n "$(uci_get "bettbox.$1.merge_members")" ]; then
+		sh /usr/libexec/bettbox/profile-merge.sh refresh "$1" ''
+	else
+		update_one "$1" && refresh_merges "$1"
+	fi
+}
+
+refresh_merges() {
+	local sid member members changed blocked result=0
+	for sid in $(uci -q show bettbox | sed -n 's/^bettbox\.\([A-Za-z0-9_-]*\)\.merge_members=.*/\1/p'); do
+		members=$(uci_get "bettbox.$sid.merge_members")
+		changed=0
+		blocked=0
+		for member in $members; do
+			case " $1 " in *" $member "*) changed=1 ;; esac
+			case " $2 " in *" $member "*) blocked=1 ;; esac
+		done
+		[ "$changed" = 1 ] && [ "$blocked" = 0 ] || continue
+		sh /usr/libexec/bettbox/profile-merge.sh refresh "$sid" '' || result=1
+	done
+	return "$result"
 }
 
 update_all() {
-	local sid result=0
+	local sid updated='' failed='' result=0
 	for sid in $(uci -q show bettbox | sed -n "s/^bettbox\.\([^.]*\)\.url=.*/\1/p"); do
-		update_one "$sid" || result=1
+		if update_one "$sid"; then updated="$updated $sid"; else failed="$failed $sid"; fi
 		sleep 2
 	done
+	refresh_merges "$updated" "$failed" || result=1
+	[ -z "$failed" ] || result=1
 	return "$result"
 }
 
 # called from cron: refresh every auto_update subscription whose interval passed
 cron() {
-	local sid interval last result=0
+	local sid interval last updated='' failed='' result=0
 	for sid in $(uci -q show bettbox | sed -n "s/^bettbox\.\([^.]*\)\.auto_update='1'/\1/p"); do
 		[ -n "$(uci_get bettbox.$sid.url)" ] || continue
 		interval=$(uci_get "bettbox.$sid.update_interval")
@@ -123,10 +146,12 @@ cron() {
 		last=$(uci_get "bettbox.$sid.last_update")
 		[ -n "$last" ] || last=0
 		if [ $((NOW - last)) -gt $((interval * 60)) ]; then
-			update_one "$sid" || result=1
+			if update_one "$sid"; then updated="$updated $sid"; else failed="$failed $sid"; fi
 			sleep 2
 		fi
 	done
+	refresh_merges "$updated" "$failed" || result=1
+	[ -z "$failed" ] || result=1
 	return "$result"
 }
 
@@ -188,7 +213,13 @@ import_file() {
 
 remove() {
 	[ -n "$1" ] || die "usage: subscription.sh remove <sid>"
+	case "$1" in *[!A-Za-z0-9_-]*) die 'invalid subscription id' ;; esac
 	[ "$(uci_get bettbox.config.profile)" != "$1" ] || die "select another profile before deleting the active profile"
+	local sid members
+	for sid in $(uci -q show bettbox | sed -n 's/^bettbox\.\([A-Za-z0-9_-]*\)\.merge_members=.*/\1/p'); do
+		members=$(uci_get "bettbox.$sid.merge_members")
+		case " $members " in *" $1 "*) die '该订阅仍被合并订阅使用' ;; esac
+	done
 	uci -q delete "bettbox.$1"
 	uci commit bettbox
 	rm -f "$(profile_file "$1")"

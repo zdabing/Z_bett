@@ -39,6 +39,13 @@ if (request.kind == 'exit') {
 	if(!(args[0] in ['import','check','update']) || length(args)!=(args[0]=='check'?2:3))die('bad script action');
 	command='ucode /usr/libexec/bettbox/script-update.uc';
 	for(let arg in args)command+=' '+q(arg);
+} else if (request.kind == 'profile-merge') {
+	if (!(args[0] in ['preview', 'create', 'edit']) || length(args) < 5 || length(args) > 11)
+		die('bad profile merge action');
+	command = 'sh /usr/libexec/bettbox/profile-merge.sh ' + join(' ', map(args, q));
+} else if (request.kind == 'profile-update') {
+	if (length(args) > 1) die('bad profile update action');
+	command = length(args) ? '/usr/bin/bettbox update ' + q(args[0]) : '/usr/bin/bettbox update-all';
 } else if(request.kind=='package' || request.kind=='package-check') {
 	if(request.kind=='package-check' && length(args)==0)command='/usr/bin/bettbox package check';
 	else if(request.kind=='package' && length(args)==1 && args[0]=='update')command='/usr/bin/bettbox package update';

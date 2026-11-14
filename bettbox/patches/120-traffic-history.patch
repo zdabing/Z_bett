@@ -1,0 +1,133 @@
+--- a/config/config.go
++++ b/config/config.go
+@@ -177,8 +177,9 @@
+ 
+ // Profile config
+ type Profile struct {
+-	StoreSelected bool
+-	StoreFakeIP   bool
++	BettboxTrafficProfile string
++	StoreSelected         bool
++	StoreFakeIP           bool
+ }
+ 
+ // TLS config
+@@ -361,8 +362,9 @@
+ }
+ 
+ type RawProfile struct {
+-	StoreSelected bool `yaml:"store-selected" json:"store-selected"`
+-	StoreFakeIP   bool `yaml:"store-fake-ip" json:"store-fake-ip"`
++	BettboxTrafficProfile string `yaml:"bettbox-traffic-profile" json:"bettbox-traffic-profile"`
++	StoreSelected         bool   `yaml:"store-selected" json:"store-selected"`
++	StoreFakeIP           bool   `yaml:"store-fake-ip" json:"store-fake-ip"`
+ }
+ 
+ type RawGeoXUrl struct {
+@@ -861,8 +863,9 @@
+ 
+ func parseProfile(cfg *RawConfig) (*Profile, error) {
+ 	return &Profile{
+-		StoreSelected: cfg.Profile.StoreSelected,
+-		StoreFakeIP:   cfg.Profile.StoreFakeIP,
++		BettboxTrafficProfile: cfg.Profile.BettboxTrafficProfile,
++		StoreSelected:         cfg.Profile.StoreSelected,
++		StoreFakeIP:           cfg.Profile.StoreFakeIP,
+ 	}, nil
+ }
+ 
+--- a/hub/executor/executor.go
++++ b/hub/executor/executor.go
+@@ -41,6 +41,7 @@
+ 	"github.com/metacubex/mihomo/log"
+ 	"github.com/metacubex/mihomo/ntp/ntp"
+ 	"github.com/metacubex/mihomo/tunnel"
++	"github.com/metacubex/mihomo/tunnel/statistic"
+ )
+ 
+ var mux sync.Mutex
+@@ -439,6 +440,7 @@
+ 
+ func updateProfile(cfg *config.Config) {
+ 	profileCfg := cfg.Profile
++	statistic.ConfigureTrafficHistory(profileCfg.BettboxTrafficProfile)
+ 
+ 	profile.StoreSelected.Store(profileCfg.StoreSelected)
+ 	if profileCfg.StoreSelected {
+@@ -534,6 +536,7 @@
+ 	listener.Cleanup()
+ 	tproxy.CleanupTProxyIPTables()
+ 	resolver.StoreFakePoolState()
++	statistic.FlushTrafficHistory()
+ 
+ 	log.Warnln("Mihomo shutting down")
+ }
+--- a/tunnel/statistic/manager.go
++++ b/tunnel/statistic/manager.go
+@@ -27,24 +27,31 @@
+ }
+ 
+ type Manager struct {
+-	historyMu     sync.Mutex
+-	closed        [closedConnectionLimit]*ClosedConnection
+-	closedHead    int
+-	closedCount   int
+-	connections   xsync.Map[string, Tracker]
+-	uploadTemp    atomic.Int64
+-	downloadTemp  atomic.Int64
+-	uploadBlip    atomic.Int64
+-	downloadBlip  atomic.Int64
+-	uploadTotal   atomic.Int64
+-	downloadTotal atomic.Int64
+-	pid           int32
+-	memory        uint64
++	historyMu       sync.Mutex
++	closed          [closedConnectionLimit]*ClosedConnection
++	closedHead      int
++	closedCount     int
++	trafficProfiles map[string]*trafficSample
++	connections     xsync.Map[string, Tracker]
++	uploadTemp      atomic.Int64
++	downloadTemp    atomic.Int64
++	uploadBlip      atomic.Int64
++	downloadBlip    atomic.Int64
++	uploadTotal     atomic.Int64
++	downloadTotal   atomic.Int64
++	pid             int32
++	memory          uint64
+ }
+ 
+ func (m *Manager) Join(c Tracker) {
+ 	m.historyMu.Lock()
+ 	defer m.historyMu.Unlock()
++	if profile := TrafficProfile(); profile != "" {
++		if m.trafficProfiles == nil {
++			m.trafficProfiles = make(map[string]*trafficSample)
++		}
++		m.trafficProfiles[c.ID()] = &trafficSample{profile: profile}
++	}
+ 	m.connections.Store(c.ID(), c)
+ }
+ 
+@@ -54,6 +61,8 @@
+ 	// A tracker can be closed by both the API and its relay goroutine.
+ 	if _, loaded := m.connections.LoadAndDelete(c.ID()); loaded {
+ 		m.recordClosed(c.Info())
++		recordTraffic(c.Info(), m.trafficProfiles[c.ID()])
++		delete(m.trafficProfiles, c.ID())
+ 	}
+ }
+ 
+@@ -126,6 +135,12 @@
+ 
+ func (m *Manager) handle() {
+ 	ticker := time.NewTicker(time.Second)
++	go func() {
++		flush := time.NewTicker(5 * time.Minute)
++		for range flush.C {
++			FlushTrafficHistory()
++		}
++	}()
+ 
+ 	for range ticker.C {
+ 		m.uploadBlip.Store(m.uploadTemp.Swap(0))

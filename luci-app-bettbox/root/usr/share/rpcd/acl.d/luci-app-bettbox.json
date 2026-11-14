@@ -20,6 +20,7 @@
 					"toolbox_call",
 					"get_network",
 					"get_resources",
+					"traffic_history",
 					"diagnostic_start",
 					"diagnostic_status"
 				]
@@ -36,6 +37,7 @@
 					"update_profile",
 					"add_profile",
 					"import_profile",
+					"merge_profile",
 					"del_profile",
 					"save_script",
 					"del_script",

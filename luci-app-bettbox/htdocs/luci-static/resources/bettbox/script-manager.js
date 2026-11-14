@@ -157,6 +157,11 @@ return baseclass.extend({
 		function add() {
 			var mode = 'url', name = E('input', { 'class': 'field', placeholder: '我的分流脚本', 'aria-label': '文件名' });
 			var url = E('input', { 'class': 'field', type: 'url', placeholder: 'https://…/script.js', 'aria-label': '脚本链接' });
+			var managed = UI.button('填入上游托管脚本', function() {
+				url.value = 'https://raw.githubusercontent.com/appshubcc/Bettbox/v1.19.8/assets/scripts/managed.js';
+				if (!name.value.trim()) name.value = 'Bettbox 托管分流';
+				error.textContent = '';
+			});
 			var file = E('input', { 'class': 'field', type: 'file', accept: '.js,text/javascript', 'aria-label': '脚本文件' });
 			var tabs = E('div', { 'class': 'hub-add-tabs', role: 'tablist', 'aria-label': '添加脚本方式' }), form = E('div'), error = E('div', { 'class': 'hub-error', role: 'alert' }), box;
 			var confirm = UI.button('导入脚本', function() {
@@ -174,7 +179,7 @@ return baseclass.extend({
 			}, 'primary', 'plus');
 			function sourceForm() {
 				Array.from(tabs.children).forEach(function(b) { b.classList.toggle('active', b.dataset.mode === mode); b.setAttribute('aria-selected', String(b.dataset.mode === mode)); });
-				form.replaceChildren.apply(form, (mode === 'url' ? [H.field('脚本链接', url)] : mode === 'file' ? [H.field('脚本文件', file)] : []).concat([H.field(mode === 'new' ? '文件名' : '文件名（可选）', name)]));
+				form.replaceChildren.apply(form, (mode === 'url' ? [H.field('脚本链接', url), managed] : mode === 'file' ? [H.field('脚本文件', file)] : []).concat([H.field(mode === 'new' ? '文件名' : '文件名（可选）', name)]));
 				confirm.querySelector('span').textContent = mode === 'new' ? '创建并编辑' : '导入脚本'; error.textContent = '';
 			}
 			[['url','链接导入'],['file','文件导入'],['new','新建代码']].forEach(function(item) { var b = E('button', { type: 'button', role: 'tab', 'data-mode': item[0] }, item[1]); b.addEventListener('click', function() { mode = item[0]; sourceForm(); }); tabs.appendChild(b); });

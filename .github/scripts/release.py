@@ -85,7 +85,7 @@ def provenance(run_id, architectures=TARGETS):
         require({'Build packages', 'Validate router ucode syntax', 'Preserve built APKs'} <= passed,
                 'original SDK build, ucode checks and artifact upload must pass for ' + target)
     run(['git', 'fetch', '--no-tags', 'origin', commit])
-    require(not run(['git', 'diff', '--name-only', commit, 'HEAD', '--', 'bettbox/files', 'bettbox/forge', 'luci-app-bettbox']).strip(),
+    require(not run(['git', 'diff', '--name-only', commit, 'HEAD', '--', 'bettbox/files', 'bettbox/forge', 'bettbox/patches', 'bettbox/traffic-history.go', 'luci-app-bettbox']).strip(),
             'product sources differ from the artifact build; perform a full build')
     boundary = '$(eval $(call BuildPackage,$(PKG_NAME)))'
     previous = run(['git', 'show', commit + ':bettbox/Makefile'])

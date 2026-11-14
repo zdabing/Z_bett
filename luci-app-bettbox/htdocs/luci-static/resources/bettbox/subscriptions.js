@@ -9,9 +9,10 @@
 
 var profilesRPC = rpc.declare({ object: 'bettbox', method: 'get_profiles' });
 var scriptsRPC = rpc.declare({ object: 'bettbox', method: 'get_scripts' });
-var updateRPC = rpc.declare({ object: 'bettbox', method: 'update_profile', params: ['sid','all'] });
+var updateRPC = rpc.declare({ object: 'bettbox', method: 'update_profile', params: ['sid','all','background'] });
 var addRPC = rpc.declare({ object: 'bettbox', method: 'add_profile', params: ['url','label'] });
 var importRPC = rpc.declare({ object: 'bettbox', method: 'import_profile', params: ['content','label'] });
+var mergeRPC = rpc.declare({ object: 'bettbox', method: 'merge_profile', params: ['action','sid','label','members'] });
 var commitRPC = rpc.declare({ object: 'uci', method: 'commit', params: ['config'] });
 var applyRPC = rpc.declare({ object: 'bettbox', method: 'apply' });
 
@@ -54,7 +55,7 @@ return baseclass.extend({
 		}
 		function update(id, all) {
 			if (busy) return; busy = true; notice.textContent = '正在更新订阅…'; draw();
-			return updateRPC(id, all ? '1' : '0').then(UI.checked).then(refresh).then(function() { notice.textContent = '订阅已更新'; }).catch(function(err) { notice.textContent = '更新失败：' + err.message; }).finally(function() { busy = false; draw(); });
+			return updateRPC(id, all ? '1' : '0', '1').then(UI.operation).then(refresh).then(function() { notice.textContent = '订阅已更新'; }).catch(function(err) { notice.textContent = '更新失败：' + err.message; }).finally(function() { busy = false; draw(); });
 		}
 		function choose(p) {
 			if (busy || p.id === active) return; busy = true; notice.textContent = '正在选用订阅…'; draw();
@@ -80,21 +81,75 @@ return baseclass.extend({
 			}, 'primary', 'plus')]);
 		}
 		function card(p) {
-			var current = p.id === active, used = (+p.sub_upload || 0) + (+p.sub_download || 0), total = +p.sub_total || 0;
+			var current = p.id === active, merged = (p.merge_members || []).length > 0;
+			var used = (+p.sub_upload || 0) + (+p.sub_download || 0), total = +p.sub_total || 0;
 			var percent = total > 0 ? Math.max(0, Math.min(100, used / total * 100)) : 0;
 			var formatted = UI.bytes(used).split(' '), expiry = p.sub_expire > 0 ? new Date(p.sub_expire * 1000).toLocaleDateString() : '未提供';
 			function fact(label, value, mono) { return E('div', {}, [E('span', {}, label), E('strong', { 'class': mono ? 'mono' : '' }, value)]); }
 			var select = current ? E('span', { 'class': 'hub-current-label' }, [UI.icon('check'), document.createTextNode('当前使用')]) : UI.button('选用', function() { return choose(p); }, 'soft');
 			if (!current) select.disabled = busy;
-			var updateButton = UI.button('更新', function() { return update(p.id, false); }, '', 'refresh'); updateButton.disabled = busy;
+			var updateButton = UI.button(merged ? '重新合并' : '更新', function() { return update(p.id, false); }, '', 'refresh'); updateButton.disabled = busy;
 			var scriptLink = E('button', { type: 'button', 'class': 'hub-script-link', 'aria-label': '配置' + (p.label || p.id) + '的覆写脚本' }, [E('span', {}, [UI.icon('code'), E('span', {}, '覆写脚本')]), E('strong', {}, p.use_script ? p.script || '未选择脚本' : '未启用'), UI.icon('chevron')]);
 			scriptLink.addEventListener('click', function() { scriptSettings(p); });
 			return E('article', { 'class': 'panel hub-profile' + (current ? ' current' : ''), 'data-profile-id': p.id }, [
 				E('div', { 'class': 'hub-card-top' }, [E('div', { 'class': 'hub-name' }, [E('span', { 'class': 'hub-icon' }, UI.icon('file')), E('h2', {}, p.label || p.id)]), UI.tag(current ? '当前使用' : '未选用', current ? '' : 'neutral')]),
 				E('div', { 'class': 'hub-usage' }, [E('div', {}, [E('span', { 'class': 'label' }, '已用流量'), E('div', { 'class': 'hub-number' }, total > 0 ? [document.createTextNode(formatted[0]), E('small', {}, [document.createTextNode(formatted[1]), E('span', {}, ' / ' + UI.bytes(total))])] : E('span', { 'class': 'hub-no-usage' }, '未提供用量'))]), total > 0 ? E('span', { 'class': 'hub-usage-percent mono' }, percent.toFixed(1) + '%') : '']),
 				E('div', { 'class': 'progress' }, E('i', { style: 'width:' + percent + '%' })),
-				E('div', { 'class': 'hub-profile-facts' }, [fact('下载 / 上传', UI.bytes(p.sub_download || 0) + ' / ' + UI.bytes(p.sub_upload || 0), true), fact('到期时间', expiry), fact('自动更新', p.auto_update ? '每 ' + p.update_interval + ' 分钟' : '手动更新'), fact('上次更新', p.last_update > 0 ? new Date(p.last_update * 1000).toLocaleString() : '未更新')]), scriptLink,
-				E('div', { 'class': 'hub-card-actions' }, [E('div', {}, select), E('div', {}, [updateButton, UI.button('编辑订阅', function() { edit(p); }, '', 'edit')])])]);
+				E('div', { 'class': 'hub-profile-facts' }, [fact('下载 / 上传', UI.bytes(p.sub_download || 0) + ' / ' + UI.bytes(p.sub_upload || 0), true), fact('到期时间', expiry), fact('自动更新', merged ? '随成员更新' : p.auto_update ? '每 ' + p.update_interval + ' 分钟' : '手动更新'), fact('上次更新', p.last_update > 0 ? new Date(p.last_update * 1000).toLocaleString() : '未更新')]), scriptLink,
+				E('div', { 'class': 'hub-card-actions' }, [E('div', {}, select), E('div', {}, [
+					...(merged ? [UI.button('编辑成员', function() { return mergeProfiles(p); })] : []),
+					updateButton, UI.button('编辑订阅', function() { edit(p); }, '', 'edit')])])]);
+		}
+		function mergeProfiles(profile) {
+			var eligible = profiles.filter(function(p) { return p.file && !(p.merge_members || []).some(Boolean); });
+			var label = E('input', { 'class': 'field', placeholder: '合并订阅', 'aria-label': '合并订阅名称' });
+			if (profile) label.value = profile.label || '';
+			var members = E('div'), status = E('p', { role: 'status' }), selects = [], box;
+			function syncButtons() {
+				addButton.disabled = selects.length >= Math.min(8, eligible.length);
+				removeButton.disabled = selects.length <= 2;
+			}
+			function addMember(id) {
+				var select = E('select', { 'class': 'field', 'aria-label': '成员 ' + (selects.length + 1) }, [E('option', { value: '' }, '请选择订阅')].concat(eligible.map(function(p) {
+					return E('option', { value: p.id }, p.label || p.id);
+				})));
+				select.value = id || '';
+				selects.push(select);
+				members.appendChild(H.field('成员 ' + selects.length, select));
+				select.addEventListener('change', function() { status.textContent = ''; });
+				syncButtons();
+			}
+			var addButton = UI.button('添加成员', function() { addMember(); }, '', 'plus');
+			var removeButton = UI.button('移除末位成员', function() {
+				selects.pop();
+				members.lastElementChild.remove();
+				status.textContent = '';
+				syncButtons();
+			});
+			function submit(action) {
+				var ids = selects.map(function(select) { return select.value; });
+				if (ids.some(function(id) { return !id; }) || new Set(ids).size !== ids.length) {
+					status.textContent = '请为每个位置选择不同的订阅';
+					return;
+				}
+				box.setBusy(true);
+				status.textContent = action === 'preview' ? '正在生成预览…' : '正在校验并保存…';
+				return mergeRPC(action, profile ? profile.id : '', label.value.trim(), JSON.stringify(ids)).then(UI.operation).then(UI.checked).then(function(job) {
+					if (action !== 'preview') return refresh().then(function() { box.setBusy(false); return box.close(true); });
+					var result = JSON.parse(job.text);
+					status.textContent = '节点 ' + result.proxies + ' 个，策略组 ' + result.groups + ' 个，规则 ' + result.rules + ' 条';
+					if (result.group_names.length) status.textContent += '。策略组 ' + result.group_names.join('、');
+				}).catch(function(err) { status.textContent = err.message; }).finally(function() { box.setBusy(false); });
+			}
+			(profile ? profile.merge_members : ['', '']).forEach(addMember);
+			box = H.dialog('合并订阅', [
+				E('p', {}, '按顺序选择成员。第一份订阅提供规则，后续订阅补充节点和策略组。'),
+				H.field('名称', label), members, addButton, removeButton, status
+			], [
+				UI.button('取消', function() { return box.close(); }),
+				UI.button('预览', function() { return submit('preview'); }),
+				UI.button('保存合并订阅', function() { return submit(profile ? 'edit' : 'create'); }, 'primary', 'save')
+			]);
 		}
 		function draw() {
 			if (!root) return;
@@ -102,12 +157,14 @@ return baseclass.extend({
 			var selected = profiles.find(function(p) { return p.id === active; }); summary.textContent = section === 'profiles' ? '当前使用 · ' + (selected ? selected.label || selected.id : '未选用') : '按订阅配置开关';
 			panel.setAttribute('aria-labelledby', buttons[section].id);
 			if (section === 'scripts') {
-				panel.replaceChildren(manager.element); actions.replaceChildren(UI.button('导入脚本', manager.add, 'primary', 'plus')); manager.activate();
+				panel.replaceChildren(manager.element); actions.replaceChildren(UI.button('导入脚本', function() { manager.add(); }, 'primary', 'plus')); manager.activate();
 				if (!root.isConnected) window.requestAnimationFrame(function() { if (root.isConnected && section === 'scripts') manager.activate(); });
 			}
 			else {
 				var updateAll = UI.button('更新全部', function() { return update('', true); }, '', 'refresh'); updateAll.disabled = busy || !profiles.length;
-				actions.replaceChildren(updateAll, UI.button('添加订阅', add, 'primary', 'plus'));
+				var merge = UI.button('合并订阅', function() { return mergeProfiles(); }, '', 'layers');
+				merge.disabled = busy || profiles.filter(function(p) { return p.file && !(p.merge_members || []).some(Boolean); }).length < 2;
+				actions.replaceChildren(updateAll, merge, UI.button('添加订阅', add, 'primary', 'plus'));
 				panel.replaceChildren(profiles.length ? E('div', { 'class': 'hub-grid' }, profiles.map(card)) : E('section', { 'class': 'panel hub-empty' }, [E('span', { 'class': 'hub-icon' }, UI.icon('file')), E('h2', {}, '还没有订阅'), UI.button('添加订阅', add, 'primary', 'plus')]));
 			}
 		}

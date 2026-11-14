@@ -90,6 +90,7 @@ function profile_list() {
 			id: sid,
 			label: s.label ?? sid,
 			url: s.url ?? '',
+			merge_members: s.merge_members ? split(s.merge_members, ' ') : [],
 			auto_update: (s.auto_update == '1'),
 			update_interval: int(s.update_interval) ?? 1440,
 			use_script: (s.use_script == '1'),
@@ -179,7 +180,8 @@ function create_job(kind, args, upload) {
 	// Release admission when the worker actually finishes, even if its page was
 	// closed. A completed job must not leave the watchdog disabled indefinitely.
 	let unlock=service?'if [ "$(cat /var/run/bettbox-service.lock/job 2>/dev/null)" = '+shellquote(id)+' ]; then rm -f /var/run/bettbox-service.lock/job; rmdir /var/run/bettbox-service.lock 2>/dev/null || true; fi':'';
-	let limit=kind=='package'?2400:kind=='core'?1200:service?600:160;
+	let subscription = kind == 'profile-merge' || kind == 'profile-update';
+	let limit=kind=='package'?2400:kind=='core' || kind=='profile-update'?1200:service || subscription?600:160;
 	if(kind=='package'){
 		let worker=readfile('/usr/libexec/bettbox/diagnostic.uc');
 		let cleanup='';
@@ -199,7 +201,7 @@ function create_job(kind, args, upload) {
 		return {ok:true,id:id,timeout_ms:2430000,reconnect:true};
 	}
 	// A diagnostic file-size limit must not be inherited by config/Geo writers.
-	let filelimit=service?'':'ulimit -f 2048; ';
+	let filelimit=service || subscription ? '' : 'ulimit -f 2048; ';
 	let cmd='(umask 077; '+filelimit+'timeout '+limit+' ucode /usr/libexec/bettbox/diagnostic.uc '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1; echo $? > '+shellquote(dir+'/code')+'; '+(unlock||':')+') </dev/null >/dev/null 2>&1 &';
 	if(system(cmd)!=0)return {ok:false,error:'could not start diagnostic'};
 	return {ok:true,id:id,timeout_ms:(limit+30)*1000};
@@ -295,6 +297,31 @@ return {
 		}},
 		get_network: {call:function(){return network_info();}},
 		get_resources: {call:function(){return resource_info();}},
+		traffic_history: {
+			args: { dimension: '' },
+			call: function(request) {
+				let dimension = request.args.dimension;
+				if (!(dimension in ['devices', 'domains', 'subscriptions']))
+					return { ok: false, error: '无效的流量统计维度' };
+				let file = '/etc/bettbox/bettbox-traffic.json', saved = {}, info = lstat(file);
+				if (info?.type == 'file' && info.size <= 4194304) {
+					try { saved = json(readfile(file)); } catch(e) {}
+				}
+				let days = [], now = time(), clock = localtime(now);
+				let midday = now + (12 - clock.hour) * 3600 - clock.min * 60 - clock.sec;
+				for (let offset = 6; offset >= 0; offset--) {
+					let day = localtime(midday - offset * 86400);
+					let date = sprintf('%04d-%02d-%02d', day.year, day.mon, day.mday);
+					if (type(saved?.[date]?.[dimension]) == 'object')
+						push(days, { date: date, counts: saved[date][dimension] });
+				}
+				let labels = {};
+				if (dimension == 'subscriptions') cursor().foreach('bettbox', 'subscription', s => {
+					labels[s['.name']] = s.label ?? s['.name'];
+				});
+				return { ok: true, days: days, labels: labels, enabled: cursor().get('bettbox', 'config', 'traffic_history') == '1' };
+			}
+		},
 		backup_file: {args:{action:'',file:''},call:function(request){
 			if(request.args.action=='prepare'){let file=trim(run('umask 077; mktemp /tmp/bettbox-ui-backup.XXXXXX'));if(!match(file,/^\/tmp\/bettbox-ui-backup\.[A-Za-z0-9]+$/))return {ok:false,error:'could not create backup workspace'};return {ok:true,file:file};}
 			if(request.args.action=='remove'&&match(request.args.file??'',/^\/tmp\/bettbox-ui-backup\.[A-Za-z0-9]+$/)){unlink(request.args.file);return {ok:true};}
@@ -359,13 +386,30 @@ return {
 			}
 		},
 		update_profile: {
-			args: { sid: '', all: '0' },
+			args: { sid: '', all: '0', background: '0' },
 			call: function(request) {
 				let all = (request.args.all == '1');
 				if (!all && !valid_sid(request.args.sid))
 					return { error: 'invalid sid' };
+				if (request.args.background == '1')
+					return create_job('profile-update', all ? [] : [request.args.sid]);
 				let cmd = all ? '/usr/bin/bettbox update-all' : '/usr/bin/bettbox update ' + shellquote(request.args.sid);
 				return run_result(cmd + ' 2>&1');
+			}
+		},
+		merge_profile: {
+			args: { action: '', sid: '', label: '', members: '[]' },
+			call: function(request) {
+				let action = request.args.action, sid = request.args.sid, label = request.args.label, members;
+				if (!(action in ['preview', 'create', 'edit']) || (action == 'edit' && !valid_sid(sid)) ||
+				    length(label) > 256 || length(request.args.members) > 1024)
+					return { ok: false, error: '无效的合并请求' };
+				try { members = json(request.args.members); } catch(e) {}
+				if (type(members) != 'array' || length(members) < 2 || length(members) > 8)
+					return { ok: false, error: '请选择 2 至 8 份订阅' };
+				for (let sid in members)
+					if (!valid_sid(sid)) return { ok: false, error: '无效的成员订阅' };
+				return create_job('profile-merge', [action, action == 'edit' ? sid : 'new', label, ...members]);
 			}
 		},
 		del_profile: {
@@ -374,6 +418,11 @@ return {
 				if (!valid_sid(request.args.sid))
 					return { error: 'invalid sid' };
 				let ctx = cursor();
+				let used = false;
+				ctx.foreach('bettbox', 'subscription', s => {
+					if (request.args.sid in split(s.merge_members ?? '', ' ')) used = true;
+				});
+				if (used) return { ok: false, error: '该订阅仍被合并订阅使用' };
 				if (ctx.get('bettbox', 'config', 'profile') == request.args.sid)
 					return { ok: false, error: 'select another profile before deleting the active profile' };
 				ctx.delete('bettbox', request.args.sid);

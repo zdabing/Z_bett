@@ -215,7 +215,7 @@ let patch = {
 	// LAN clients' application/process identities are unavailable on the router.
 	// Pin this off even if a subscription or legacy UCI option enables it.
 	'find-process-mode': 'off',
-	'global-ua': uci('config', 'global_ua') ?? 'clash.meta/v1.19.33',
+	'global-ua': uci('config', 'global_ua') ?? 'clash.meta/v1.19.34',
 	'allow-lan': allow_lan,
 	'bind-address': bind_address,
 	'external-controller': allow_lan ? replace(controller, /^127\.0\.0\.1/, '0.0.0.0') : controller,
@@ -223,7 +223,8 @@ let patch = {
 	'geodata-mode': (uci('config', 'geodata_mode') == '1'),
 	profile: {
 		'store-selected': true,
-		'store-fake-ip': true
+		'store-fake-ip': true,
+		'bettbox-traffic-profile': uci('config', 'traffic_history') == '1' ? sid ?? '' : ''
 	}
 };
 
@@ -393,6 +394,17 @@ if (uci('quic', 'block') == '1') {
 }
 
 let replace_rules = null;
+if (sid != null) {
+	let preset = uci(sid, 'rule_preset');
+	let text = uci('config', 'rule_presets');
+	if (preset) {
+		let presets = text ? json(text) : {};
+		let rules = presets?.[preset];
+		if (type(rules) != 'array' || length(filter(rules, rule => type(rule) != 'string')))
+			die('所选分流预设无效或已删除');
+		prepend = concat(prepend, rules);
+	}
+}
 // per-subscription rule override (UCI, LuCI profiles page)
 if (sid != null) {
 	let ov_text = uci(sid, 'override_rules');

@@ -36,6 +36,14 @@ def main():
         # Forge is built from the local Rust crate, independently of the Go archive.
         keys = 'PKG_RELEASE|PKG_VERSION|PKG_HASH' if package == 'bettbox' else 'PKG_RELEASE'
         metadata = re.compile(r'^(' + keys + r'):=.*$', re.M)
+        if package == 'bettbox':
+            after = after.replace(
+                'PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./traffic-history.go\n',
+                'PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src\n',
+            ).replace(
+                '\t$(CP) ./traffic-history.go $(PKG_BUILD_DIR)/tunnel/statistic/bettbox_traffic.go\n',
+                '',
+            )
         assert metadata.sub(r'\1:=verified', before) == metadata.sub(r'\1:=verified', after), 'build/install contract changed: full build required'
     release = json.loads(download('https://api.github.com/repos/' + REPO + '/releases/tags/' + TAG))
     assert not release['draft'] and not release['prerelease']

@@ -27,6 +27,7 @@ return baseclass.extend({
 			el.addEventListener('input', changed); return el;
 		}
 		var label = input(name), url = input(p.url, 'password', { autocomplete: 'off' });
+		var merged = (p.merge_members || []).length > 0;
 		var age = input(p.age_identity, 'password', { placeholder: '使用全局密钥', autocomplete: 'off' });
 		var interval = input(String(p.update_interval || 1440), 'number', { min: '1', max: '10080', step: '1' });
 		var period = E('select', { 'class': 'field', 'aria-label': '更新周期' }, [60, 360, 720, 1440].map(function(v) { return E('option', { value: String(v) }, '每 ' + (v / 60) + ' 小时'); }).concat([E('option', { value: 'custom' }, '自定义')]));
@@ -37,6 +38,15 @@ return baseclass.extend({
 		if (selected && !scripts.some(function(s) { return s.name === selected; })) scriptSelect.appendChild(E('option', { value: selected }, selected + '（文件不存在）'));
 		scriptSelect.value = selected;
 		var oldRules = H.object(p.override_rules), rules = E('textarea', { 'class': 'field hub-rules mono', rows: '7', placeholder: 'DOMAIN-SUFFIX,example.com,DIRECT', 'aria-label': '规则内容' });
+		var presets = H.object(uci.get('bettbox', 'config', 'rule_presets'));
+		var savedPreset = uci.get('bettbox', p.id, 'rule_preset') || '';
+		var preset = E('select', { 'class': 'field', 'aria-label': '分流预设' }, [E('option', { value: '' }, '无')].concat(
+			Object.keys(presets).map(function(name) { return E('option', { value: name }, name); })));
+		if (savedPreset && !Object.prototype.hasOwnProperty.call(presets, savedPreset))
+			preset.appendChild(E('option', { value: savedPreset }, savedPreset + '（已删除）'));
+		preset.value = savedPreset;
+		preset.addEventListener('change', changed);
+		var presetName = input('', 'text', { maxlength: '64', placeholder: '输入名称可将下方规则保存为预设' });
 		rules.value = Array.isArray(oldRules.rules) ? oldRules.rules.join('\n') : '';
 		var ruleMode = E('select', { 'class': 'field', 'aria-label': '规则处理方式' }, [E('option', { value: 'prepend' }, '追加在订阅规则之前'), E('option', { value: 'replace' }, '替换订阅规则')]); ruleMode.value = oldRules.mode === 'replace' ? 'replace' : 'prepend';
 		[rules, ruleMode].forEach(function(el) { el.addEventListener('input', function() { ruleTouched = true; changed(); }); el.addEventListener('change', function() { ruleTouched = true; changed(); }); });
@@ -100,8 +110,8 @@ return baseclass.extend({
 			if (tab === 'basic') {
 				var reveal = UI.button('显示', function() { url.type = url.type === 'password' ? 'text' : 'password'; reveal.querySelector('span').textContent = url.type === 'password' ? '显示' : '隐藏'; }, 'text', 'eye');
 				var autoToggle = H.toggle(auto, '自动更新', function(value) { auto = value; interval.disabled = period.disabled = !value; changed(); }); interval.disabled = period.disabled = !auto;
-				content.replaceChildren(section('订阅信息', [E('div', { 'class': 'hub-form-grid' }, [H.field('名称', label, true), H.field('订阅链接', E('div', { 'class': 'hub-input-action' }, [url, reveal]), true)])]),
-					E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '自动更新'), autoToggle]), E('div', { 'class': 'hub-form-grid' }, [H.field('更新周期', period), H.field('间隔（分钟）', interval)])]), error);
+				content.replaceChildren(section('订阅信息', [E('div', { 'class': 'hub-form-grid' }, [H.field('名称', label, true), merged ? E('p', {}, '合并配置随成员订阅更新。') : H.field('订阅链接', E('div', { 'class': 'hub-input-action' }, [url, reveal]), true)])]),
+					...(merged ? [] : [E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '自动更新'), autoToggle]), E('div', { 'class': 'hub-form-grid' }, [H.field('更新周期', period), H.field('间隔（分钟）', interval)])])]), error);
 			} else if (tab === 'script') {
 				scriptSelect.disabled = !useScript;
 				content.replaceChildren(E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '覆写脚本'), H.toggle(useScript, '启用覆写脚本', function(value) { useScript = value; scriptSelect.disabled = !value; changed(); if (value) loadOptions(selected); else drawOptions(); })]), H.field('选择脚本', scriptSelect)]), optionsHost, error); drawOptions();
@@ -118,7 +128,7 @@ return baseclass.extend({
 						return deleteRPC(p.id).then(UI.checked).then(config.onSaved).then(function() { busy = false; box.setBusy(false); return box.close(true); }).catch(function(err) { error.textContent = err.message; }).finally(function() { busy = false; box.setBusy(false); });
 					});
 				}, 'danger', 'close'); remove.disabled = config.active; if (config.active) remove.title = '请先选用其他订阅';
-				content.replaceChildren(section('订阅加密', [H.field('age 密钥', age)]), E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-options-heading' }, [E('h3', {}, '自定义规则'), fetchRules]), H.field('规则处理方式', ruleMode), H.field('规则内容', rules)]), E('section', { 'class': 'hub-form-section hub-delete-section' }, [E('h3', {}, '删除订阅'), remove]), error);
+				content.replaceChildren(section('订阅加密', [H.field('age 密钥', age)]), E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-options-heading' }, [E('h3', {}, '自定义规则'), fetchRules]), H.field('分流预设', preset), H.field('规则处理方式', ruleMode), H.field('规则内容', rules), H.field('另存为分流预设', presetName)]), E('section', { 'class': 'hub-form-section hub-delete-section' }, [E('h3', {}, '删除订阅'), remove]), error);
 			}
 			box.body.scrollTop = 0;
 		}
@@ -130,18 +140,37 @@ return baseclass.extend({
 			error.textContent = '';
 			var intervalValue = Number(interval.value), options = selected ? entry(selected) : null;
 			if (!label.value.trim()) { error.textContent = '请输入订阅名称'; return; }
-			if (!/^(https?|file):\/\//.test(url.value.trim())) { error.textContent = '请输入有效的订阅链接'; return; }
-			if (!Number.isInteger(intervalValue) || intervalValue < 1 || intervalValue > 10080) { error.textContent = '更新间隔应为 1 至 10080 分钟'; return; }
+			if (!merged && !/^(https?|file):\/\//.test(url.value.trim())) { error.textContent = '请输入有效的订阅链接'; return; }
+			if (!merged && (!Number.isInteger(intervalValue) || intervalValue < 1 || intervalValue > 10080)) { error.textContent = '更新间隔应为 1 至 10080 分钟'; return; }
 			if (useScript && (!selected || !scripts.some(function(s) { return s.name === selected; }))) { error.textContent = '请选择存在的覆写脚本'; return; }
 			if (useScript && !options.loaded && selected !== p.script) { error.textContent = '脚本开关尚未成功提取，请重试'; return; }
+			var list = rules.value.split('\n').map(function(v) { return v.trim(); }).filter(Boolean);
+			var newPreset = presetName.value.trim();
+			if (newPreset && (!list.length || list.length > 512 || newPreset.length > 64 || /[\r\n]/.test(newPreset) ||
+			    Object.prototype.hasOwnProperty.call(presets, newPreset) || Object.keys(presets).length >= 32)) {
+				error.textContent = '预设需要唯一名称和 1 至 512 条规则，最多保存 32 个预设';
+				return;
+			}
 			busy = true; box.setBusy(true); status.textContent = '正在保存…';
-			uci.set('bettbox', p.id, 'label', label.value.trim()); uci.set('bettbox', p.id, 'url', url.value.trim());
-			uci.set('bettbox', p.id, 'auto_update', auto ? '1' : '0'); uci.set('bettbox', p.id, 'update_interval', String(intervalValue));
+			uci.set('bettbox', p.id, 'label', label.value.trim());
+			if (!merged) {
+				uci.set('bettbox', p.id, 'url', url.value.trim());
+				uci.set('bettbox', p.id, 'auto_update', auto ? '1' : '0');
+				uci.set('bettbox', p.id, 'update_interval', String(intervalValue));
+			}
 			uci.set('bettbox', p.id, 'use_script', useScript ? '1' : '0'); uci.set('bettbox', p.id, 'script', selected);
 			uci.set('bettbox', p.id, 'custom_options', JSON.stringify(options ? options.values : original));
 			if (age.value.trim()) uci.set('bettbox', p.id, 'age_identity', age.value.trim()); else uci.unset('bettbox', p.id, 'age_identity');
+			if (newPreset) {
+				var currentPresets = Object.assign(Object.create(null), presets);
+				currentPresets[newPreset] = list;
+				uci.set('bettbox', 'config', 'rule_presets', JSON.stringify(currentPresets));
+			}
+			if (preset.value !== savedPreset) {
+				if (preset.value) uci.set('bettbox', p.id, 'rule_preset', preset.value);
+				else uci.unset('bettbox', p.id, 'rule_preset');
+			}
 			if (ruleTouched) {
-				var list = rules.value.split('\n').map(function(v) { return v.trim(); }).filter(Boolean);
 				if (list.length) uci.set('bettbox', p.id, 'override_rules', JSON.stringify({ mode: ruleMode.value, rules: list })); else uci.unset('bettbox', p.id, 'override_rules');
 			}
 			return uci.save().then(function() { return commitRPC('bettbox'); }).then(function(res) {
