@@ -37,6 +37,13 @@ include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
 include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
 CARGO_PKG_VARS+=TARGET_AR="$(TARGET_AR)"
 
+# Keep machine code in C static objects (rquickjs-sys) and pass GCC LTO plugin
+# flags to the Rust linker when OpenWrt firmware builds enable CONFIG_USE_LTO.
+ifeq ($(CONFIG_USE_LTO),y)
+  TARGET_CFLAGS := $(filter-out -fno-fat-lto-objects,$(TARGET_CFLAGS)) -ffat-lto-objects
+  CARGO_RUSTFLAGS += -Clink-arg=-flto=auto -Clink-arg=-fuse-linker-plugin
+endif
+
 # Preserve Go's configure hook and explicitly compose both compile helpers.
 # rquickjs 0.12 ships musl bindings for these two supported build targets.
 define Build/Prepare
