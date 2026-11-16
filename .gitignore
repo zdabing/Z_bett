@@ -25,9 +25,13 @@ Thumbs.db
 # build artifacts & local backups (never commit)
 /dist/
 
-# Local verification and working notes are intentionally not published.
+# Local verification and working notes are intentionally not published,
+# while formal architecture specs under /docs/ are tracked.
 /test/
-/docs/
+!/docs/
+/docs/*
+!/docs/ARCHITECTURE.md
+!/docs/ZEN-UI-SPEC.md
 /doc/
 /bettbox/forge/tests/
 /bettbox/forge/src/script/tests.rs

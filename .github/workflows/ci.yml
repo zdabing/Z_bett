@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-checks:
+    name: Source, Rust & Frontend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check router shell syntax
+        run: |
+          sh -n bettbox/files/usr/bin/bettbox
+          sh -n bettbox/files/etc/init.d/bettbox
+          sh -n bettbox/files/etc/init.d/bettbox-dns
+          for script in bettbox/files/usr/libexec/bettbox/*.sh; do sh -n "$script" || exit 1; done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check JavaScript, JSON, Python and YAML syntax
+        run: |
+          find bettbox luci-app-bettbox -type f -name '*.js' -print0 | xargs -0 -r -n1 node --check
+          python3 - <<'PY'
+          import ast, json
+          from pathlib import Path
+          for folder in ('bettbox', 'luci-app-bettbox'):
+              for path in Path(folder).rglob('*.json'):
+                  json.loads(path.read_text(encoding='utf-8'))
+          for path in Path('.github/scripts').glob('*.py'):
+              ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
+          PY
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bettbox/forge
+
+      - name: Check bettbox-forge Rust formatting and compilation
+        run: |
+          cargo fmt --manifest-path bettbox/forge/Cargo.toml -- --check
+          cargo check --locked --manifest-path bettbox/forge/Cargo.toml
+
+      - name: Check git whitespace and conflict markers
+        run: git diff --check

@@ -1,5 +1,14 @@
 # 更新日志
 
+## v2026.11.16 · 2026-11-16
+
+面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r10` 和 `luci-app-bettbox 1.19.7-r10`。
+
+- 扩展支持 **`aarch64_cortex-a53`（MediaTek Filogic）** 构建目标与在线/离线 APK 更新架构识别，并将 `aarch64_generic` SDK 对齐 `rockchip/armv8`。
+- 修复 OpenWrt 固件开启 `CONFIG_USE_LTO` 时 `rquickjs-sys` Rust/C 静态库链接失败的问题。
+- 优化 GitHub Actions 构建与校验流程：新增 `push` / `PR` 自动源码检查工作流（`ci.yml`），SDK 构建启用 Rust host toolchain 缓存与官方 CI LLVM 加速，移除已过时的旧版 `reuse-forge` 辅助脚本。
+- 完善开源工程文档（`README.md` 附界面预览截图、`AGENTS.md`、`docs/ARCHITECTURE.md`、`docs/ZEN-UI-SPEC.md` 及多固件/内核依赖安装说明）。
+
 ## v2026.11.14 · 2026-11-14
 
 面向 NanoPi R5C 使用的 OpenWrt 25.12 `aarch64_generic`。请配套安装 `bettbox 1.19.34-r9` 和 `luci-app-bettbox 1.19.7-r9`。

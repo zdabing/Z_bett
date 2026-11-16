@@ -35,7 +35,7 @@ function save(path,value){
 function platform(){
 	let machine=cmd('timeout 5 uname -m',true).text,accepted=split(readfile('/etc/apk/arch')??'','\n'),arch=null;
 	for(let item in accepted){item=trim(item);if(item=='x86_64' && machine=='x86_64'){arch=item;break;}
-		if(item=='aarch64_generic' && (machine=='aarch64'||machine=='arm64')){arch=item;break;}}
+		if((item=='aarch64_generic'||item=='aarch64_cortex-a53') && (machine=='aarch64'||machine=='arm64')){arch=item;break;}}
 	let release=null;
 	for(let line in split(readfile('/etc/openwrt_release')??'','\n')){
 		let m=match(line,/^DISTRIB_RELEASE=['"]([^'"]+)['"]$/);if(m)release=m[1];

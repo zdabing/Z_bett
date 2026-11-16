@@ -14,7 +14,7 @@ import tempfile
 import time
 
 REPOSITORY = 'zdabing/Z_bett'
-TARGETS = ('x86_64', 'aarch64_generic')
+TARGETS = ('x86_64', 'aarch64_generic', 'aarch64_cortex-a53')
 NAMES = ('bettbox', 'luci-app-bettbox')
 TAG = re.compile(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-r[0-9]+)?\Z')
 VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+\Z')

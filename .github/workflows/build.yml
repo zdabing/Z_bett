@@ -13,20 +13,18 @@ on:
         type: string
         required: false
       build_target:
-        description: Build for NanoPi R5C (ARM64) or both architectures
+        description: Build for NanoPi R5C / generic ARM64, MediaTek Filogic, x86_64, or all architectures
         type: choice
         default: aarch64_generic
         options:
           - aarch64_generic
           - all
+          - x86_64
+          - aarch64_cortex-a53
       reuse_run:
         description: Optional previous run ID; reuse verified APK payloads only when product sources and build definitions match
         type: string
         required: false
-      reuse_forge:
-        description: Reuse the verified release helper only if forge sources and build definitions are unchanged
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -54,6 +52,7 @@ jobs:
         run: |
           sh -n bettbox/files/usr/bin/bettbox
           sh -n bettbox/files/etc/init.d/bettbox
+          sh -n bettbox/files/etc/init.d/bettbox-dns
           for script in bettbox/files/usr/libexec/bettbox/*.sh; do sh -n "$script" || exit 1; done
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo fmt --manifest-path bettbox/forge/Cargo.toml -- --check
@@ -66,7 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(inputs.build_target == 'all' && '["x86_64","aarch64_generic"]' || '["aarch64_generic"]') }}
+        target: ${{ fromJSON(inputs.build_target == 'all' && '["x86_64","aarch64_generic","aarch64_cortex-a53"]' || format('["{0}"]', inputs.build_target)) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,8 +84,11 @@ jobs:
           VER=25.12.6
           case "${{ matrix.target }}" in
             x86_64) DIR=targets/x86/64 ;;
-            aarch64_generic) DIR=targets/armsr/armv8 ;;
+            aarch64_generic) DIR=targets/rockchip/armv8 ;;
+            aarch64_cortex-a53) DIR=targets/mediatek/filogic ;;
           esac
+          echo "SDK_VERSION=$VER" >> "$GITHUB_ENV"
+          echo "SDK_TARGET=$DIR" >> "$GITHUB_ENV"
           # Resolve the exact SDK filename from sha256sums (fixed-name fetch, no
           # directory listing needed — listings 502 on the CDN intermittently)
           # and fall back across mirrors.
@@ -109,14 +111,6 @@ jobs:
           SDKDIR=$(echo openwrt-sdk-*)
           echo "SDKDIR=$SDKDIR" >> "$GITHUB_ENV"
 
-      - name: Reuse verified unchanged forge helper
-        if: inputs.reuse_forge && inputs.reuse_run == ''
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-          APK_TOOL: ${{ github.workspace }}/${{ env.SDKDIR }}/staging_dir/host/bin/apk
-        working-directory: ${{ github.workspace }}/bettbox-feed
-        run: python3 .github/scripts/reuse-forge.py
-
       - name: Register feed and install
         if: inputs.reuse_run == ''
         working-directory: ${{ env.SDKDIR }}
@@ -128,6 +122,22 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Use verified Rust CI LLVM when available
+        if: inputs.reuse_run == ''
+        working-directory: ${{ env.SDKDIR }}
+        run: |
+          RUST_MAKEFILE=feeds/packages/lang/rust/Makefile
+          RUST_VERSION=$(sed -n 's/^PKG_VERSION:=//p' "$RUST_MAKEFILE")
+          CI_LLVM_URL=https://ci-artifacts.rust-lang.org/rustc-builds/ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96/rust-dev-1.96.0-x86_64-unknown-linux-gnu.tar.xz
+          if [ "$RUST_VERSION" = 1.96.0 ] && \
+             grep -qF -- '--set=llvm.download-ci-llvm=false' "$RUST_MAKEFILE" && \
+             curl -fsSIL --retry 2 "$CI_LLVM_URL" >/dev/null; then
+            sed -i 's/--set=llvm.download-ci-llvm=false/--set=llvm.download-ci-llvm=true/' "$RUST_MAKEFILE"
+            echo 'Rust 1.96.0: using official CI LLVM to skip local LLVM compilation'
+          else
+            echo "Rust $RUST_VERSION: keeping default OpenWrt LLVM source build"
+          fi
+
       - name: Configure
         if: inputs.reuse_run == ''
         working-directory: ${{ env.SDKDIR }}
@@ -136,6 +146,59 @@ jobs:
           echo "CONFIG_PACKAGE_luci-app-bettbox=y" >> .config
           echo "CONFIG_PACKAGE_bettbox=y" >> .config
           make defconfig
+
+      - name: Restore Rust host toolchain cache
+        id: rust-cache
+        if: inputs.reuse_run == ''
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.SDKDIR }}/staging_dir/target-*/host
+            ${{ env.SDKDIR }}/staging_dir/hostpkg/stamp/.rust_installed
+            ${{ env.SDKDIR }}/build_dir/target-*/host/rustc-*
+          key: rust-host-${{ runner.os }}-${{ env.SDK_VERSION }}-${{ matrix.target }}-${{ hashFiles('**/feeds/packages/lang/rust/Makefile') }}
+
+      - name: Build Rust host toolchain
+        if: inputs.reuse_run == '' && steps.rust-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ env.SDKDIR }}
+        run: make package/feeds/packages/rust/host/compile V=s -j"$(nproc)"
+
+      - name: Restore cached Rust host build state
+        if: inputs.reuse_run == '' && steps.rust-cache.outputs.cache-hit == 'true'
+        working-directory: ${{ env.SDKDIR }}
+        run: |
+          set -euo pipefail
+          test -f staging_dir/hostpkg/stamp/.rust_installed
+          rustc_bin=$(find staging_dir -path '*/host/bin/rustc' -print -quit)
+          cargo_bin=$(find staging_dir -path '*/host/bin/cargo' -print -quit)
+          test -x "$rustc_bin" && test -x "$cargo_bin"
+          "$rustc_bin" --version
+          "$cargo_bin" --version
+          # OpenWrt cleans the Rust source tree after host install. Fetch the
+          # source archive with the feed's pinned hash, then recreate stamps.
+          rust_makefile=feeds/packages/lang/rust/Makefile
+          rust_version=$(sed -n 's/^PKG_VERSION:=//p' "$rust_makefile")
+          rust_hash=$(sed -n 's/^PKG_HASH:=//p' "$rust_makefile")
+          test -n "$rust_version" && test -n "$rust_hash"
+          rust_source="rustc-${rust_version}-src.tar.xz"
+          curl -fsSL --retry 3 "https://static.rust-lang.org/dist/$rust_source" -o "dl/$rust_source"
+          printf '%s  %s\n' "$rust_hash" "dl/$rust_source" | sha256sum -c -
+          make package/feeds/packages/rust/host/configure V=s
+          rust_src_dir=$(find build_dir -path '*/host/rustc-*-src' -type d -print -quit)
+          test -n "$rust_src_dir"
+          touch "$rust_src_dir/.built"
+          touch staging_dir/hostpkg/stamp/.rust_installed
+          make package/feeds/packages/rust/host/compile V=s -j"$(nproc)"
+
+      - name: Save Rust host toolchain cache
+        if: inputs.reuse_run == '' && steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ env.SDKDIR }}/staging_dir/target-*/host
+            ${{ env.SDKDIR }}/staging_dir/hostpkg/stamp/.rust_installed
+            ${{ env.SDKDIR }}/build_dir/target-*/host/rustc-*
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
 
       - name: Build native ucode validator
         if: inputs.reuse_run == ''

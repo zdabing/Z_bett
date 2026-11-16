@@ -1,73 +1,103 @@
-# Bettbox for OpenWrt
+# Bettbox for OpenWrt (`Z_bett`)
 
-将 [Bettbox](https://github.com/appshubcc/Bettbox) 的代理、订阅与脚本覆写功能适配到 OpenWrt 25.12，提供电脑和手机 LuCI 界面。
+将 [Bettbox](https://github.com/appshubcc/Bettbox) 的代理、订阅合并、托管分流与 QuickJS 脚本覆写能力适配到 **OpenWrt 25.12 / ImmortalWrt 25.12**（`apk` 包管理器、ucode LuCI、无 Lua 依赖），提供电脑与手机自适应界面以及 **Meridian 橙彩玻璃 / Apple 清爽卡片 / 跟随宿主主题** 三套外观风格。
 
-## 安装包
+| 安装包 | 架构 | 内容 |
+|---|---|---|
+| `bettbox` | 匹配设备架构 | Mihomo 核心（内嵌订阅合并、路由追踪与流量统计）、`bettbox-forge`（Rust / QuickJS 脚本引擎）、`procd` 服务、透明代理、配置渲染与工具箱 |
+| `luci-app-bettbox` | `all` | 概览、代理、连接、订阅与脚本、资源、工具箱、日志与设置界面及 `rpcd` ucode 后端 |
 
-| 包 | 内容 |
-|---|---|
-| `bettbox` | Mihomo、Rust/QuickJS 脚本引擎、服务脚本、透明代理、订阅、配置渲染和工具箱 |
-| `luci-app-bettbox` | 概览、代理、连接、订阅、脚本、资源、工具箱、日志和设置 |
+> 从 `v2026.10.27` 起，`bettbox-forge` 已合入 `bettbox` 安装包，不再单独发布第三个 APK；路由器无需 Rust 或 Python 环境。
 
-支持 `x86_64` 和 `aarch64_generic`（ARM64）。`bettbox-forge` 已包含在 Bettbox 包内，不再单独发布 APK；路由器无需 Rust 或 Python 环境。
+---
+
+## 界面预览
+
+<table>
+  <tr>
+    <td align="center"><b>概览页 · Meridian 橙彩玻璃</b></td>
+    <td align="center"><b>概览页 · Apple 清爽卡片</b></td>
+  </tr>
+  <tr>
+    <td><img src="assets/screenshots/overview-meridian.png" alt="概览页 Meridian 橙彩玻璃" /></td>
+    <td><img src="assets/screenshots/overview-apple.png" alt="概览页 Apple 清爽卡片" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>代理页 · Qure 图标与延迟测速</b></td>
+    <td align="center"><b>订阅与脚本管理 · 合并与用量进度</b></td>
+  </tr>
+  <tr>
+    <td><img src="assets/screenshots/proxies.png" alt="代理策略组与节点测速" /></td>
+    <td><img src="assets/screenshots/profiles.png" alt="订阅管理与脚本覆写" /></td>
+  </tr>
+</table>
+
+---
+
+## 支持平台与兼容说明
+
+| 构建目标 (`build_target`) | OpenWrt SDK 路径 | 适用设备举例 |
+|---|---|---|
+| `x86_64` | `targets/x86/64` | 软路由 / x86_64 虚拟机 |
+| `aarch64_generic` | `targets/rockchip/armv8` | NanoPi R5C / R5S、Rockchip 等通用 ARM64 |
+| `aarch64_cortex-a53` | `targets/mediatek/filogic` | MediaTek Filogic（如小米 AX3000T、红米 AX6000、GL.iNet MT6000 等） |
+
+### 内核与系统依赖注意事项
+
+- **系统要求**：面向 **OpenWrt 25.12** 与使用 `25.12` 版本号的 **ImmortalWrt 25.12**（`apk` 包管理器）。在线与离线 APK 更新接口会检查 `/etc/openwrt_release` 中的 `DISTRIB_RELEASE` 是否属于 `25.12` 系列；若第三方魔改固件使用其他版本号前缀，请手动通过 `apk` 安装。
+- **安装前先执行 `apk update`**：`bettbox` 依赖 `firewall4`、`ip-full`、`kmod-tun`、`kmod-nft-tproxy`、`kmod-nft-socket`、`ucode`、`yq`、`curl`、`ca-bundle`、`gzip`、`coreutils-sha256sum`、`unzip`。只要路由器能访问与当前固件匹配的软件源，安装本地 `.apk` 时 `apk` 会**自动补齐**缺失模块。
+- **第三方精简 / 自编译固件**：由于 `kmod-*` 内核模块严格绑定编译时的内核 `vermagic`，若固件本身未预装 `kmod-tun` / `kmod-nft-tproxy` / `kmod-nft-socket` 且没有配置配套 `kmods` 源，将无法通过直接安装 `.apk` 满足依赖，需由固件编译方在编包时选入对应模块或直接源码编译 `Z_bett`。
+
+---
 
 ## 主要功能
 
-- TUN、TPROXY、REDIR 透明代理，DNS 分流、嗅探、QUIC 控制和规则覆写。
-- 按来源 MAC 设置设备白名单／黑名单，同时筛选 IPv4／IPv6 透明代理和普通 DNS。
-- 实时网速、累计上传/下载、活动连接、内存、内网 IP、直连/代理出口和连通性检测。
-- 策略组、节点切换、单节点与批量延迟测试、订阅图标和选择持久化。
-- 批量测速复用近期结果、共享队列与取消排队；大节点组分批加载。
-- 订阅自动更新、Clash YAML／分享链接／Base64 导入、用量展示，JS 脚本 URL/文件导入与可视化选项。
-- Mihomo 独立检查更新与回退；Bettbox/LuCI APK 检查与一键更新。
-- 本地与 WebDAV 配置备份、日志导出，以及分层网络健康检测。
+- **透明代理与分流**：支持 TUN、TPROXY、REDIR 透明代理，DNS 接管/真实 IP 域名保护（含 DDNS 回流豁免）、嗅探、QUIC 控制与规则覆写。
+- **设备 MAC 控制与设备兜底策略**：
+  - 按来源 MAC 设置设备白名单／黑名单（最多 256 项），同时作用于主 LAN 的 IPv4／IPv6 透明代理与 TCP/UDP 53 普通 DNS；启用时 TUN 由插件策略路由接管，兼容升级前的旧 IP／网段条目。
+  - 「设置 → 设备兜底策略」可为单独 IPv4／IPv6 或网段指定 `跟随全局 / 直连 / 拒绝 / 指定策略组`，在订阅规则之后、全局 `MATCH` 之前生效，订阅更新后保留。
+- **概览、代理与连接**：
+  - 实时网速与一分钟趋势线、累计上传/下载环形图、活动连接、内核内存、内网 IP、直连/代理出口及连通性历史探测。
+  - 策略组、节点切换、本地 Qure 地区旗帜与服务图标、大节点组分批加载（48 项/批）与搜索、单节点/组/全部延迟测速（默认 60 秒结果复用与共享双并发队列，支持取消排队）。
+  - 连接页区分「活动 / 已关闭 / 全部」（随包核心内存保留最近 512 条已关闭连接）。
+- **订阅、合并与 QuickJS 脚本引擎**：
+  - 支持订阅链接与粘贴导入：完整 Clash YAML 原样保存；分享链接（SS、VMess、VLESS、Trojan、Hysteria2、TUIC、AnyTLS、SOCKS5、HTTP(S)）或 Base64 文本由按需运行的 QuickJS 引擎（`bettbox-forge`）转换并按连接参数去重。
+  - 支持合并 2 至 8 份订阅、内置托管分流目录（采用 Bettbox v1.19.8 合并/分流实现），以及可视化提取/切换脚本 `policyGroupOptions`（`main(config, customOptions)`，单次运行限时 10 秒、堆上限 128 MiB、栈 512 KiB）。
+  - 渲染时静态校验 DNS 自指向、上游缺失与节点解析策略，遇到 `geosite`/`rule-set` 等离线不可判定规则不推测覆盖。
+- **资源更新、备份与网络健康**：
+  - Mihomo 核心独立检查更新与回退（保留随包核心与上一选择）；Bettbox / LuCI APK 一键在线更新（核对固定 GitHub 仓库、`bettbox-update.json`、SHA-256、架构与 APK 元数据）及 **上传 APK 离线更新**；下载 GitHub 失败时自动通过本机可用 Mixed 端口重试。
+  - 本地与 WebDAV 配置备份/恢复、日志过滤导出、分层只读健康检测（`bettbox health [域名]`）与看门狗（每 300 秒诊断、连续两次控制接口失败才重启且冷却不少于 5 分钟）。
+- **Zen 三套外观引擎**：
+  - 支持 `Meridian 橙彩玻璃`（默认）、`Apple 清爽卡片`、`跟随宿主主题`（无缝继承 `luci-theme-zen` 等宿主 CSS 变量），配合 `跟随系统 / 浅色 / 深色`，所有样式严格隔离在 `.bb-app` 作用域下。
 
-脚本使用 `main(config, customOptions)`，支持上游 `Compatible_With_Bettbox.policyGroupOptions`。QuickJS 进程按需运行，默认脚本限时 10 秒、JS 堆分配上限 128MiB、栈 512KiB。
+---
 
-「订阅 → 添加订阅」支持订阅链接和粘贴导入。链接返回的完整 Clash YAML 原样保存；分享链接或 Base64 节点列表由现有 QuickJS 引擎按需转换，支持 SS、VMess、VLESS、Trojan、Hysteria2、TUIC、AnyTLS、SOCKS5、HTTP(S) 的常见参数，尚未支持的协议或传输参数会明确报错。去重包含凭据、TLS 和传输参数，同名但配置不同的节点保留并区分名称。网页粘贴上限 1 MiB，下载内容上限 4 MiB，分享链接最多 2048 条；粘贴导入保存为本地配置，默认关闭自动更新。转换失败保留旧订阅。
+## 安装与升级
 
-生成配置时检查 DNS 上游是否指向核心自身、DNS 上游是否缺失，以及 respect-rules 与节点 DNS 的必要配置。节点域名可从明确匹配的订阅 DNS 规则补齐专用解析策略，已有专用策略优先；遇到无法离线判断的规则集不推测覆盖。`system` 或本地 53 端口与 dnsmasq 转发并存时提示核查实际链路，不统一替换为公共 DNS。
-
-订阅合并、内置托管分流、流量统计和路由追踪采用 Bettbox v1.19.8 的实现。合并先对各成员执行托管脚本，再按成员顺序处理同名项和节点 DNS。流量统计和路由追踪需要随包核心，可在「资源 → Mihomo 核心」切回。应用维度只能显示路由器能识别的本机进程。
-
-代理页的组测速和全部测速默认复用同一运行配置、测试地址下 60 秒内的成功结果，可在「测试设置」选择关闭或改为 30／300 秒；手动点击单节点始终重新检测。结果仅保留当前浏览器会话最近 512 条，最长 5 分钟；核心进程或配置变化后失效。所有组共用两个并发任务，取消后停止后续排队并忽略迟到结果，已提交到后台的请求按原超时结束。展开节点组先展示 48 项，滚动接近底部或点击「加载更多」继续加载，搜索覆盖全部节点。
-
-「工具箱 → 网络健康」或 `bettbox health [域名]` 检测核心进程、控制接口、核心 DNS、dnsmasq、上游 DNS、显式代理和路由器本机访问，区分失败、未检测和无法确认；同时读取核心 RSS／PSS、历史峰值及系统可用内存。缺少 PSS 数据时显示未知。HTTP 响应表示传输链路可达，不保证目标网站所有功能可用；本机访问和上游 DNS 探测遵循路由器实际路径，不等同于手机／NAS 的透明代理验收。加密 DNS 上游不使用 UDP 查询冒充检测结果。
-
-看门狗默认每 300 秒执行一次只读分层检测，`bettbox.config.health_interval=0` 可关闭周期检测；不会因外部网站或 DNS 上游失败而重启核心。基本控制接口检测仍按原间隔运行，连续两次失败才尝试重启，重启间隔至少 5 分钟；启停／应用期间跳过检查，并使用运行中的配置快照，避免未应用设置引发误判。周期检测复用现有看门狗进程，不增加常驻服务。
-
-「设置 → 设备控制」默认关闭，全部 LAN 设备按原方式进入分流。可从设备列表选取或手动输入 MAC，最多 256 项。同一 MAC 同时匹配 IPv4、IPv6 和 TCP／UDP 53 端口的普通 DNS。白名单仅接管名单内的设备，黑名单让名单内的设备直连。两类名单为空时分别接管零台或全部设备。进入分流后仍遵循规则／全局／直连模式，设备也可以手动连接 Mixed 等代理端口。
-
-升级后保留旧 IP／网段名单，MAC 或旧 IP 命中任一项即算命中名单。可在同一页面选中设备的 MAC，再移除对应的旧条目。请使用设备在当前 LAN 上实际使用的 MAC，设备更换 Wi‑Fi 私有 MAC 后需要更新名单。
-
-「设置 → 设备兜底策略」可为单独的 IPv4／IPv6 地址或网段设置直连、拒绝或现有出口，也可沿用全局。它在规则模式下、已有业务规则之后、全局 MATCH／FINAL 之前生效。例如 NAS `10.0.0.194` 的未匹配连接直连，`10.0.0.200` 继续沿用全局兜底。设置独立保存，订阅更新后保留；它不等同于按应用识别迅雷，也不会覆盖已命中的代理规则。
-
-启用设备控制时，名单作用于主 LAN 接口（`network.lan.device`，默认 `br-lan`）的透明代理。TUN 使用插件管理的策略路由，暂时禁用核心的 auto-route 和 auto-redirect，关闭设备控制后恢复原 TUN 设置。DNS 与透明代理共用名单，需监听 `0.0.0.0:端口` 或 `[::]:端口`，Bettbox 持有的 dnsmasq 全局转发会恢复原配置。修改名单需要保存并应用。切换后可刷新客户端 DNS 缓存，清除旧的 Fake-IP。
-
-## 安装与更新
-
-从 [Releases](https://github.com/zdabing/Z_bett/releases) 下载匹配设备架构的一组两个 APK，将它们放在同一目录，先模拟再安装：
+从 [Releases](https://github.com/zdabing/Z_bett/releases) 下载匹配设备架构的一组两个 `.apk`（`bettbox` 与 `luci-app-bettbox`），上传到路由器同一目录后先联网刷新源，再先模拟后安装：
 
 ```sh
+apk update
 apk add --simulate --allow-untrusted ./bettbox-[0-9]*.apk ./luci-app-bettbox-[0-9]*.apk bettbox-forge
 apk add --allow-untrusted ./bettbox-[0-9]*.apk ./luci-app-bettbox-[0-9]*.apk bettbox-forge
 ```
 
-最后的 `bettbox-forge` 是新包提供的兼容名称，用于接续旧三包版本的依赖约束。请只保留当前架构的一组 APK，并确认模拟事务没有无关删除或冲突。项目 APK 未使用 OpenWrt 官方源签名，需使用 `--allow-untrusted`。
+- 末尾的 `bettbox-forge` 是新 `bettbox` 包提供的兼容 `provides/replaces` 名称，用于平滑替换早期独立三包版本的依赖约束，并非第三个安装文件。
+- 目录中请只保留当前设备架构的一组 APK；项目 APK 未使用官方软件源密钥签名，需保留 `--allow-untrusted`。
+- 若已安装 `v2026.10.27` 及以上版本，后续可在 LuCI「资源 → Bettbox 更新」直接一键在线更新，或通过「上传 APK 更新」离线升级；升级前配置备份保存在 `/etc/bettbox/state/before-package-update.tar`。
 
-安装本版后可通过“资源”页分别更新软件包和 Mihomo。在线更新核对固定 GitHub 仓库、发布清单、SHA-256、架构和 APK 元数据，安装前备份配置。核心更新保留随包核心与上一选择；APK 更新没有自动回滚，配置备份位于 `/etc/bettbox/state/before-package-update.tar`。
-
-检查和下载 GitHub 发布文件时，原网络路径失败后会用 Bettbox 当前配置的本机 Mixed 端口重试。重试需要核心在运行、Mixed 端口可用，以及当前分流规则能访问 GitHub。两条路径使用同一个官方发布地址和文件校验。
-
-路由器无法访问 GitHub 时，可在「资源 → Bettbox 更新 → 上传 APK 更新」选择同一官方 Release 中的 Bettbox 和 LuCI 两个 OpenWrt APK。路由器会校验包内容和架构，拒绝降级，备份配置后离线安装。请在上传前确认文件来源，离线安装无法向 GitHub 核验发布摘要。
-
-更新会重启运行中的代理服务，现有连接可能短暂中断。新版本的变化和验证范围见 [更新日志](CHANGELOG.md)。
+---
 
 ## 构建与发布
 
-GitHub Actions 的 **Build OpenWrt 25 packages** 工作流支持手动构建。默认构建 NanoPi R5C 使用的 `aarch64_generic`，选择 `all` 可同时构建 x86_64。勾选 `publish` 并填写对应的 `release_tag` 后，工作流会为每个选中的架构发布两个 APK，并生成 `bettbox-update.json` 在线更新清单。
+### GitHub Actions
 
-也可在对应架构的全新 OpenWrt 25.12 SDK 中注册本地 feed：
+- **自动源码校验（`CI`）**：每次推送 `main` 或发起 PR 时自动运行 Shell 语法、`bettbox-forge` `cargo fmt --check` / `cargo check --locked`、全量 JS `node --check`、JSON 与 Python 脚本检查。
+- **多目标打包与发布（`Build OpenWrt 25 packages`）**：在 Actions 页面手动触发，可选择 `aarch64_generic`（默认）、`aarch64_cortex-a53`、`x86_64` 或 `all`（同时构建全部 3 个架构，共 6 个 `.apk`）；勾选 `publish` 并填写与 `CHANGELOG.md` 对应的 `release_tag`（如 `v2026.11.16`）后，自动校验摘要并发布 Release 与 `bettbox-update.json`。
+
+### OpenWrt 25.12 SDK 本地编译
+
+在对应架构的 OpenWrt 25.12 SDK 中注册本地 feed：
 
 ```sh
 cp feeds.conf.default feeds.conf
@@ -79,12 +109,23 @@ make package/bettbox/compile V=s
 make package/luci-app-bettbox/compile V=s
 ```
 
-源码目录：`bettbox/` 为核心包，`luci-app-bettbox/` 为界面，`.github/` 为构建与发布配置。测试、设计预览、排查记录、构建缓存和本地配置不纳入 Git。
+如同时开发 `Z_bett` 与 `luci-zen`，可使用 [scripts/build-openwrt-suite.sh](scripts/build-openwrt-suite.sh) 共享 SDK 缓存合编。
 
-## 兼容范围
+### 目录结构
 
-建议使用 OpenWrt 25.12 与设备固件对应的软件源，内核模块必须匹配固件。`iperf3`、`age` 等扩展工具按需安装。规则追踪不完整求值 GEO 数据集；NAT 检测依赖可用的 UDP 工具；MRS 查询不提供 MMDB 反查。
+- `bettbox/`：核心包源码（`Makefile`、`patches/`、`upstream/*.go`、`forge/` Rust/QuickJS、`files/` 路由器控制脚本与 UCI 配置）
+- `luci-app-bettbox/`：LuCI 前端视图、Scoped CSS、图标资产与 `rpcd` ucode 网关
+- `docs/`：架构维护规范（[ARCHITECTURE.md](docs/ARCHITECTURE.md)）与 UI 变量契约（[ZEN-UI-SPEC.md](docs/ZEN-UI-SPEC.md)）
+- `.github/`：CI、SDK 多架构构建与发布脚本
+
+---
+
+## 兼容范围与已知限制
+
+- 规则追踪（`trace`）不完整求值 GEO 数据集；NAT 检测依赖可用 UDP 工具；MRS 查询不提供 MMDB 反查。
+- `traffic-stats` 流量统计与 `trace` 路由追踪依赖随包核心扩展，若在「资源 → Mihomo 核心」切回上游官方原版核心则不可用；应用维度仅显示路由器本机可识别进程。
+- 变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 许可
 
-本项目采用 GPL-3.0；第三方组件及许可证见 [LICENSE](LICENSE)。
+本项目采用 **GPL-3.0**；第三方组件及图标许可证见 [LICENSE](LICENSE) 与 `luci-app-bettbox/htdocs/luci-static/resources/bettbox/{flags,qure}/`。
