@@ -1,6 +1,6 @@
 [package]
 name = "bettbox-forge"
-version = "1.19.7"
+version = "1.19.8"
 edition = "2021"
 description = "Bettbox JS override helper (upstream rquickjs/QuickJS sandbox)"
 license = "GPL-3.0"

@@ -20,15 +20,23 @@ var PATHS = {
 };
 function icon(name) {
 	var svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
-	svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('class','ico');svg.setAttribute('aria-hidden','true');
+	svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('width','19');svg.setAttribute('height','19');
+	svg.setAttribute('fill','none');svg.setAttribute('stroke','currentColor');svg.setAttribute('stroke-width','1.7');
+	svg.setAttribute('stroke-linecap','round');svg.setAttribute('stroke-linejoin','round');
+	svg.setAttribute('class','ico');svg.setAttribute('aria-hidden','true');
 	// Only static, application-owned SVG paths enter innerHTML.
 	svg.innerHTML=PATHS[name]||PATHS.grid;return svg;
 }
 var ARTWORK = {
 	proxy:'Proxy', auto:'Auto', direct:'Direct', reject:'Reject', final:'Final', global:'Global',
-	chatgpt:'ChatGPT', ai:'AI', netflix:'Netflix', youtube:'YouTube', telegram:'Telegram',
-	github:'GitHub', google:'Google', baidu:'Baidu', bilibili:'Bilibili',
-	game:'Game', apple:'Apple', microsoft:'Microsoft', speedtest:'Speedtest'
+	adblock:'AdBlock', claude:'Claude', gemini:'Gemini', grok:'Grok', chatgpt:'ChatGPT', ai:'AI',
+	netflix:'Netflix', disney:'Disney', hbo:'HBO', youtube:'YouTube', tiktok:'TikTok', spotify:'Spotify',
+	bahamut:'Bahamut', emby:'Emby', bilibili:'Bilibili', telegram:'Telegram', discord:'Discord',
+	twitter:'Twitter', instagram:'Instagram', facebook:'Facebook', whatsapp:'WhatsApp', line:'Line',
+	reddit:'Reddit', github:'GitHub', docker:'Docker', cloudflare:'Cloudflare', google:'Google',
+	baidu:'Baidu', onedrive:'OneDrive', apple:'Apple', microsoft:'Microsoft', paypal:'PayPal',
+	pikpak:'PikPak', crypto:'Bitcoin', steam:'Steam', nintendo:'Nintendo', xbox:'Xbox',
+	playstation:'PlayStation', game:'Game', twitch:'Twitch', speedtest:'Speedtest'
 };
 function artwork(name, fallback){
 	var file=ARTWORK[name];
@@ -131,7 +139,18 @@ function themePicker(){
 function mount(){
 	document.body.classList.add('bb-page');
 	mountAppearance();
-	if(!document.getElementById('bettbox-ui-css'))document.head.appendChild(E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261114-3'}));
+	var link=document.getElementById('bettbox-ui-css');
+	if(!link){
+		var guard=E('style',{id:'bettbox-fouc-guard'},'.bb-app{visibility:hidden}');
+		var reveal=function(){if(guard.parentNode)guard.remove();};
+		link=E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261116-1'});
+		link.addEventListener('load',reveal,{once:true});
+		link.addEventListener('error',reveal,{once:true});
+		document.head.appendChild(guard);
+		document.head.appendChild(link);
+		if(link.sheet)reveal();
+		else window.setTimeout(reveal,250);
+	}
 }
 function page(id,title,actions,content){
 	mount();
@@ -171,4 +190,5 @@ function copy(text){if(navigator.clipboard && window.isSecureContext)return navi
 function waitJob(id,budget,onProgress,reconnect){var until=Date.now()+budget,failedSince=null;return new Promise(function(resolve,reject){function check(){getJob(id).then(function(res){failedSince=null;if(res.error){reject(new Error(res.error));return;}if(onProgress)onProgress(res);if(res.done){if(res.ok)resolve(res);else reject(new Error(res.text||'后台任务失败'));}else if(Date.now()>until)reject(new Error('任务仍未完成，请刷新服务状态后确认结果'));else window.setTimeout(check,650);}).catch(function(err){if(!reconnect){reject(err);return;}if(failedSince===null)failedSince=Date.now();if(Date.now()>until||Date.now()-failedSince>=90000){var pending=new Error('连接中断，请刷新页面或重新登录后确认安装结果');pending.unconfirmed=true;reject(pending);}else window.setTimeout(check,1000);});}check();});}
 function job(kind,args,onProgress){return startJob(kind,JSON.stringify(args||[])).then(checked).then(function(start){return waitJob(start.id,185000,onProgress);});}
 function operation(result){checked(result);var budget=Number(result.timeout_ms)||630000;budget=Math.max(1000,Math.min(result.reconnect?2430000:1230000,budget));return result.id?waitJob(result.id,budget,null,result.reconnect===true):result;}
+if (typeof document !== 'undefined' && document.head && document.body) mount();
 return baseclass.extend({icon:icon,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,mount:mount,themePicker:themePicker,appearanceControls:appearanceControls,pages:PAGES});

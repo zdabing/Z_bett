@@ -271,10 +271,13 @@ function diagnostic_start(request) {
 
 function resource_info() {
 	let files=[];
-	for(let item in [{name:'GeoSite',file:'geosite.dat'},{name:'GeoIP / MMDB',file:'country.mmdb'},{name:'GeoIP DAT',file:'geoip.dat'},{name:'ASN',file:'ASN.mmdb'}]){
-		let found=null;
-		for(let path in ['/etc/bettbox/'+item.file,'/etc/bettbox/geo/'+item.file]){let st=stat(path);if(st){found={path:path,size:st.size,modified:st.mtime};break;}}
-		push(files,{name:item.name,file:item.file,installed:found!=null,info:found});
+	for(let item in [{name:'GeoSite',files:['geosite.dat']},{name:'GeoIP / MMDB',files:['geoip.metadb','country.mmdb']},{name:'GeoIP DAT',files:['geoip.dat']},{name:'ASN',files:['ASN.mmdb']}]){
+		let found=null, matched=item.files[0];
+		for(let f in item.files){
+			for(let path in ['/etc/bettbox/'+f,'/etc/bettbox/geo/'+f]){let st=stat(path);if(st){found={path:path,size:st.size,modified:st.mtime};matched=f;break;}}
+			if(found)break;
+		}
+		push(files,{name:item.name,file:matched,installed:found!=null,info:found});
 	}
 	return {files:files,dashboard:access('/usr/share/bettbox/ui/index.html')};
 }

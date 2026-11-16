@@ -33,11 +33,9 @@ config core 'config'
 	option external_ui '0'
 	option test_url 'https://www.gstatic.com/generate_204'
 	# geo
-	option geodata_mode '0'
 	option geo_auto_update '1'
 	option geo_update_interval '24'
 	option geox_mmdb ''
-	option geox_geoip ''
 	option geox_geosite ''
 	option geox_asn ''
 	# watchdog: procd respawn + controller health check
@@ -62,6 +60,7 @@ config tun 'tun'
 	option auto_route '1'
 	option auto_redirect '1'
 	option strict_route '0'
+	option endpoint_independent_nat '0'
 	option mtu '9000'
 	option dns_hijack 'any:53'
 
@@ -70,7 +69,6 @@ config dns 'dns'
 
 config quic 'quic'
 	option block '0'
-	option exclude_china '1'
 
 config sniffer 'sniffer'
 	option enabled '0'
@@ -78,4 +76,4 @@ config sniffer 'sniffer'
 
 config experimental 'experimental'
 	option quic_gso '1'
-	option quic_ecn '0'
+	option quic_ecn '1'

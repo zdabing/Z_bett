@@ -82,10 +82,10 @@
 
 当上游发布新版本时，按以下三个独立轨道升级，互不耦合：
 
-### 4.1 轨道 A：升级 `MetaCubeX/mihomo`
-1. 修改 [bettbox/Makefile](../bettbox/Makefile) 的 `PKG_VERSION` 与 `PKG_HASH`；同步更新 [bettbox UCI 默认配置](../bettbox/files/etc/config/bettbox) 中的 `global_ua`。
-2. 在 OpenWrt SDK 或本地解包后的源码目录逐个验证 `bettbox/patches/100-*.patch`、`110-*.patch`、`120-*.patch` 能否无冲突 `git apply --check`。
-3. 核对 [route.go.install](../bettbox/upstream/route.go.install) 中 `hub/route` 接口签名是否被上游重构；确保 Mihomo `constant.Version` 与自定义路由 `/bettbox/...` 正常暴露。
+### 4.1 轨道 A：升级随包核心（`appshubcc/Bettbox` `core/Clash.Meta`）
+1. 修改 [bettbox/Makefile](../bettbox/Makefile) 的 `BETTBOX_UPSTREAM_VERSION` 与 `PKG_HASH`（并按需更新内嵌 Mihomo 对应的 `PKG_VERSION` 与 [bettbox UCI 默认配置](../bettbox/files/etc/config/bettbox) 中的 `global_ua`；注意保持 `PKG_VERSION` 单调不降级以免触发 APK 更新器降级拦截）。
+2. 在 OpenWrt SDK 或从源码归档提取 `core/Clash.Meta` 后的目录中，逐个验证 `bettbox/patches/100-*.patch`、`110-*.patch`、`120-*.patch` 能否无冲突按顺序应用。
+3. 核对 [route.go.install](../bettbox/upstream/route.go.install) 中 `hub/route` 接口签名是否被上游重构；确保 Mihomo `constant.Version` 与自定义路由 `/bettbox/...` 正常暴露，且精简标签 `GO_PKG_TAGS` 持续编译通过。
 4. 回归检查 `120-traffic-history.patch` 与 `bettbox/upstream/*.go` 的联动：流量记录与路由追踪必须保持兼容 `/connections` 原生格式。
 
 ### 4.2 轨道 B：同步 `appshubcc/Bettbox` 功能

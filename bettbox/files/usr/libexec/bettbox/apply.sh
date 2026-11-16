@@ -70,16 +70,7 @@ apply() (
 		while IFS= read -r message; do [ -z "$message" ] || log "$message"; done < "$work/render.log"
 	fi
 
-	# validate; retry once with geodata-mode off (upstream patchValidateConfig)
 	if ! timeout 120 "$core" -t -d "$BETTBOX_ETC" -f "$out" >"$validation" 2>&1; then
-		if grep -q '^geodata-mode: true$' "$out"; then
-			log "config validation failed, retrying with geodata-mode off"
-			sed -i 's/^geodata-mode: true$/geodata-mode: false/' "$out"
-			if timeout 120 "$core" -t -d "$BETTBOX_ETC" -f "$out" >"$validation" 2>&1; then
-				mv -f "$out" "$BETTBOX_RUN/config.yaml"
-				return $?
-			fi
-		fi
 		tail -5 "$validation" >&2
 		rm -f "$out"
 		die "config validation failed"

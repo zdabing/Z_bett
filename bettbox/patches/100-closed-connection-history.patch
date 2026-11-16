@@ -7,26 +7,26 @@ response is unchanged unless history=true is requested.
 
 --- a/tunnel/statistic/manager.go
 +++ b/tunnel/statistic/manager.go
-@@ -2,6 +2,7 @@
- 
+@@ -3,6 +3,7 @@ package statistic
  import (
  	"os"
+ 	"runtime"
 +	"sync"
  	"time"
  
  	"github.com/metacubex/mihomo/common/atomic"
-@@ -26,6 +27,10 @@
+@@ -34,6 +35,10 @@ func init() {
  }
  
  type Manager struct {
-+	historyMu     sync.Mutex
-+	closed        [closedConnectionLimit]*ClosedConnection
-+	closedHead    int
-+	closedCount   int
- 	connections   xsync.Map[string, Tracker]
- 	uploadTemp    atomic.Int64
- 	downloadTemp  atomic.Int64
-@@ -38,11 +43,18 @@
++	historyMu          sync.Mutex
++	closed             [closedConnectionLimit]*ClosedConnection
++	closedHead         int
++	closedCount        int
+ 	connections        xsync.Map[string, Tracker]
+ 	uploadTemp         atomic.Int64
+ 	downloadTemp       atomic.Int64
+@@ -52,11 +57,18 @@ type Manager struct {
  }
  
  func (m *Manager) Join(c Tracker) {
@@ -38,14 +38,14 @@ response is unchanged unless history=true is requested.
  func (m *Manager) Leave(c Tracker) {
 -	m.connections.Delete(c.ID())
 +	m.historyMu.Lock()
-+	defer m.historyMu.Unlock()
 +	// A tracker can be closed by both the API and its relay goroutine.
 +	if _, loaded := m.connections.LoadAndDelete(c.ID()); loaded {
 +		m.recordClosed(c.Info())
 +	}
- }
- 
- func (m *Manager) Get(id string) (c Tracker) {
++	m.historyMu.Unlock()
+ 	if DefaultRequestNotify != nil {
+ 		DefaultRequestNotify(c)
+ 	}
 --- /dev/null
 +++ b/tunnel/statistic/history.go
 @@ -0,0 +1,100 @@

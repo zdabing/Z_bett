@@ -139,7 +139,6 @@ mrs_lookup() {
 		echo "geosite.dat 不存在，正在下载: $url"
 		curl -sSL --fail -m 120 -o "$dat.tmp" "$url" && mv -f "$dat.tmp" "$dat" || { rm -f "$dat.tmp"; die "geosite.dat 下载失败"; }
 	fi
-	printf '%s' "$domain" > /tmp/bettbox-mrs.$$
 	ucode /usr/libexec/bettbox/mrs_lookup.uc "$dat" "$domain" 2>&1
 	echo
 	echo "== 规则提供者 (运行中的内核) =="
@@ -156,7 +155,6 @@ mrs_lookup() {
 		}
 		if (!n) print("(无)\n");
 	' 2>/dev/null || echo "(查询失败)"
-	rm -f /tmp/bettbox-mrs.$$
 }
 
 # ---------- NAT 检测 (STUN, upstream core/toolbox/stun.go fallback servers) ----------
@@ -175,43 +173,6 @@ stun_query() {
 	[ ${#resp} -ge 40 ] || return 1
 	# walk attributes: header 40 hex chars, then (type 4)(len 4)(value)
 	local i=40 t l vlen
-	while [ $i -lt $(( ${#resp} - 8 )) ]; do
-		t=$(echo "$resp" | cut -c$((i+1))-$((i+4)))
-		l=$(echo "$resp" | cut -c$((i+5))-$((i+8)))
-		[ -n "$t" ] && [ -n "$l" ] || break
-		vlen=$(( 0x$l ))
-		case "$t" in
-		0020)
-			# XOR-MAPPED-ADDRESS: family(1) xport(2) xaddr(4)
-			local f1 p1 p2 a1 a2 a3 a4
-			f1=$(( 0x$(echo "$resp" | cut -c$((i+11))$((i+12))) ))
-			[ "$f1" = "1" ] || break
-			p1=$(( 0x$(echo "$resp" | cut -c$((i+13))$((i+14))) ^ 0x21 ))
-			p2=$(( 0x$(echo "$resp" | cut -c$((i+15))$((i+16))) ^ 0x12 ))
-			a1=$(( 0x$(echo "$resp" | cut -c$((i+17))$((i+18))) ^ 0x21 ))
-			a2=$(( 0x$(echo "$resp" | cut -c$((i+19))$((i+20))) ^ 0x12 ))
-			a3=$(( 0x$(echo "$resp" | cut -c$((i+21))$((i+22))) ^ 0xA4 ))
-			a4=$(( 0x$(echo "$resp" | cut -c$((i+23))$((i+24))) ^ 0x42 ))
-			echo "$a1.$a2.$a3.$a4 $(( p1 * 256 + p2 ))"
-			return 0
-			;;
-		esac
-		i=$(( i + 8 + vlen * 2 ))
-	done
-	return 1
-}
-
-stun_query() {
-	# stun_query <host> <port> -> "mapped_ip mapped_port" or empty
-	local host="$1" port="$2" txid reqhex resp tlen i at tlen16 vlen
-	command -v nc >/dev/null || return 1
-	txid=$(od -An -N12 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-	[ ${#txid} -eq 24 ] || return 1
-	reqhex="000100002112a442${txid}"
-	resp=$(printf "%b" "$(echo "$reqhex" | sed 's/../\\x&/g')" | nc -u -w 3 "$host" "$port" 2>/dev/null | od -An -tx1 | tr -d ' \n')
-	[ ${#resp} -ge 40 ] || return 1
-	# walk attributes: header 40 hex chars, then (type 4)(len 4)(value)
-	i=40
 	while [ $i -lt $(( ${#resp} - 8 )) ]; do
 		t=$(echo "$resp" | cut -c$((i+1))-$((i+4)))
 		l=$(echo "$resp" | cut -c$((i+5))-$((i+8)))

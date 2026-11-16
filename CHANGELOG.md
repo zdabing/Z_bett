@@ -2,8 +2,11 @@
 
 ## v2026.11.16 · 2026-11-16
 
-面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r10` 和 `luci-app-bettbox 1.19.7-r10`。
+面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r11` 和 `luci-app-bettbox 1.19.8-r1`。
 
+- 核心构建源切换为上游 **`appshubcc/Bettbox v1.19.8`（`core/Clash.Meta`，内嵌 Mihomo `v1.19.34`）**，继承上游 `patch_ipv6`、`patch_idle`、`patch_healthcheck` 等内核稳定性补丁并适配连接历史与流量统计补丁；同时加入 `no_easytier,no_tailscale,no_zerotier,no_fake_tcp` 裁剪标签并保留 `with_gvisor`。
+- 配置渲染与默认设置对齐上游 `v1.19.8`：移除已废弃的 `bbr3` 拥塞控制、`exclude_china`、`geodata_mode` 与嗅探硬编码域名；默认 `GeoIP / MMDB` 源迁移至 `geoip.metadb`、开启 `quic-go-disable-ecn` 并改用 `IP-CIDR6` 回环保护规则；托管/合并订阅下跳过外层 QUIC 重复注入；补充 `tun.dns-mode`、`endpoint-independent-nat` 开关以及 `*_bettbox` `rule-providers` 自动补齐。
+- 在 `luci-app-bettbox` 本地打包全套 166 个上游分流策略 SVG 图标，并在代理页优先映射本地图标资源，内网/离线打开无需依赖外部 CDN；同步修复 `toolbox.sh` 重复定义并将 `bettbox-forge` 与 `luci-app-bettbox` 版本升至 `1.19.8`。
 - 扩展支持 **`aarch64_cortex-a53`（MediaTek Filogic）** 构建目标与在线/离线 APK 更新架构识别，并将 `aarch64_generic` SDK 对齐 `rockchip/armv8`。
 - 修复 OpenWrt 固件开启 `CONFIG_USE_LTO` 时 `rquickjs-sys` Rust/C 静态库链接失败的问题。
 - 优化 GitHub Actions 构建与校验流程：新增 `push` / `PR` 自动源码检查工作流（`ci.yml`），SDK 构建启用 Rust host toolchain 缓存与官方 CI LLVM 加速，移除已过时的旧版 `reuse-forge` 辅助脚本。

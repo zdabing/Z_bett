@@ -23,6 +23,14 @@ return view.extend({
 			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261114-3' }));
 
 		function target(c) { var m = c.metadata || {}; return m.host || m.destinationIP || '—'; }
+		function endpoint(ip, port) {
+			if (!ip) return '—';
+			var host = ip.indexOf(':') >= 0 && ip.charAt(0) !== '[' ? '[' + ip + ']' : ip;
+			return port && String(port) !== '0' ? host + ':' + port : ip;
+		}
+		function chainText(c) {
+			return Array.isArray(c.chains) && c.chains.length ? c.chains.slice().reverse().join(' → ') : '—';
+		}
 		function date(value) { return value ? new Date(value).toLocaleString() : '—'; }
 		function isClosed(c) { return !!c.closed; }
 		function find(items, id) { return items.find(function(c) { return c.id === id; }); }
@@ -34,9 +42,9 @@ return view.extend({
 			if (!current && !old) { closeDetail(); return; }
 			var c = current || old || detailRecord, m = c.metadata || {};
 			var rows = [['状态', current ? '活动' : isClosed(c) ? '已关闭' : '已结束'], ['目标', target(c)],
-				['目的地址', (m.destinationIP || '—') + ':' + (m.destinationPort || '—')], ['来源', (m.sourceIP || '—') + ':' + (m.sourcePort || '—')],
-				['协议', (m.network || '').toUpperCase() + ' · ' + (m.type || '')], ['链路', (c.chains || []).join(' → ')],
-				['规则', (c.rule || '') + ' ' + (c.rulePayload || '')], ['上传', UI.bytes(c.upload)], ['下载', UI.bytes(c.download)], ['开始时间', date(c.start)]];
+				['目的地址', endpoint(m.destinationIP, m.destinationPort)], ['来源', endpoint(m.sourceIP, m.sourcePort)],
+				['协议', [String(m.network || '').toUpperCase(), m.type].filter(Boolean).join(' · ') || '—'], ['链路', chainText(c)],
+				['规则', [c.rule, c.rulePayload].filter(Boolean).join(' ') || '—'], ['上传', UI.bytes(c.upload)], ['下载', UI.bytes(c.download)], ['开始时间', date(c.start)]];
 			if (isClosed(c)) rows.push(['关闭时间', date(c.closed)]);
 			else if (current) rows.push(['速率', UI.speed(c._speed)]);
 			detailRecord = c;
@@ -47,7 +55,7 @@ return view.extend({
 			if (current) actions.push(UI.button('关闭此连接', function() {
 				return Core.del('/connections/' + encodeURIComponent(c.id)).then(function() { closeDetail(); return updatedAfterAction(); });
 			}, 'danger', 'close'));
-			actions.push(UI.button('返回', closeDetail)); detailActions.replaceChildren.apply(detailActions, actions);
+			actions.push(UI.button('关闭', closeDetail)); detailActions.replaceChildren.apply(detailActions, actions);
 		}
 		function detail(c) {
 			detailRecord = c; detailBody = E('div'); detailActions = E('div', { 'class': 'button-row' });
@@ -64,7 +72,7 @@ return view.extend({
 			return E('tr', { 'class': isClosed(c) ? 'bb-connection-closed' : '' }, [
 				E('td', {}, [E('div', { 'class': 'cell-title' }, target(c)), E('div', { 'class': 'cell-meta' }, (m.network || '').toUpperCase() + ' · ' + (m.destinationPort || ''))]),
 				E('td', { 'class': 'mono' }, m.sourceIP || '—'),
-				E('td', {}, [E('div', {}, (c.chains || []).join(' → ') || '—'), c.rule ? UI.tag(c.rule, 'neutral') : document.createTextNode('')]),
+				E('td', {}, [E('div', {}, chainText(c)), c.rule ? UI.tag(c.rule, 'neutral') : document.createTextNode('')]),
 				E('td', { 'class': 'mono' }, '↓ ' + UI.bytes(c.download) + ' / ↑ ' + UI.bytes(c.upload)),
 				E('td', {}, [status(c), E('div', { 'class': 'cell-meta mono' }, rate(c))]), E('td', {}, detailButton(c))]);
 		}
@@ -73,7 +81,7 @@ return view.extend({
 			return E('article', { 'class': 'connection-card' + (isClosed(c) ? ' bb-connection-closed' : '') }, [
 				E('div', { 'class': 'connection-top' }, [E('div', {}, [E('div', { 'class': 'cell-title' }, target(c)),
 					E('div', { 'class': 'cell-meta' }, (m.network || '').toUpperCase() + ' · ' + (m.destinationPort || '') + ' · 来自 ' + (m.sourceIP || '—'))]), detailButton(c)]),
-				E('div', { 'class': 'connection-chain' }, (c.chains || []).join(' → ') || '—'),
+				E('div', { 'class': 'connection-chain' }, chainText(c)),
 				E('div', { 'class': 'connection-bottom' }, [UI.tag(c.rule || '—', 'neutral'), status(c)]),
 				E('div', { 'class': 'bb-connection-traffic mono' }, [E('span', {}, '↓ ' + UI.bytes(c.download)), E('span', {}, '↑ ' + UI.bytes(c.upload))]),
 				E('div', { 'class': 'cell-meta' }, rate(c))]);

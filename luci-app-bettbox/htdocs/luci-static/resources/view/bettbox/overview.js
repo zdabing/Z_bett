@@ -69,7 +69,7 @@ function siteRow(site, saved){
 	};
 }
 function traffic(upload,download,available){
-	var total=upload+download,up=total?upload/total*100:0,down=total?100-up:0,ring=svg('svg',{viewBox:'0 0 128 128',role:'img','aria-label':available?(total?'上传 '+up.toFixed(1)+'%，下载 '+down.toFixed(1)+'%':'暂无累计流量'):'核心未运行'});
+	var total=upload+download,up=total?upload/total*100:0,down=total?100-up:0,ring=svg('svg',{viewBox:'0 0 128 128',width:128,height:128,fill:'none',role:'img','aria-label':available?(total?'上传 '+up.toFixed(1)+'%，下载 '+down.toFixed(1)+'%':'暂无累计流量'):'核心未运行'});
 	ring.appendChild(svg('circle',{'class':'traffic-track',cx:64,cy:64,r:51}));
 	if(total&&available){var g=svg('g',{transform:'rotate(-90 64 64)'});g.appendChild(svg('circle',{'class':'download-arc',cx:64,cy:64,r:51,pathLength:100,'stroke-dasharray':down+' '+up,'stroke-dashoffset':-up}));g.appendChild(svg('circle',{'class':'upload-arc',cx:64,cy:64,r:51,pathLength:100,'stroke-dasharray':up+' '+down}));ring.appendChild(g);}
 	var sum=available?UI.bytes(total).split(' '):['—',''];return E('div',{'class':'traffic-body'},[E('div',{'class':'traffic-donut'},[ring,E('div',{'class':'traffic-total'},[E('small',{},'累计总量'),E('strong',{},sum[0]),E('span',{},sum[1]||'')])]),E('div',{'class':'traffic-legend'},[['up','上传',upload,up,'upload'],['down','下载',download,down,'download']].map(function(row){var value=available?UI.bytes(row[2]).split(' '):['—',''];return E('div',{'class':'traffic-entry '+row[4]},[E('div',{'class':'traffic-entry-label'},[E('i'),document.createTextNode(row[1]),E('span',{},total&&available?row[3].toFixed(1)+'%':'—')]),E('div',{'class':'traffic-value'},[UI.icon(row[0]),E('strong',{},value[0]),E('small',{},value[1]||'')])]);}))]);
@@ -116,7 +116,7 @@ return view.extend({
 			stats[key] = E('div', {'class':'stat'}, '—');
 			var content = [E('div', {'class':'label'}, [UI.icon(key),document.createTextNode(label)]), stats[key]];
 			if (key === 'down' || key === 'up') {
-				var chart = svg('svg', {'class':'speed-trend '+key, viewBox:'0 0 180 24', preserveAspectRatio:'none',
+				var chart = svg('svg', {'class':'speed-trend '+key, viewBox:'0 0 180 24', width:180, height:24, fill:'none', preserveAspectRatio:'none',
 					role:'img', 'aria-label':'最近一分钟'+label+'趋势'});
 				var title = svg('title'); title.textContent = '最近一分钟'+label;
 				lines[key] = svg('polyline'); chart.appendChild(title); chart.appendChild(lines[key]); content.push(chart);

@@ -106,12 +106,98 @@ function nodeRegion(name){
 	});
 	return matches.length === 1 ? matches[0] : null;
 }
+var qureIcons = {
+	'ai.svg':'AI.svg', 'abematv.svg':'AbemaTV.svg', 'adblock.svg':'AdBlock.svg', 'adobe.svg':'Adobe.svg',
+	'airbnb.svg':'Airbnb.svg', 'airport.svg':'Airport.svg', 'alibaba.svg':'Alibaba.svg', 'amazon.svg':'Amazon.svg',
+	'anthropic.svg':'Anthropic.svg', 'apple.svg':'Apple.svg', 'applemusic.svg':'AppleMusic.svg', 'applepodcasts.svg':'ApplePodcasts.svg',
+	'appletv.svg':'AppleTV.svg', 'auto.svg':'Auto.svg', 'available.svg':'Available.svg', 'azure.svg':'Azure.svg',
+	'bbc.svg':'BBC.svg', 'bahamut.svg':'Bahamut.svg', 'baidu.svg':'Baidu.svg', 'battlenet.svg':'BattleNet.svg',
+	'bilibili.svg':'Bilibili.svg', 'binance.svg':'Binance.svg', 'bing.svg':'Bing.svg', 'bitcoin.svg':'Bitcoin.svg',
+	'bluesky.svg':'Bluesky.svg', 'bybit.svg':'Bybit.svg', 'cdnjs.svg':'Cdnjs.svg', 'chatgpt.svg':'ChatGPT.svg',
+	'china.svg':'China.svg', 'china_taiwan.svg':'China_Taiwan.svg', 'claude.svg':'Claude.svg', 'cloudflare.svg':'Cloudflare.svg',
+	'coinbase.svg':'Coinbase.svg', 'crunchyroll.svg':'Crunchyroll.svg', 'cursor.svg':'Cursor.svg', 'dazn.svg':'DAZN.svg',
+	'dailymotion.svg':'Dailymotion.svg', 'deepl.svg':'DeepL.svg', 'deezer.svg':'Deezer.svg', 'direct.svg':'Direct.svg',
+	'discord.svg':'Discord.svg', 'disney.svg':'Disney.svg', 'docker.svg':'Docker.svg', 'dropbox.svg':'Dropbox.svg',
+	'ea.svg':'EA.svg', 'ehentai.svg':'EHentai.svg', 'elevenlabs.svg':'ElevenLabs.svg', 'emby.svg':'Emby.svg',
+	'epicgames.svg':'EpicGames.svg', 'fcm.svg':'FCM.svg', 'facebook.svg':'Facebook.svg', 'final.svg':'Final.svg',
+	'game.svg':'Game.svg', 'gemini.svg':'Gemini.svg', 'github.svg':'GitHub.svg', 'githubcopilot.svg':'GitHubCopilot.svg',
+	'gitlab.svg':'Gitlab.svg', 'global.svg':'Global.svg', 'google.svg':'Google.svg', 'googleplay.svg':'GooglePlay.svg',
+	'googlescholar.svg':'GoogleScholar.svg', 'grok.svg':'Grok.svg', 'hbo.svg':'HBO.svg', 'hoytv.svg':'HOYTV.svg',
+	'hong_kong.svg':'Hong_Kong.svg', 'huggingface.svg':'HuggingFace.svg', 'hulu.svg':'Hulu.svg', 'humblebundle.svg':'HumbleBundle.svg',
+	'huobi.svg':'Huobi.svg', 'instagram.svg':'Instagram.svg', 'japan.svg':'Japan.svg', 'jetbrains.svg':'JetBrains.svg',
+	'kkbox.svg':'KKBOX.svg', 'kakao.svg':'Kakao.svg', 'kick.svg':'Kick.svg', 'kraken.svg':'Kraken.svg',
+	'kucoin.svg':'KuCoin.svg', 'line.svg':'Line.svg', 'linkedin.svg':'Linkedin.svg', 'mega.svg':'MEGA.svg',
+	'malaysia.svg':'Malaysia.svg', 'manus.svg':'Manus.svg', 'medium.svg':'Medium.svg', 'messenger.svg':'Messenger.svg',
+	'meta.svg':'Meta.svg', 'mihoyo.svg':'MiHoYo.svg', 'microsoft.svg':'Microsoft.svg', 'missav.svg':'MissAV.svg',
+	'mytvsuper.svg':'MyTVSUPER.svg', 'npm.svg':'NPM.svg', 'nvidia.svg':'NVIDIA.svg', 'naver.svg':'Naver.svg',
+	'neteasemusic.svg':'NeteaseMusic.svg', 'netflix.svg':'Netflix.svg', 'netherlands.svg':'Netherlands.svg', 'niconico.svg':'NicoNico.svg',
+	'nintendo.svg':'Nintendo.svg', 'nodejs.svg':'NodeJs.svg', 'notion.svg':'Notion.svg', 'okx.svg':'OKX.svg',
+	'oculus.svg':'Oculus.svg', 'onedrive.svg':'OneDrive.svg', 'onetrust.svg':'OneTrust.svg', 'opencode.svg':'OpenCode.svg',
+	'openrouter.svg':'OpenRouter.svg', 'patreon.svg':'Patreon.svg', 'paypal.svg':'PayPal.svg', 'perplexity.svg':'Perplexity.svg',
+	'phantom.svg':'Phantom.svg', 'pikpak.svg':'PikPak.svg', 'pinterest.svg':'Pinterest.svg', 'pixiv.svg':'Pixiv.svg',
+	'playstation.svg':'PlayStation.svg', 'plex.svg':'Plex.svg', 'primevideo.svg':'PrimeVideo.svg', 'protonmail.svg':'ProtonMail.svg',
+	'proxy.svg':'Proxy.svg', 'qq.svg':'QQ.svg', 'quora.svg':'Quora.svg', 'rthk.svg':'RTHK.svg',
+	'rakuten.svg':'Rakuten.svg', 'reddit.svg':'Reddit.svg', 'reject.svg':'Reject.svg', 'riotgames.svg':'RiotGames.svg',
+	'roblox.svg':'Roblox.svg', 'rockstargames.svg':'RockstarGames.svg', 'samsung.svg':'Samsung.svg', 'server.svg':'Server.svg',
+	'shopee.svg':'Shopee.svg', 'signal.svg':'Signal.svg', 'singapore.svg':'Singapore.svg', 'slack.svg':'Slack.svg',
+	'snapchat.svg':'Snapchat.svg', 'soundcloud.svg':'SoundCloud.svg', 'south_korea.svg':'South_Korea.svg', 'speedtest.svg':'Speedtest.svg',
+	'spotify.svg':'Spotify.svg', 'stack.svg':'Stack.svg', 'stackoverflow.svg':'StackOverflow.svg', 'static.svg':'Static.svg',
+	'steam.svg':'Steam.svg', 'stripe.svg':'Stripe.svg', 'suno.svg':'Suno.svg', 'supercell.svg':'Supercell.svg',
+	'tvb.svg':'TVB.svg', 'telegram.svg':'Telegram.svg', 'threads.svg':'Threads.svg', 'tidal.svg':'Tidal.svg',
+	'tiktok.svg':'TikTok.svg', 'turkey.svg':'Turkey.svg', 'twitch.svg':'Twitch.svg', 'twitter.svg':'Twitter.svg',
+	'ubisoft.svg':'Ubisoft.svg', 'united_kingdom.svg':'United_Kingdom.svg', 'united_states.svg':'United_States.svg', 'unpkg.svg':'Unpkg.svg',
+	'v2ex.svg':'V2EX.svg', 'vimeo.svg':'Vimeo.svg', 'viu.svg':'Viu.svg', 'viutv.svg':'ViuTV.svg',
+	'whatsapp.svg':'WhatsApp.svg', 'wikipedia.svg':'Wikipedia.svg', 'windsurf.svg':'Windsurf.svg', 'wise.svg':'Wise.svg',
+	'worldmap.svg':'WorldMap.svg', 'xbox.svg':'Xbox.svg', 'youtube.svg':'YouTube.svg', 'youtubemusic.svg':'YouTubeMusic.svg',
+	'zoom.svg':'Zoom.svg', 'ebay.svg':'eBay.svg', 'icloud.svg':'iCloud.svg', 'iqiyi.svg':'iQIYI.svg'
+};
+var qureFlags = {
+	'argentina.svg':'ar.svg', 'australia.svg':'au.svg', 'brazil.svg':'br.svg', 'canada.svg':'ca.svg',
+	'china.svg':'cn.svg', 'china_taiwan.svg':'tw.svg', 'denmark.svg':'dk.svg', 'finland.svg':'fi.svg',
+	'france.svg':'fr.svg', 'germany.svg':'de.svg', 'hong_kong.svg':'hk.svg', 'iceland.svg':'is.svg',
+	'india.svg':'in.svg', 'indonesia.svg':'id.svg', 'ireland.svg':'ie.svg', 'israel.svg':'il.svg',
+	'italy.svg':'it.svg', 'japan.svg':'jp.svg', 'kazakhstan.svg':'kz.svg', 'macau.svg':'mo.svg',
+	'malaysia.svg':'my.svg', 'mexico.svg':'mx.svg', 'netherlands.svg':'nl.svg', 'new_zealand.svg':'nz.svg',
+	'norway.svg':'no.svg', 'philippines.svg':'ph.svg', 'poland.svg':'pl.svg', 'russia.svg':'ru.svg',
+	'saudi_arabia.svg':'sa.svg', 'singapore.svg':'sg.svg', 'south_africa.svg':'za.svg', 'south_korea.svg':'kr.svg',
+	'spain.svg':'es.svg', 'sweden.svg':'se.svg', 'switzerland.svg':'ch.svg', 'thailand.svg':'th.svg',
+	'turkey.svg':'tr.svg', 'ukraine.svg':'ua.svg', 'united_arab_emirates.svg':'ae.svg', 'united_kingdom.svg':'gb.svg',
+	'united_states.svg':'us.svg', 'vietnam.svg':'vn.svg'
+};
+function localIconSrc(value) {
+	var text = String(value || '').trim(), file, folder = '', match;
+	if (!text) return null;
+	if (/^(?:https?:)?\/\//i.test(text)) {
+		match = text.match(/^(?:https?:)?\/\/[^/?#]+\/(?:gh\/)?(?:appshubcc|aaANDkk)\/Qure_Style_SVG(?:@[^/?#]+|\/(?:blob|raw)\/[^/?#]+|\/[^/?#]+)?\/icon\/svg\/(?:(common|flag)\/)?([^/?#]+\.svg)(?:[?#].*)?$/i);
+	} else {
+		match = text.match(/^(?:(common|flag)\/)?([^/?#]+\.svg)(?:[?#].*)?$/i);
+	}
+	if (!match) return null;
+	try { file = decodeURIComponent(match[2]).toLowerCase(); } catch (e) { file = match[2].toLowerCase(); }
+	folder = (match[1] || '').toLowerCase();
+	if (folder === 'flag' && Object.prototype.hasOwnProperty.call(qureFlags, file))
+		return L.resource('bettbox/flags/' + qureFlags[file]);
+	if (Object.prototype.hasOwnProperty.call(qureIcons, file))
+		return L.resource('bettbox/qure/' + qureIcons[file]);
+	return null;
+}
 var policyArtwork = [
+	['adblock',/adblock|广告拦截|去广告/i],
+	['claude',/claude/i], ['gemini',/gemini/i], ['grok',/grok/i],
 	['chatgpt',/chatgpt|openai/i], ['ai',/(?:^|[^a-z])ai(?:$|[^a-z])|人工智能/i],
-	['netflix',/netflix|奈飞/i], ['youtube',/youtube|油管/i], ['telegram',/telegram|电报/i],
-	['github',/github/i], ['google',/google|谷歌/i], ['bilibili',/bilibili|哔哩/i],
-	['apple',/apple|苹果/i], ['microsoft',/microsoft|微软/i], ['game',/steam|游戏|gaming/i],
-	['reject',/^(?:REJECT(?:-DROP)?|AdBlock|广告拦截|拦截|拒绝)$/i],
+	['netflix',/netflix|奈飞/i], ['disney',/disney/i], ['hbo',/(?:^|[^a-z])hbo(?:$|[^a-z])/i],
+	['youtube',/youtube|油管/i], ['tiktok',/tiktok|抖音海外/i], ['spotify',/spotify/i],
+	['bahamut',/bahamut|巴哈/i], ['emby',/emby/i], ['bilibili',/bilibili|哔哩/i],
+	['twitch',/twitch/i], ['telegram',/telegram|电报/i], ['discord',/discord/i],
+	['twitter',/twitter|推特/i], ['instagram',/instagram/i], ['facebook',/facebook/i],
+	['whatsapp',/whatsapp/i], ['line',/(?:^|[^a-z])line(?:$|[^a-z])/i], ['reddit',/reddit/i],
+	['github',/github/i], ['docker',/docker/i], ['cloudflare',/cloudflare/i],
+	['google',/google|谷歌/i], ['baidu',/baidu|百度/i], ['onedrive',/onedrive/i],
+	['apple',/apple|苹果/i], ['microsoft',/microsoft|微软/i], ['paypal',/paypal/i],
+	['pikpak',/pikpak/i], ['crypto',/crypto|bitcoin|binance|okx/i],
+	['steam',/steam/i], ['nintendo',/nintendo|switch/i], ['xbox',/xbox/i],
+	['playstation',/playstation|psn/i], ['game',/游戏|gaming/i], ['speedtest',/speedtest|测速/i],
+	['reject',/^(?:REJECT(?:-DROP)?|拦截|拒绝)$/i],
 	['direct',/^(?:DIRECT|直连|绕过)(?:$|[\s\[（(])/i],
 	['final',/^(?:FINAL|MATCH|漏网之鱼|兜底|其他流量)$/i],
 	['global',/^(?:GLOBAL|全局)$/i], ['auto',/自动选择|自动测速|延迟优选|URLTest/i]
@@ -142,14 +228,24 @@ function iconFor(proxy) {
 	proxy = proxy || {};
 	var fallback = Array.isArray(proxy.all) ? 'route' : 'globe';
 	var value = typeof proxy.icon === 'string' ? proxy.icon.trim() : '';
-	var valid = /^(https?:\/\/|\/\/|data:image\/|\.?\.?\/)/i.test(value) ||
+	var localSrc = localIconSrc(value);
+	var valid = localSrc || /^(https?:\/\/|\/\/|data:image\/|\.?\.?\/)/i.test(value) ||
 		(!/^[a-z][a-z0-9+.-]*:/i.test(value) && /^[A-Za-z0-9_-]+\//.test(value));
 	if (!value || !valid) return regionOrIcon(proxy, fallback);
+	var remotePending = !!localSrc && /^https?:\/\//i.test(value);
 	var image = E('img', {
-		'class': 'bb-proxy-image', src: value, alt: '', width: 24, height: 24,
+		'class': 'bb-proxy-image', src: localSrc || value, alt: '', width: 24, height: 24,
 		loading: 'lazy', decoding: 'async'
 	});
-	image.addEventListener('error', function() { image.replaceWith(regionOrIcon(proxy, fallback)); }, { once: true });
+	image.addEventListener('error', function handler() {
+		if (remotePending) {
+			remotePending = false;
+			image.src = value;
+			return;
+		}
+		image.removeEventListener('error', handler);
+		image.replaceWith(regionOrIcon(proxy, fallback));
+	});
 	return image;
 }
 

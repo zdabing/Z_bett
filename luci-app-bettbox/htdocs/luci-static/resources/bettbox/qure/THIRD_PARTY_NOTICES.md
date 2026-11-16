@@ -1,6 +1,6 @@
 # 第三方素材与许可说明
 
-本仓库从 [aaANDkk/ClashConfig](https://github.com/aaANDkk/ClashConfig) 提取成品 SVG 和总览展示图，保留图标原有外观。原始 PNG 参考素材不随仓库分发。以下根据制作工作区保留的来源记录整理；各项素材继续适用原有许可，不以单一许可覆盖整个图标集。
+本仓库从 [aaANDkk/ClashConfig](https://github.com/aaANDkk/ClashConfig) 及 [appshubcc/Bettbox](https://github.com/appshubcc/Bettbox)（`assets/route_svg/`，源自 [aaANDkk/Qure_Style_SVG](https://github.com/aaANDkk/Qure_Style_SVG)）提取成品 SVG 和总览展示图，保留图标原有外观。原始 PNG 参考素材不随仓库分发。以下根据制作工作区保留的来源记录整理；各项素材继续适用原有许可，不以单一许可覆盖整个图标集。
 
 | 来源 | 使用范围与说明 | 保留的许可文本 |
 | --- | --- | --- |

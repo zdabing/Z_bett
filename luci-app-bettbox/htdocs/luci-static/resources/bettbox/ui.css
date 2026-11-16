@@ -862,6 +862,10 @@ body[data-bb-scheme] .modal:has(.bb-modal-content) {
 	--bb-line:var(--line, #e1e5dc);
 	background:var(--surface-solid, var(--surface));
 	color:var(--ink);
+	max-width:560px;
+	width:min(560px, calc(100vw - 32px));
+	border:1px solid var(--bb-line);
+	border-radius:var(--bb-radius);
 }
 body[data-bb-style="meridian"][data-bb-scheme="light"] :is(.bb-app, .modal:has(.bb-modal-content)) {
 	color-scheme:light;
@@ -945,7 +949,13 @@ body[data-bb-style="apple"][data-bb-scheme="dark"] :is(.bb-app, .modal:has(.bb-m
 	--bb-shadow:0 2px 10px rgba(0, 0, 0, 0.35);
 	--bb-radius:14px;
 }
-.bb-app{min-height:calc(100dvh - var(--header-h, 0px))}
+.bb-app[data-bb-page]{min-height:calc(100dvh - var(--header-h, 0px))}
+.bb-app.bb-modal-content{min-height:0;padding:0;background:none}
+.bb-app.bb-modal-content .definition-list{gap:0}
+.bb-app.bb-modal-content .definition-row{grid-template-columns:96px minmax(0,1fr);align-items:baseline;padding:8px 0;border-bottom:1px solid var(--bb-line);font-size:13px}
+.bb-app.bb-modal-content .definition-row:last-child{border-bottom:0}
+.bb-app.bb-modal-content .definition-row dd{color:var(--ink)}
+.bb-app .bb-dialog-actions{margin-top:8px;padding-top:14px;border-top:1px solid var(--bb-line);justify-content:flex-end}
 .bb-app .main-nav,.bb-app .panel,.bb-app .tool-card,.bb-app .save-bar,.bb-app dialog{backdrop-filter:var(--bb-blur);-webkit-backdrop-filter:var(--bb-blur)}
 .bb-app .panel,.bb-app .tool-card,.bb-app .save-bar{box-shadow:var(--bb-shadow)}
 .bb-app .main-nav{justify-content:space-between;align-items:center}

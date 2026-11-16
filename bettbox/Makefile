@@ -7,19 +7,20 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=bettbox
 PKG_VERSION:=1.19.34
-PKG_RELEASE:=10
+PKG_RELEASE:=11
+BETTBOX_UPSTREAM_VERSION:=1.19.8
 
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0
 
-# The packaged Mihomo embeds Bettbox's profile merger and toolbox algorithms.
-# OpenWrt exposes them through the local CLI and Mihomo's controller.
-# download.pl appends the source filename to each mirror URL, so use the
-# github archive path prefix (codeload URLs cannot take an appended name).
-PKG_SOURCE:=v$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://github.com/MetaCubeX/mihomo/archive/refs/tags/
-PKG_HASH:=e3284a44f1052f1c454c90d418faa244516c2470bf232b455ea18fc4f5fa6028
-PKG_BUILD_DIR:=$(BUILD_DIR)/mihomo-$(PKG_VERSION)
+# Build Mihomo from appshubcc/Bettbox's core/Clash.Meta tree so upstream
+# router-oriented kernel patches (patch_ipv6, patch_idle, patch_healthcheck)
+# are included alongside our local patches and embedded bettbox Go package.
+# download.pl appends PKG_SOURCE to PKG_SOURCE_URL.
+PKG_SOURCE:=v$(BETTBOX_UPSTREAM_VERSION).tar.gz
+PKG_SOURCE_URL:=https://github.com/appshubcc/Bettbox/archive/refs/tags/
+PKG_HASH:=524ecaa3350f6b319919f79943337ffdbc90c39fcab2051a552b193ac047b14d
+PKG_BUILD_DIR:=$(BUILD_DIR)/Bettbox-$(BETTBOX_UPSTREAM_VERSION)
 
 PKG_BUILD_DEPENDS:=golang/host rust/host
 PKG_BUILD_PARALLEL:=1
@@ -29,7 +30,7 @@ RUST_PKG_LOCKED:=1
 
 GO_PKG:=github.com/metacubex/mihomo
 GO_PKG_BUILD_PKG:=$(GO_PKG)
-GO_PKG_TAGS:=with_gvisor
+GO_PKG_TAGS:=with_gvisor,no_easytier,no_tailscale,no_zerotier,no_fake_tcp
 GO_PKG_LDFLAGS_X:=$(GO_PKG)/constant.Version=v$(PKG_VERSION) $(GO_PKG)/constant.BuildTime=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 include $(INCLUDE_DIR)/package.mk
@@ -47,7 +48,12 @@ endif
 # Preserve Go's configure hook and explicitly compose both compile helpers.
 # rquickjs 0.12 ships musl bindings for these two supported build targets.
 define Build/Prepare
-	$(call Build/Prepare/Default)
+	$(PKG_UNPACK)
+	rm -rf $(PKG_BUILD_DIR).core
+	mv $(PKG_BUILD_DIR)/core/Clash.Meta $(PKG_BUILD_DIR).core
+	rm -rf $(PKG_BUILD_DIR)
+	mv $(PKG_BUILD_DIR).core $(PKG_BUILD_DIR)
+	$(Build/Patch)
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/bettbox
 	$(CP) ./upstream/*.go $(PKG_BUILD_DIR)/bettbox/
 	$(CP) ./upstream/route.go.install $(PKG_BUILD_DIR)/hub/route/bettbox.go

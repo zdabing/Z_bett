@@ -40,6 +40,7 @@ var SCHEMA = [
 		{ opt: 'auto_route', kind: 'flag', icon: 'map', label: 'auto-route' },
 		{ opt: 'auto_redirect', kind: 'flag', icon: 'map', label: 'auto-redirect' },
 		{ opt: 'strict_route', kind: 'flag', icon: 'shield', label: 'strict-route' },
+		{ opt: 'endpoint_independent_nat', kind: 'flag', icon: 'globe', label: 'endpoint-independent-nat', sub: _('改善 UDP / 游戏联机 NAT 类型') },
 		{ opt: 'mtu', kind: 'value', icon: 'tune', label: 'MTU', ph: '9000' },
 		{ opt: 'dns_hijack', kind: 'value', icon: 'server', label: 'dns-hijack', ph: 'any:53' }
 	] },
@@ -48,8 +49,7 @@ var SCHEMA = [
 		{ opt: 'real_ip_domains', kind: 'list-multi', icon: 'globe', label: _('真实 IP 域名（每行一个）'), ph: 'nas.example.com\n+.example.com', wide: true }
 	] },
 	{ section: 'quic', title: _('QUIC'), opts: [
-		{ opt: 'block', kind: 'flag', icon: 'bolt', label: _('禁用 QUIC'), sub: _('注入 UDP:443 REJECT 前置规则') },
-		{ opt: 'exclude_china', kind: 'flag', icon: 'globe', label: _('国内站点不拦截') }
+		{ opt: 'block', kind: 'flag', icon: 'bolt', label: _('禁用 QUIC'), sub: _('非托管订阅下注入 UDP:443 REJECT 前置规则') }
 	] },
 	{ section: 'sniffer', title: _('嗅探 Sniffer'), opts: [
 		{ opt: 'enabled', kind: 'flag', icon: 'eye', label: _('启用流量嗅探') },
@@ -58,8 +58,7 @@ var SCHEMA = [
 	{ section: 'config', title: _('Geo 资源'), opts: [
 		{ opt: 'geo_auto_update', kind: 'flag', icon: 'map', label: _('自动更新 Geo') },
 		{ opt: 'geo_update_interval', kind: 'value', icon: 'clock', label: _('更新间隔 (小时)') },
-		{ opt: 'geodata_mode', kind: 'flag', icon: 'map', label: 'geodata-mode', sub: _('用 dat 而非 mmdb') },
-		{ opt: 'geox_mmdb', kind: 'value', icon: 'globe', label: 'geox-url · mmdb', ph: 'https://…/country.mmdb', wide: true },
+		{ opt: 'geox_mmdb', kind: 'value', icon: 'globe', label: 'geox-url · mmdb', ph: 'https://…/geoip.metadb', wide: true },
 		{ opt: 'geox_geosite', kind: 'value', icon: 'globe', label: 'geox-url · geosite', ph: 'https://…/geosite.dat', wide: true },
 		{ opt: 'geox_asn', kind: 'value', icon: 'globe', label: 'geox-url · asn', ph: 'https://…/GeoLite2-ASN.mmdb', wide: true }
 	] },

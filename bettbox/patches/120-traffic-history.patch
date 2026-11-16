@@ -80,33 +80,35 @@
  
 --- a/tunnel/statistic/manager.go
 +++ b/tunnel/statistic/manager.go
-@@ -11,6 +11,9 @@
- )
+@@ -14,6 +14,9 @@ var IsDirectFunc func(string) bool
  
  var DefaultManager *Manager
-+
+ 
 +// BettboxClosed observes the final counters of a tracker once.
 +var BettboxClosed func(*TrackerInfo)
- 
++
  func init() {
  	DefaultManager = &Manager{
-@@ -50,10 +53,14 @@
- 
+ 		uploadTemp:         atomic.NewInt64(0),
+@@ -65,13 +68,17 @@ func (m *Manager) Join(c Tracker) {
  func (m *Manager) Leave(c Tracker) {
  	m.historyMu.Lock()
--	defer m.historyMu.Unlock()
  	// A tracker can be closed by both the API and its relay goroutine.
 -	if _, loaded := m.connections.LoadAndDelete(c.ID()); loaded {
 +	_, loaded := m.connections.LoadAndDelete(c.ID())
 +	if loaded {
  		m.recordClosed(c.Info())
-+	}
-+	m.historyMu.Unlock()
+ 	}
+ 	m.historyMu.Unlock()
+ 	if DefaultRequestNotify != nil {
+ 		DefaultRequestNotify(c)
+ 	}
 +	if loaded && BettboxClosed != nil {
 +		BettboxClosed(c.Info())
- 	}
++	}
  }
  
+ func (m *Manager) Get(id string) (c Tracker) {
 --- a/hub/executor/executor.go
 +++ b/hub/executor/executor.go
 @@ -14,6 +14,7 @@

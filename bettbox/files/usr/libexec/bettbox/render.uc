@@ -199,8 +199,8 @@ let allow_lan = (uci('config', 'allow_lan') == '1');
 let bind_address = allow_lan ? (uci('config', 'bind_address') ?? '*') : '127.0.0.1';
 
 let geox_defaults = {
-	mmdb: BETT_RULES + '/country.mmdb',
-	geoip: BETT_RULES + '/country.mmdb',
+	mmdb: BETT_RULES + '/geoip.metadb',
+	geoip: BETT_RULES + '/geoip.metadb',
 	geosite: BETT_RULES + '/geosite.dat',
 	asn: BETT_RULES + '/GeoLite2-ASN.mmdb'
 };
@@ -219,7 +219,7 @@ let patch = {
 	'bind-address': bind_address,
 	'external-controller': allow_lan ? replace(controller, /^127\.0\.0\.1/, '0.0.0.0') : controller,
 	'geodata-loader': 'memconservative',
-	'geodata-mode': (uci('config', 'geodata_mode') == '1'),
+	'geodata-mode': false,
 	profile: {
 		'store-selected': true,
 		'store-fake-ip': true,
@@ -258,10 +258,13 @@ patch = merge(patch, geo_update);
 let geox = {};
 for (let k in keys(geox_defaults))
 	geox[k] = geox_defaults[k];
-for (let k in ['mmdb', 'geoip', 'geosite', 'asn']) {
+for (let k in ['mmdb', 'geosite', 'asn']) {
 	let v = uci('config', 'geox_' + k);
-	if (v)
+	if (v) {
 		geox[k] = v;
+		if (k == 'mmdb')
+			geox.geoip = v;
+	}
 }
 patch['geox-url'] = geox;
 
@@ -288,6 +291,7 @@ if (type(base?.dns) == 'object' && base.dns.enable !== false) {
 // Router TUN: keep LAN/loopback out of the tunnel. Stack and forwarding
 // parameters are core networking features, not desktop application settings.
 if (mode == 'tun') {
+	let dns_hijack = trim(uci('tun', 'dns_hijack') ?? 'any:53');
 	patch.tun = {
 		enable: true,
 		stack: uci('tun', 'stack') ?? 'mips',
@@ -298,15 +302,16 @@ if (mode == 'tun') {
 		'auto-redirect': !devices.enabled && (uci('tun', 'auto_redirect') != '0'),
 		'strict-route': (uci('tun', 'strict_route') == '1'),
 		'auto-detect-interface': true,
-		'dns-hijack': [ uci('tun', 'dns_hijack') ?? 'any:53' ],
+		'dns-mode': length(dns_hijack) > 0 ? 'hijack' : 'disabled',
+		'dns-hijack': length(dns_hijack) > 0 ? [ dns_hijack ] : [],
+		'endpoint-independent-nat': (uci('tun', 'endpoint_independent_nat') == '1'),
 		mtu: num(uci('tun', 'mtu'), 9000),
 		'route-exclude-address': [
 			'127.0.0.0/8', '::1/128',
 			'10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16',
 			'fd00::/8', 'fe80::/10'
 		],
-		'disable-icmp-forwarding': true,
-		'congestion-controller': 'bbr3'
+		'disable-icmp-forwarding': true
 	};
 } else {
 	// A subscription or override must not retain a second, all-device TUN
@@ -325,9 +330,7 @@ if (uci('sniffer', 'enabled') == '1') {
 			HTTP: { ports: [ 80, '8080-8880' ], 'override-destination': override_dest },
 			TLS: { ports: [ 443, 8443 ] },
 			QUIC: { ports: [ 443, 8443 ] }
-		},
-		'force-domain': [ '+v2ex.com' ],
-		'skip-domain': [ 'Mijia Cloud' ]
+		}
 	};
 }
 
@@ -338,7 +341,7 @@ delete base.ntp;
 // experimental
 patch.experimental = {
 	'quic-go-disable-gso': (uci('experimental', 'quic_gso') != '0'),
-	'quic-go-disable-ecn': (uci('experimental', 'quic_ecn') == '1')
+	'quic-go-disable-ecn': (uci('experimental', 'quic_ecn') != '0')
 };
 
 /* ---------- rules assembly (upstream prepend-rules semantics) ---------- */
@@ -348,16 +351,17 @@ let prepend = [];
 // loopback protection, one rule per enabled inbound port
 for (let p in enabled_ports) {
 	push(prepend, 'AND,((DST-PORT,' + p + '),(IP-CIDR,127.0.0.0/8,no-resolve)),REJECT');
-	push(prepend, 'AND,((DST-PORT,' + p + '),(IP-CIDR,::1/128,no-resolve)),REJECT');
+	push(prepend, 'AND,((DST-PORT,' + p + '),(IP-CIDR6,::1/128,no-resolve)),REJECT');
 }
 
 // QUIC block (exact upstream strings, lib/state.dart buildPatchParams)
-if (uci('quic', 'block') == '1') {
-	if (uci('quic', 'exclude_china') == '1')
-		push(prepend, 'AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((OR,((GEOSITE,geolocation-cn),(GEOIP,CN,no-resolve)))))),REJECT');
-	else
-		push(prepend, 'AND,((NETWORK,UDP),(DST-PORT,443)),REJECT');
-}
+let merge_members = sid != null ? uci(sid, 'merge_members') : null;
+let is_managed = sid != null && (
+	uci(sid, 'use_managed') == '1' ||
+	(type(merge_members) == 'array' ? length(merge_members) > 0 : length(merge_members ?? '') > 0)
+);
+if (uci('quic', 'block') == '1' && !is_managed)
+	push(prepend, 'AND,((NETWORK,UDP),(DST-PORT,443)),REJECT');
 
 if (sid != null) {
 	let preset = uci(sid, 'rule_preset');
@@ -418,6 +422,74 @@ if (type(disabled) == 'array' && length(disabled) > 0 && type(base['proxy-groups
 	delete base['disabled-groups'];
 }
 
+function ensure_bettbox_rule_providers(cfg) {
+	let names = {};
+	let add_name = (raw) => {
+		let n = trim(raw ?? '');
+		if (length(n) > 8 && substr(n, -8) == '_bettbox' && match(n, /^[A-Za-z0-9._@-]+$/))
+			names[n] = true;
+	};
+	for (let rule in (cfg.rules ?? [])) {
+		if (type(rule) != 'string')
+			continue;
+		let rest = rule;
+		while (length(rest) > 0) {
+			let m = match(rest, /(^|[^A-Za-z0-9_-])RULE-SET,[ \t]*([^,() \t\r\n]+)/i);
+			if (!m)
+				break;
+			add_name(m[2]);
+			let pos = index(rest, m[0]);
+			if (pos < 0)
+				break;
+			rest = substr(rest, pos + length(m[0]));
+		}
+	}
+	let add_entry = (entry) => {
+		if (type(entry) != 'string')
+			return;
+		let s = trim(entry);
+		if (length(s) <= 9 || lc(substr(s, 0, 9)) != 'rule-set:')
+			return;
+		for (let part in split(substr(s, 9), ','))
+			add_name(part);
+	};
+	if (type(cfg.dns?.['fake-ip-filter']) == 'array') {
+		for (let entry in cfg.dns['fake-ip-filter'])
+			add_entry(entry);
+	}
+	for (let pk in ['nameserver-policy', 'proxy-server-nameserver-policy']) {
+		if (type(cfg.dns?.[pk]) != 'object')
+			continue;
+		for (let k in keys(cfg.dns[pk]))
+			add_entry(k);
+	}
+	if (length(keys(names)) == 0)
+		return;
+	if (type(cfg['rule-providers']) != 'object')
+		cfg['rule-providers'] = {};
+	for (let name in keys(names)) {
+		if (cfg['rule-providers'][name] != null)
+			continue;
+		let tag = substr(name, 0, length(name) - 8);
+		let kind = 'geosite', behavior = 'domain';
+		if (length(tag) > 3 && substr(tag, -3) == '_ip') {
+			tag = substr(tag, 0, length(tag) - 3);
+			kind = 'geoip';
+			behavior = 'ipcidr';
+		}
+		let file = kind + '/' + tag + '.mrs';
+		cfg['rule-providers'][name] = {
+			type: 'http',
+			behavior: behavior,
+			format: 'mrs',
+			interval: 86400,
+			url: 'https://cdn.jsdelivr.net/gh/appshubcc/bett-rules@meta/geo/' + file,
+			path: './rules/' + name + '.mrs',
+			'path-in-bundle': 'geo/' + file
+		};
+	}
+}
+
 /* ---------- output ---------- */
 
 let final = merge(base, clean(patch));
@@ -436,6 +508,7 @@ if (length(device_rules)) {
 	}
 	final.rules = inserted ? ordered : concat(ordered, device_rules);
 }
+ensure_bettbox_rule_providers(final);
 let real_domains=uci_list('dns','real_ip_domains');
 if(type(real_domains)=='string')real_domains=[real_domains];
 else real_domains=map(real_domains,d=>d);
