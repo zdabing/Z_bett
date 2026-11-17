@@ -209,7 +209,7 @@ with tempfile.TemporaryDirectory() as tmp:
 sub_js = root / 'bettbox/files/usr/libexec/bettbox/subscription-parser.js'
 with tempfile.TemporaryDirectory() as tmp:
     cp = Path(tmp) / 'sub.json'
-    cp.write_text('{"raw":"ss://YWVzLTEyOC1nY206cGFzc3dvcmQ@1.2.3.4:8388#HK%2001"}', encoding='utf-8')
+    cp.write_text('{"content":"ss://YWVzLTEyOC1nY206cGFzc3dvcmQ@1.2.3.4:8388#HK%2001"}', encoding='utf-8')
     r = invoke(['run', '--script', str(sub_js), '--config', str(cp)])
     assert r.returncode == 0, r.stderr
     s_out = json.loads(r.stdout)
