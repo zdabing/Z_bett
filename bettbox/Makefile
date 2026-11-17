@@ -22,11 +22,13 @@ PKG_SOURCE_URL:=https://github.com/appshubcc/Bettbox/archive/refs/tags/
 PKG_HASH:=524ecaa3350f6b319919f79943337ffdbc90c39fcab2051a552b193ac047b14d
 PKG_BUILD_DIR:=$(BUILD_DIR)/Bettbox-$(BETTBOX_UPSTREAM_VERSION)
 
-PKG_BUILD_DEPENDS:=golang/host rust/host
+PKG_BUILD_DEPENDS:=golang/host
 PKG_BUILD_PARALLEL:=1
 PKG_BUILD_FLAGS:=no-mips16
-PKG_FILE_DEPENDS:=./forge/Cargo.toml ./forge/Cargo.lock ./forge/src ./upstream
-RUST_PKG_LOCKED:=1
+PKG_FILE_DEPENDS:=./forge/Makefile ./forge/src ./upstream
+
+QUICKJS_VERSION:=0.18.0
+QUICKJS_FILE:=quickjs-ng-amalgam-$(QUICKJS_VERSION).zip
 
 GO_PKG:=github.com/metacubex/mihomo
 GO_PKG_BUILD_PKG:=$(GO_PKG)
@@ -34,19 +36,17 @@ GO_PKG_TAGS:=with_gvisor,no_easytier,no_tailscale,no_zerotier,no_fake_tcp
 GO_PKG_LDFLAGS_X:=$(GO_PKG)/constant.Version=v$(PKG_VERSION) $(GO_PKG)/constant.BuildTime=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 include $(INCLUDE_DIR)/package.mk
-include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
 include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
-CARGO_PKG_VARS+=TARGET_AR="$(TARGET_AR)"
 
-# Keep machine code in C static objects (rquickjs-sys) and pass GCC LTO plugin
-# flags to the Rust linker when OpenWrt firmware builds enable CONFIG_USE_LTO.
-ifeq ($(CONFIG_USE_LTO),y)
-  TARGET_CFLAGS := $(filter-out -fno-fat-lto-objects,$(TARGET_CFLAGS)) -ffat-lto-objects
-  CARGO_RUSTFLAGS += -Clink-arg=-flto=auto -Clink-arg=-fuse-linker-plugin
-endif
+define Download/quickjs
+  URL:=https://github.com/quickjs-ng/quickjs/releases/download/v$(QUICKJS_VERSION)/
+  URL_FILE:=quickjs-amalgam.zip
+  FILE:=$(QUICKJS_FILE)
+  HASH:=6c05066a6b62b483e2ba0f83d7a16688c6958182b214bfd693529434cef84a9e
+endef
+$(eval $(call Download,quickjs))
 
 # Preserve Go's configure hook and explicitly compose both compile helpers.
-# rquickjs 0.12 ships musl bindings for these two supported build targets.
 define Build/Prepare
 	$(PKG_UNPACK)
 	rm -rf $(PKG_BUILD_DIR).core
@@ -57,13 +57,19 @@ define Build/Prepare
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)/bettbox
 	$(CP) ./upstream/*.go $(PKG_BUILD_DIR)/bettbox/
 	$(CP) ./upstream/route.go.install $(PKG_BUILD_DIR)/hub/route/bettbox.go
-	$(INSTALL_DIR) $(PKG_BUILD_DIR)/.bettbox-forge
-	$(CP) ./forge/Cargo.toml ./forge/Cargo.lock ./forge/src $(PKG_BUILD_DIR)/.bettbox-forge/
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/.bettbox-forge $(PKG_BUILD_DIR)/.bettbox-forge/vendor
+	$(CP) ./forge/Makefile ./forge/src $(PKG_BUILD_DIR)/.bettbox-forge/
+	unzip -q -o $(DL_DIR)/$(QUICKJS_FILE) -d $(PKG_BUILD_DIR)/.bettbox-forge/vendor
 endef
 
 define Build/Compile
 	$(call GoPackage/Build/Compile)
-	$(call Build/Compile/Cargo,.bettbox-forge)
+	$(MAKE) -C $(PKG_BUILD_DIR)/.bettbox-forge \
+		CC="$(TARGET_CC)" \
+		CFLAGS="$(TARGET_CFLAGS) $(TARGET_CPPFLAGS)" \
+		LDFLAGS="$(TARGET_LDFLAGS)" \
+		VERSION="$(BETTBOX_UPSTREAM_VERSION)" \
+		OUT="$(PKG_BUILD_DIR)/.bettbox-forge/bettbox-forge"
 endef
 
 define Package/bettbox
@@ -106,7 +112,7 @@ endef
 define Package/bettbox/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/mihomo $(1)/usr/bin/mihomo
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/bin/bettbox-forge $(1)/usr/bin/bettbox-forge
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/.bettbox-forge/bettbox-forge $(1)/usr/bin/bettbox-forge
 	$(INSTALL_BIN) ./files/usr/bin/bettbox $(1)/usr/bin/bettbox
 
 	$(INSTALL_DIR) $(1)/usr/libexec/bettbox

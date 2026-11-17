@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   source-checks:
-    name: Source, Rust & Frontend checks
+    name: Source, Forge & Frontend checks
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -45,18 +45,8 @@ jobs:
               ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
           PY
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: bettbox/forge
-
-      - name: Check bettbox-forge Rust formatting and compilation
-        run: |
-          cargo fmt --manifest-path bettbox/forge/Cargo.toml -- --check
-          cargo check --locked --manifest-path bettbox/forge/Cargo.toml
+      - name: Check bettbox-forge C compilation and behavior
+        run: bash .github/scripts/test-forge.sh
 
       - name: Check git whitespace and conflict markers
         run: git diff --check

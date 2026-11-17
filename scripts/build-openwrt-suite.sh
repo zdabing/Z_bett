@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unified OpenWrt 25.12.6 co-build helper for Z_bett (bettbox + luci-app-bettbox)
 # and luci-zen (luci-theme-zen + zen-traffic + luci-app-zen-traffic + zen-full).
-# Sharing one SDK eliminates duplicate apt/SDK setup and shares rust/host across both projects.
+# Sharing one SDK eliminates duplicate apt/SDK setup across both projects.
 set -euo pipefail
 
 SDK_VERSION="${SDK_VERSION:-25.12.6}"
@@ -81,17 +81,6 @@ cp feeds.conf.default feeds.conf
 if [ "$UI_ONLY" -eq 0 ] || [ ! -d feeds/packages ]; then
 	./scripts/feeds update -a
 	./scripts/feeds install -a
-fi
-
-RUST_MAKEFILE=feeds/packages/lang/rust/Makefile
-if [ -f "$RUST_MAKEFILE" ]; then
-	RUST_VERSION="$(sed -n 's/^PKG_VERSION:=//p' "$RUST_MAKEFILE")"
-	CI_LLVM_URL="https://ci-artifacts.rust-lang.org/rustc-builds/ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96/rust-dev-1.96.0-x86_64-unknown-linux-gnu.tar.xz"
-	if [ "$RUST_VERSION" = "1.96.0" ] && grep -qF -- '--set=llvm.download-ci-llvm=false' "$RUST_MAKEFILE" && \
-	   curl -fsSIL --retry 2 "$CI_LLVM_URL" >/dev/null 2>&1; then
-		sed -i 's/--set=llvm.download-ci-llvm=false/--set=llvm.download-ci-llvm=true/' "$RUST_MAKEFILE"
-		echo "Enabled official CI LLVM for Rust 1.96.0"
-	fi
 fi
 
 for pkg in CONFIG_PACKAGE_bettbox CONFIG_PACKAGE_luci-app-bettbox CONFIG_PACKAGE_luci-theme-zen \

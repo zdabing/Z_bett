@@ -28,7 +28,7 @@
                  | YAML & CLI        | Router Control Plane         |
                  +-------------------+ bettbox/files/usr/bin/bettbox|
                                      | usr/libexec/bettbox/*.{sh,uc}|
-                                     | usr/bin/bettbox-forge (Rust) |
+                                     | usr/bin/bettbox-forge (C/QJS)|
                                      +---------------+--------------+
                                                      |
                                                      v
@@ -45,7 +45,7 @@
 |---|---|---|---|
 | **包构建与补丁** | `bettbox/Makefile`、`bettbox/patches/100-closed-connection-history.patch`、`110-reclaim-idle-memory.patch`、`120-traffic-history.patch` | 产出 `/usr/bin/mihomo`、`/usr/bin/bettbox-forge`、`bettbox` 脚本及默认 UCI；`PROVIDES:=mihomo clash-meta bettbox-forge` | `PKG_FILE_DEPENDS` 明确声明依赖 `./forge/...` 与 `./upstream` |
 | **上游 Go 移植层** | `bettbox/upstream/profile_merge.go`、`route.go.install`、`route_trace.go`、`store.go`、`traffic_stats.go` | 编译期拷贝为 Mihomo `bettbox/` 包与 `hub/route/bettbox.go`，暴露规则追踪与流量统计 REST | 与上游 `appshubcc/Bettbox` 对齐，保留原文件出处注释 |
-| **QuickJS 脚本引擎** | `bettbox/forge/Cargo.toml`、`src/main.rs`、`src/script/{mod,convert,console}.rs` | `bettbox-forge run \| options \| version` | 执行兼容脚本 `main(config, customOptions)`，提取 `policyGroupOptions`，转换分享链接 |
+| **QuickJS 脚本引擎** | `bettbox/forge/Makefile`、`src/main.c`、`src/sandbox.{h,c}` | `bettbox-forge run \| options \| version` | 基于 QuickJS-NG 执行兼容脚本 `main(config, customOptions)`，提取 `policyGroupOptions`，转换分享链接 |
 | **UCI 与服务生命周期** | `files/etc/config/bettbox`、`files/etc/init.d/bettbox`、`bettbox-dns`、`files/lib/upgrade/keep.d/bettbox` | UCI schema：`core 'config'`、`backup`、`tun`、`dns`、`quic`、`sniffer`、`experimental` | `procd` 守护与 sysupgrade 配置保留 |
 | **配置渲染与分流** | `apply.sh`、`render.uc`、`common.sh`、`router-settings.sh`、`device-access.uc`、`dns-forward.uc`、`dns-policy.uc` | `bettbox apply \| live \| apply-service \| status` | 将 UCI + 订阅 + 脚本 + 设备策略渲染为运行期 `config.yaml` 并校验 |
 | **订阅、合并与托管分流** | `subscription.sh`、`subscription-input.uc`、`subscription-normalize.sh`、`subscription-parser.js`、`profile-merge.sh`、`managed-routing.{js,json,uc}`、`script-{store,update}.uc` | `bettbox subscriptions ...`、`profile-merge`、脚本来源管理 | 支持 2-8 份订阅合并、托管分流预设与规则校验失败回退 |
@@ -92,7 +92,7 @@
 1. **Go 内嵌算法**（`bettbox/upstream/*.go`）：对比上游 `core/profile_merge.go`、`core/toolbox/{store,route_trace,traffic_stats}.go`，更新文件后必须在文件首部注释保留上游版本与短 Commit SHA，并在 `CHANGELOG.md` 标明变更范围。
 2. **托管分流与脚本引擎**：
    - 托管分流规则变更只更新 `managed-routing.{js,json,uc}`，通过 `render.uc` 调用。
-   - QuickJS 引擎变更集中在 `bettbox/forge/src/`；若修改 Cargo 依赖，需跑通 `cargo check --locked`。
+   - QuickJS 引擎变更集中在 `bettbox/forge/src/`；修改后需跑通 `.github/scripts/test-forge.sh`。
 3. **RPC 与前端联动**：若上游新增 API 参数，优先在 `ucode` 层或 `subscription-controls.js` / `script-manager.js` 等共享业务模块扩展，不要在 8 个 `view/*.js` 之间复制粘贴相似表单或请求逻辑。
 
 ### 4.3 轨道 C：跟随 `luci-theme-zen`（雾岚）及 Zen 规范演进

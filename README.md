@@ -4,7 +4,7 @@
 
 | 安装包 | 架构 | 内容 |
 |---|---|---|
-| `bettbox` | 匹配设备架构 | Mihomo 核心（内嵌订阅合并、路由追踪与流量统计）、`bettbox-forge`（Rust / QuickJS 脚本引擎）、`procd` 服务、透明代理、配置渲染与工具箱 |
+| `bettbox` | 匹配设备架构 | Mihomo 核心（内嵌订阅合并、路由追踪与流量统计）、`bettbox-forge`（C / QuickJS-NG 脚本引擎）、`procd` 服务、透明代理、配置渲染与工具箱 |
 | `luci-app-bettbox` | `all` | 概览、代理、连接、订阅与脚本、资源、工具箱、日志与设置界面及 `rpcd` ucode 后端 |
 
 > 从 `v2026.10.27` 起，`bettbox-forge` 已合入 `bettbox` 安装包，不再单独发布第三个 APK；路由器无需 Rust 或 Python 环境。
@@ -92,7 +92,7 @@ apk add --allow-untrusted ./bettbox-[0-9]*.apk ./luci-app-bettbox-[0-9]*.apk bet
 
 ### GitHub Actions
 
-- **自动源码校验（`CI`）**：每次推送 `main` 或发起 PR 时自动运行 Shell 语法、`bettbox-forge` `cargo fmt --check` / `cargo check --locked`、全量 JS `node --check`、JSON 与 Python 脚本检查。
+- **自动源码校验（`CI`）**：每次推送 `main` 或发起 PR 时自动运行 Shell 语法、`bettbox-forge` C 编译与沙箱行为校验、全量 JS `node --check`、JSON 与 Python 脚本检查。
 - **多目标打包与发布（`Build OpenWrt 25 packages`）**：在 Actions 页面手动触发，可选择 `aarch64_generic`（默认）、`aarch64_cortex-a53`、`x86_64` 或 `all`（同时构建全部 3 个架构，共 6 个 `.apk`）；勾选 `publish` 并填写与 `CHANGELOG.md` 对应的 `release_tag`（如 `v2026.11.16`）后，自动校验摘要并发布 Release 与 `bettbox-update.json`。
 
 ### OpenWrt 25.12 SDK 本地编译

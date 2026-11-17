@@ -8,7 +8,7 @@
 ## 1. 项目定位与不可破坏红线
 
 1. **双包独立、职责清晰**：
-   - `bettbox/`（架构相关 `aarch64_generic` / `aarch64_cortex-a53` / `x86_64`）：包含 Mihomo 核心（含内嵌上游合并/统计/追踪 Go 模块）、Rust/QuickJS 脚本引擎 `bettbox-forge`、UCI 默认配置、`procd` 服务、透明代理与规则渲染脚本。
+   - `bettbox/`（架构相关 `aarch64_generic` / `aarch64_cortex-a53` / `x86_64`）：包含 Mihomo 核心（含内嵌上游合并/统计/追踪 Go 模块）、纯 C/QuickJS-NG 脚本引擎 `bettbox-forge`、UCI 默认配置、`procd` 服务、透明代理与规则渲染脚本。
    - `luci-app-bettbox/`（架构无关 `all`）：包含 LuCI 菜单/ACL、ucode `rpcd` 后端与原生 ES5/LuCI JS + Scoped CSS 界面。
 2. **宿主主题零硬依赖**：
    - `luci-app-bettbox` 只依赖 `+luci-base +bettbox`，**不得**在 `Makefile`、`rpcd` 或 JS 运行时强依赖 `luci-theme-zen`、Bootstrap 特定 DOM 或外部前端框架。
@@ -28,7 +28,7 @@
 | 层级 | 目录 / 关键文件 | 唯一职责 | 禁止事项 |
 |---|---|---|---|
 | **1. 核心与上游扩展** | `bettbox/Makefile`、`bettbox/patches/*.patch`、`bettbox/upstream/*.go` | 封装 Mihomo 构建、补丁与上游 `appshubcc/Bettbox` 核心能力（合并/追踪/流量统计） | 禁止在 `Makefile` 中引入未记录源的上游代码；禁止改坏 `/traffic`、`/memory`、`/connections` 原生 API 契约 |
-| **2. 脚本引擎** | `bettbox/forge/`（`Cargo.toml`、`src/main.rs`、`src/script/*`） | QuickJS 沙箱执行订阅脚本（`main(config, customOptions)`）、参数提取（`options`）与分享链接转换 | 禁止改动 `--script`/`--config`/`--options`/`--timeout`/`--out` CLI 参数契约；必须保持 `RUST_PKG_LOCKED:=1` 与 `cargo fmt --check` 通过 |
+| **2. 脚本引擎** | `bettbox/forge/`（`Makefile`、`src/main.c`、`src/sandbox.{h,c}`） | QuickJS-NG 沙箱执行订阅脚本（`main(config, customOptions)`）、参数提取（`options`）与分享链接转换 | 禁止改动 `--script`/`--config`/`--options`/`--timeout`/`--out` CLI 参数契约；禁止在沙箱内暴露宿主 I/O |
 | **3. 路由器控制面** | `bettbox/files/etc/config/bettbox`、`bettbox/files/usr/bin/bettbox`、`bettbox/files/usr/libexec/bettbox/*` | UCI Schema、配置渲染（`render.uc`）、订阅合并（`profile-merge.sh`）、托管分流（`managed-routing.*`）、防火墙/DNS/健康检查 | 禁止删除已有 UCI 字段的向后兼容读取；禁止直接用 `echo`/字符串拼接生成复杂 YAML 或 shell 注入 |
 | **4. LuCI RPC 网关** | `luci-app-bettbox/root/usr/share/rpcd/ucode/bettbox.uc`、`acl.d/luci-app-bettbox.json`、`menu.d/luci-app-bettbox.json` | 暴露 `bettbox` ubus 对象、校验参数/路径、调度异步诊断/更新任务、中转非流式 REST | 禁止在 `api_proxy` 中放行 `/traffic`、`/memory`、`/logs` 长流；禁止新增 `rpcd` 方法却漏配 `acl.d`；所有命令参数必须经 `shellquote()` 与白名单校验 |
 | **5. 前端传输与 UI 基座** | `luci-app-bettbox/htdocs/luci-static/resources/bettbox/core.js`、`ui.js`、`ui.css` | 统一的核心 REST 直连/RPC 回退（`core.js`）、页面导航壳层/图标/模态框/异步任务轮询/Zen 外观引擎（`ui.js` + `ui.css`） | 禁止业务视图绕过 `core.js` 自拼 `fetch`/端口；禁止在全局选择器编写无 `.bb-app`/`body.bb-page` 前缀的 CSS |
@@ -66,7 +66,7 @@
 2. **Bettbox 桌面端能力同步（`bettbox/upstream/` + `managed-routing.*` + `bettbox/forge/`）**：
    - 移植至 `bettbox/upstream/*.go` 的文件必须在顶部注释标明上游版本与 Commit（如 `// Bettbox v1.19.8 (88b9597), core/profile_merge.go.`），保持与桌面端接口 JSON 字段一致。
    - 托管分流目录及规则（`managed-routing.js`、`managed-routing.json`、`managed-routing.uc`）独立存放，不直接散落写入 `render.uc` 或前端视图。
-   - 更新 `bettbox/forge/` 后若修改 Rust 源码或 `Cargo.lock`，需在提交前跑通 `cargo fmt --check` 与 `cargo check --locked`。
+   - 更新 `bettbox/forge/` 后需在提交前通过 `bash .github/scripts/test-forge.sh`（`-Wall -Wextra -Werror` 编译与沙箱行为测试）。
 3. **LuCI Zen 主题联动升级（`luci-theme-zen` ↔ `luci-app-bettbox`）**：
    - 当 `luci-theme-zen` 新增或调整 `:root` / `:root[data-theme="dark"]` 语义 CSS 变量时，同步核对 [ui.css](luci-app-bettbox/htdocs/luci-static/resources/bettbox/ui.css) 第 3 行回退映射以及第 853 行 `.modal:has(.bb-modal-content)` 变量映射。
    - `luci-app-bettbox` 与 `luci-theme-zen` 不共享写状态：`zen` 的主题设置存储于 `/etc/config/zen` 与 `luci-theme-zen` 本地键，`bettbox` 外观偏好存储于 `bettbox.appearance.v1`；当选择 `host` 模式时，Bettbox 自然跟随 `zen` 的亮/暗态变量切换。
@@ -82,6 +82,6 @@
 3. **CSS 结构完整性**：确认所有 `.css` 花括号 `{}` 与注释 `/* */` 闭合，且 `ui.css?v=...` 等资源版本号已同步更新。
 4. **CI 对齐检查（Linux / WSL / GitHub Actions 环境）**：
    - Shell 语法：`sh -n bettbox/files/usr/bin/bettbox bettbox/files/etc/init.d/bettbox bettbox/files/usr/libexec/bettbox/*.sh`
-   - Rust 检查：`cargo fmt --manifest-path bettbox/forge/Cargo.toml -- --check` 与 `cargo check --locked --manifest-path bettbox/forge/Cargo.toml`
+   - Forge C 检查：`bash .github/scripts/test-forge.sh`（下载校验 QuickJS-NG amalgam 并以 `-Werror` 编译及运行全套沙箱测试）
    - ucode 语法：通过 OpenWrt 25.12 SDK `ucode -cno-interp,...` 校验 `bettbox/files/usr/libexec/bettbox/*.uc` 与 `bettbox.uc`（含 `export function` 包装检查）。
    - Git 空白与冲突标记：`git diff --check`。

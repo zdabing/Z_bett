@@ -1,7 +1,10 @@
 # reference clone of upstream repo (research only)
 /bettbox-src/
 
-# rust build output
+# C / forge build output
+/bettbox/forge/bettbox-forge
+/bettbox/forge/*.o
+/bettbox/forge/vendor/
 /bettbox-forge/target/
 /bettbox/forge/target/
 /bettbox/prebuilt/
