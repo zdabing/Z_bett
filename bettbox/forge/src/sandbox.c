@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0 */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "sandbox.h"
 #include "quickjs.h"
 
@@ -149,10 +151,10 @@ static uint64_t now_monotonic_ns(void)
 	return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
 }
 
-static int sandbox_interrupt(JSRuntime *rt, void *opaque)
+static int sandbox_interrupt(JSContext *ctx, void *opaque)
 {
 	SandboxState *st = (SandboxState *)opaque;
-	(void)rt;
+	(void)ctx;
 	if (!st)
 		return 0;
 	if (now_monotonic_ns() >= st->deadline_ns) {
