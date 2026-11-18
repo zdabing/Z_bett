@@ -21,7 +21,7 @@ function toggle(value, label, change) {
 function dialog(title, content, actions, options) {
 	options = options || {};
 	UI.mount();
-	if (!document.getElementById('bettbox-subscriptions-css')) document.head.appendChild(E('link', { id: 'bettbox-subscriptions-css', rel: 'stylesheet', href: L.resource('bettbox/subscriptions.css') + '?v=20261118-1' }));
+	if (!document.getElementById('bettbox-subscriptions-css')) document.head.appendChild(E('link', { id: 'bettbox-subscriptions-css', rel: 'stylesheet', href: L.resource('bettbox/subscriptions.css') + '?v=20261118-2' }));
 	var busy = false, closed = false, disabled = [], controller;
 	var body = E('div', { 'class': 'hub-dialog-body' }, content);
 	var footer = E('footer', { 'class': 'hub-dialog-foot' }, actions || []);

@@ -34,8 +34,7 @@ return baseclass.extend({
 		}
 		var label = input(name), url = input(p.url, 'password', { autocomplete: 'off' });
 		var merged = (p.merge_members || []).length > 0;
-		var mergePrefix = input(p.merge_prefix, 'text', { maxlength: 32 });
-		var age = input(p.age_identity, 'password', { placeholder: '使用全局密钥', autocomplete: 'off' });
+		var mergePrefix = input(p.merge_prefix, 'text', { maxlength: 32, placeholder: '可选，合并时区分同名节点' });
 		var interval = input(String(p.update_interval || 1440), 'number', { min: '1', max: '10080', step: '1' });
 		var period = E('select', { 'class': 'field', 'aria-label': '更新周期' }, [60, 360, 720, 1440].map(function(v) { return E('option', { value: String(v) }, '每 ' + (v / 60) + ' 小时'); }).concat([E('option', { value: 'custom' }, '自定义')]));
 		function syncPeriod() { period.value = [60,360,720,1440].indexOf(+interval.value) >= 0 ? interval.value : 'custom'; }
@@ -138,7 +137,7 @@ return baseclass.extend({
 				managed.routes.push({name: item.name, icon: item.icon, sets: (item.sets || []).slice(), enabled: true});
 				changed(); renderTab();
 			}
-			elements.push(E('div', { 'class': 'hub-input-action' }, [
+			elements.push(E('div', { 'class': 'hub-input-action hub-managed-toolbar' }, [
 				service, UI.button('添加目录服务', function() { addRoute(catalog.services[Number(service.value)]); }),
 				UI.button('添加自定义分流', function() { addRoute({name: ''}); })
 			]));
@@ -156,8 +155,10 @@ return baseclass.extend({
 				name.addEventListener('input', function() { region.name = name.value.trim(); });
 				pattern.addEventListener('input', function() { region.regex = pattern.value.trim(); });
 				elements.push(section('自定义地区', [
-					H.field('地区名称', name), H.field('节点名称正则', pattern),
-					UI.button('删除地区', function() { managed.customRegions.splice(index, 1); changed(); renderTab(); })
+					E('div', { 'class': 'hub-form-grid' }, [H.field('地区名称', name), H.field('节点名称正则', pattern)]),
+					E('div', { 'class': 'button-row', style: 'margin-top:12px' }, [
+						UI.button('删除地区', function() { managed.customRegions.splice(index, 1); changed(); renderTab(); }, 'danger small')
+					])
 				]));
 			});
 			elements.push(UI.button('添加自定义地区', function() {
@@ -185,16 +186,21 @@ return baseclass.extend({
 				sets.addEventListener('input', function() { route.sets = sets.value.split('\n').map(function(value) { return value.trim(); }).filter(Boolean); changed(); });
 				target.addEventListener('change', function() { route.target = target.value; changed(); });
 				elements.push(section('分流 ' + (index + 1), [
-					H.field('启用', H.toggle(!!route.enabled, '启用分流 ' + (index + 1), function(value) { route.enabled = value; changed(); })),
-					H.field('名称', name), H.field('出口', target), H.field('规则集', sets),
-					E('div', { 'class': 'button-row' }, [
+					E('div', { 'class': 'hub-setting-line' }, [
+						E('span', { 'class': 'small muted' }, '启用此分流规则'),
+						H.toggle(!!route.enabled, '启用分流 ' + (index + 1), function(value) { route.enabled = value; changed(); })
+					]),
+					E('div', { 'class': 'hub-form-grid' }, [
+						H.field('名称', name), H.field('出口', target), H.field('规则集', sets, true)
+					]),
+					E('div', { 'class': 'button-row', style: 'margin-top:14px' }, [
 						UI.button('上移', function() {
 							if (!index) return;
 							managed.routes.splice(index, 1);
 							managed.routes.splice(index - 1, 0, route);
 							changed(); renderTab();
 						}),
-						UI.button('删除分流', function() { managed.routes.splice(index, 1); changed(); renderTab(); })
+						UI.button('删除分流', function() { managed.routes.splice(index, 1); changed(); renderTab(); }, 'danger')
 					])
 				]));
 			});
@@ -204,9 +210,12 @@ return baseclass.extend({
 			Array.from(tabs.children).forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
 			error.textContent = '';
 			if (tab === 'basic') {
-				var reveal = UI.button('显示', function() { url.type = url.type === 'password' ? 'text' : 'password'; reveal.querySelector('span').textContent = url.type === 'password' ? '显示' : '隐藏'; }, 'text', 'eye');
+				var reveal = UI.button('显示', function() { url.type = url.type === 'password' ? 'text' : 'password'; reveal.querySelector('span').textContent = url.type === 'password' ? '显示' : '隐藏'; }, '', 'eye');
 				var autoToggle = H.toggle(auto, '自动更新', function(value) { auto = value; interval.disabled = period.disabled = !value; changed(); }); interval.disabled = period.disabled = !auto;
-				content.replaceChildren(section('订阅信息', [E('div', { 'class': 'hub-form-grid' }, [H.field('名称', label, true), merged ? E('p', {}, '合并配置随成员订阅更新。') : H.field('订阅链接', E('div', { 'class': 'hub-input-action' }, [url, reveal]), true), merged ? null : H.field('合并时的节点前缀', mergePrefix)])]),
+				var infoFields = merged
+					? [H.field('名称', label, true), E('p', { 'class': 'wide small muted', style: 'margin:0' }, '合并配置随成员订阅自动重建。')]
+					: [H.field('名称', label), H.field('合并时的节点前缀', mergePrefix), H.field('订阅链接', E('div', { 'class': 'hub-input-action' }, [url, reveal]), true)];
+				content.replaceChildren(section('订阅信息', [E('div', { 'class': 'hub-form-grid' }, infoFields)]),
 					...(merged ? [] : [E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '自动更新'), autoToggle]), E('div', { 'class': 'hub-form-grid' }, [H.field('更新周期', period), H.field('间隔（分钟）', interval)])])]), error);
 			} else if (tab === 'script') {
 				scriptSelect.disabled = !useScript;
@@ -220,7 +229,7 @@ return baseclass.extend({
 						return deleteRPC(p.id).then(UI.checked).then(config.onSaved).then(function() { busy = false; box.setBusy(false); return box.close(true); }).catch(function(err) { error.textContent = err.message; }).finally(function() { busy = false; box.setBusy(false); });
 					});
 				}, 'danger', 'close'); remove.disabled = config.active; if (config.active) remove.title = '请先选用其他订阅';
-				content.replaceChildren(section('订阅加密', [H.field('age 密钥', age)]), E('section', { 'class': 'hub-form-section' }, [E('h3', {}, '附加规则'), H.field('分流预设', preset), H.field('规则内容', rules), H.field('另存为分流预设', presetName)]), E('section', { 'class': 'hub-form-section hub-delete-section' }, [E('h3', {}, '删除订阅'), remove]), error);
+				content.replaceChildren(section('附加规则', [E('div', { 'class': 'hub-form-grid' }, [H.field('分流预设', preset), H.field('另存为分流预设', presetName), H.field('规则内容', rules, true)])]), E('section', { 'class': 'hub-form-section hub-delete-section' }, [E('h3', {}, '删除订阅'), remove]), error);
 			}
 			box.body.scrollTop = 0;
 		}
@@ -274,7 +283,6 @@ return baseclass.extend({
 				uci.set('bettbox', p.id, 'managed_options', routingOptions);
 			}
 			uci.set('bettbox', p.id, 'custom_options', JSON.stringify(options ? options.values : original));
-			if (age.value.trim()) uci.set('bettbox', p.id, 'age_identity', age.value.trim()); else uci.unset('bettbox', p.id, 'age_identity');
 			if (newPreset) {
 				var currentPresets = Object.assign(Object.create(null), presets);
 				currentPresets[newPreset] = list;
@@ -296,7 +304,7 @@ return baseclass.extend({
 			}).finally(function() { busy = false; box.setBusy(false); if (box.element.isConnected) drawOptions(); });
 		}
 		var saveButton = UI.button(config.active ? '保存并应用' : '保存', save, 'primary', 'save');
-		box = H.dialog('编辑订阅', [E('div', { 'class': 'hub-editor-context' }, [UI.icon('file'), E('strong', {}, name), config.active ? UI.tag('当前使用') : '']), tabs, content], [status, E('div', {}, [UI.button('取消', function() { return box.close(); }), saveButton])], {
+		box = H.dialog('编辑订阅', [E('div', { 'class': 'hub-editor-context' }, [UI.badge(merged ? 'layers' : 'file', 'bb-small-icon', merged ? 'purple' : 'blue'), E('strong', {}, name), config.active ? UI.tag('当前使用') : '']), tabs, content], [status, E('div', {}, [UI.button('取消', function() { return box.close(); }), saveButton])], {
 			drawer: true, beforeClose: function() { if (busy) return false; return !dirty || H.confirm('放弃修改', '订阅有未保存的修改，确定放弃？', '放弃修改', true); }
 		});
 		renderTab(); if (dirty) changed(); if (useScript) loadOptions(selected); return box;
