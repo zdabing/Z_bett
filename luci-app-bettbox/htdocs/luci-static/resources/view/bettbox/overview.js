@@ -110,11 +110,11 @@ return view.extend({
 		[['rule','规则'],['global','全局'],['direct','直连']].forEach(function(m){var b=E('button',{type:'button','class':st.mode===m[0]?'active':'','aria-pressed':String(st.mode===m[0])},m[1]);b.addEventListener('click',function(){var old=st.mode;Array.from(modes.children).forEach(function(x){x.disabled=true;});(st.running?Core.patch('/configs',{mode:m[0]}):Promise.resolve()).then(function(){uci.set('bettbox','config','mode',m[0]);return uci.save();}).then(function(){return commit('bettbox');}).then(refreshStatus).catch(function(err){uci.set('bettbox','config','mode',old);if(st.running)Core.patch('/configs',{mode:old}).catch(function(){});UI.error(err);}).finally(function(){Array.from(modes.children).forEach(function(x){x.disabled=false;});});});b.dataset.mode=m[0];modes.appendChild(b);});
 		var stats = {}, lines = {}, samples = [];
 		var metrics = E('section', {'class':'panel metric-grid overview-metrics'}, [
-			['down','下行速度'], ['up','上行速度'], ['link','活动连接'], ['chip','内核内存']
+			['down','下行速度','blue'], ['up','上行速度','orange'], ['link','活动连接','purple'], ['chip','内核内存','green']
 		].map(function(metric){
 			var key = metric[0], label = metric[1];
 			stats[key] = E('div', {'class':'stat'}, '—');
-			var content = [E('div', {'class':'label'}, [UI.icon(key),document.createTextNode(label)]), stats[key]];
+			var content = [E('div', {'class':'label'}, [UI.badge(key, 'bb-small-icon', metric[2]), document.createTextNode(label)]), stats[key]];
 			if (key === 'down' || key === 'up') {
 				var chart = svg('svg', {'class':'speed-trend '+key, viewBox:'0 0 180 24', width:180, height:24, fill:'none', preserveAspectRatio:'none',
 					role:'img', 'aria-label':'最近一分钟'+label+'趋势'});
@@ -146,7 +146,7 @@ return view.extend({
 			last = {up:up, down:down, time:time};
 		}
 		var trafficSlot=E('div',{},traffic(0,0,false));
-		var trafficPanel=E('section',{'class':'panel traffic-card'},[E('div',{'class':'panel-head'},E('h2',{},[UI.icon('traffic'),document.createTextNode('流量统计')])),trafficSlot]);
+		var trafficPanel=E('section',{'class':'panel traffic-card'},[E('div',{'class':'panel-head'},E('h2',{},[UI.badge('traffic','bb-section-icon','purple'),document.createTextNode('流量统计')])),trafficSlot]);
 		var exitParts={},exitJobs={},proxyGeneration=0,exitBodies=E('div',{'class':'exit-grid'});
 		['direct','proxy'].forEach(function(via){var ip=E('span',{'class':'ip-address network-unknown'},'未检测'),country=E('div',{'class':'country'},'—'),org=E('div',{'class':'asn'},'—'),node=E('span',{},via==='direct'?'直连 DIRECT':'当前代理出口'),status=E('span',{'class':'muted'},'未检测');exitParts[via]={ip:ip,country:country,org:org,node:node,status:status};exitBodies.appendChild(E('div',{'class':'exit-block'},[E('div',{'class':'exit-kind'},[E('i',{'class':'dot'}),document.createTextNode(via==='direct'?'直连出口':'代理出口')]),E('div',{'class':'ip-row'},[ip,UI.button('复制',function(){if(ip.dataset.ip)return UI.copy(ip.dataset.ip);},'text small','copy')]),country,org,E('div',{'class':'exit-node'},[node,status])]));});
 		function stopProxyExit(){
@@ -179,7 +179,7 @@ return view.extend({
 			});exitJobs[via]=task;return task;
 		}
 		function checkExits(){return Promise.all([checkExit('direct'),checkExit('proxy')]);}
-		var networkPanel=E('section',{'class':'panel network-card'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.icon('globe'),document.createTextNode('网络检查')])]),UI.button('检测',checkExits,'small','refresh')]),exitBodies]);
+		var networkPanel=E('section',{'class':'panel network-card'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.badge('globe','bb-section-icon','blue'),document.createTextNode('网络检查')])]),UI.button('检测',checkExits,'small','refresh')]),exitBodies]);
 		var lan=net.lan||{},lanAddr=lan.address||'—';function row(k,v){return E('div',{'class':'definition-row'},[E('dt',{},k),E('dd',{'class':'right mono'},String(v||'—'))]);}
 		var lanPanel=UI.panel('内网 IP','lan',[E('div',{'class':'lan-primary'},[E('div',{},[E('div',{'class':'ip-address'},lanAddr),E('div',{'class':'tiny muted'},(lan.device||'LAN')+' / '+(lan.prefix||24))]),UI.button('复制',function(){return UI.copy(lanAddr);},'text small','copy')]),E('dl',{'class':'definition-list'},[row('局域网代理',net.mixed_port?lanAddr+':'+net.mixed_port:'未开启'),row('LAN DNS',lanAddr),row('WAN 接口',net.wan&&net.wan.device)])]);lanPanel.classList.add('lan-card');
 		var sites=[['baidu','百度','baidu.com'],['google','Google','gstatic.com'],['youtube','YouTube','youtube.com'],['github','GitHub','github.com'],['netflix','Netflix','netflix.com'],['openai','OpenAI','openai.com']],resultNodes={};
@@ -206,7 +206,7 @@ return view.extend({
 				throw err;
 			});
 		}
-		var connectivity=E('section',{'class':'panel section-gap'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.icon('link'),document.createTextNode('连通性测试')])]),UI.button('开始检测',checkSites,'primary small','refresh')]),siteGrid]);
+		var connectivity=E('section',{'class':'panel section-gap'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[UI.badge('link','bb-section-icon','green'),document.createTextNode('连通性测试')])]),UI.button('开始检测',checkSites,'primary small','refresh')]),siteGrid]);
 		function paintService(){
 			stateTag.textContent=servicePending||(st.running?'运行中':'已停止');stateTag.className='tag '+(st.running?'':'neutral');
 			serviceTitle.textContent=st.running?'Bettbox 正在运行':'Bettbox 已停止';

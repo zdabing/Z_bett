@@ -11,17 +11,14 @@ var TOOLS=[
 	['speedtest','网速测试','bolt','经当前代理策略测试上下行'],
 	['ping','本地 Ping','activity','检测路由器到目标的连通性'],
 	['media','连通性测试','grid','查看常用服务的 HTTP 响应'],
-	['mrs','MRS 速查','search','查询域名所属的 GeoSite 类别'],
-	['nat','NAT 检测','lan','检测公网地址与 STUN 映射'],
-	['iperf','iPerf3 工具','link','测试到指定服务器的吞吐量'],
-	['age','Age 加解密','shield','使用接收方公钥或身份密钥']
+	['mrs','MRS 速查','search','查询域名所属的 GeoSite 类别']
 ];
 function input(value,placeholder,type){return E('input',{'class':'field',value:value||'',placeholder:placeholder||'',type:type||'text'});}
 function select(values){return E('select',{'class':'field'},values.map(function(v){return E('option',{value:v[0]},v[1]||v[0]);}));}
 function bounded(c,min,max){var n=Number(c.value);if(!Number.isInteger(n)||n<min||n>max)throw new Error('请输入 '+min+'–'+max+' 之间的整数');return String(n);}
 function host(c){var s=c.value.trim();if(!/^[A-Za-z0-9_:.\-]+$/.test(s)||s.charAt(0)==='-')throw new Error('请输入有效的域名或 IP 地址');return s;}
 function trafficPanel(){
-	var dimensions=[['hosts','域名'],['processes','应用'],['nodes','节点'],['profiles','订阅'],['rules','规则'],['series','时间']];
+	var dimensions=[['hosts','域名'],['nodes','节点'],['profiles','订阅'],['rules','规则'],['series','时间']];
 	var dimension=select(dimensions), end=new Date(), start=new Date(end);
 	start.setDate(start.getDate()-6);
 	function dateString(date){return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0');}
@@ -34,7 +31,6 @@ function trafficPanel(){
 		function amount(item){return '上传 '+UI.bytes(item.up)+' · 下载 '+UI.bytes(item.down)+(item.hits?' · '+item.hits+' 次':'');}
 		out.replaceChildren(
 			E('p',{},'总流量 '+amount(result)+'。代理流量 '+amount({up:result['proxy-up'],down:result['proxy-down']})),
-			dimension.value==='processes'?E('p',{'class':'small muted'},'应用维度显示路由器本机可识别的进程。'):null,
 			rows.length?E('dl',{'class':'definition-list'},rows.map(function(item){
 				return E('div',{'class':'definition-row'},[E('dt',{},item.name||item.label),E('dd',{},[
 					amount(item),item.subs&&item.subs.length?E('ul',{},item.subs.map(function(sub){return E('li',{},sub.name+' · '+amount(sub));})):null
@@ -94,8 +90,6 @@ return view.extend({render:function(){
 		else if(id==='trace'){var target=field('目标',input('www.youtube.com')),network=field('协议',select([['tcp','TCP'],['udp','UDP']])),port=field('端口',input('443','','number'));args=function(){var value=target.value.trim();if(!value||value.length>512)throw new Error('请输入域名、IP 地址或网址');return[value,network.value,bounded(port,1,65535)];};}
 		else if(id==='mrs'){var th=field('域名 / IP 地址',input('www.baidu.com'));args=function(){return[host(th)];};}
 		else if(id==='ip'){var iv=field('访问方式',select([['direct','直连查询'],['proxy','经代理查询']])),ih=field('查询 IP',input('','留空查询当前出口'));args=function(){return[iv.value,ih.value.trim()?host(ih):''];};}
-		else if(id==='iperf'){var ihost=field('iPerf3 服务器',input('','例如 10.0.0.194')),isec=field('测试时长（秒）',input('10','','number'));args=function(){return[host(ihost),bounded(isec,1,60)];};}
-		else if(id==='age'){var am=field('操作',select([['encrypt','加密'],['decrypt','解密']])),ak=field('公钥 / 身份密钥',input('','age1… / AGE-SECRET-KEY-…','password')),ad=field('输入文本',E('textarea',{'class':'field',rows:5}));args=function(){if(!ak.value.trim()||!ad.value)throw new Error('请填写密钥和文本');return[am.value,ak.value.trim(),ad.value];};}
 		else {args=function(){return[];};}
 		var out=E(id==='health'?'div':'pre',{'class':id==='health'?'bb-health-output':'tool-result',role:'status'},state.report?healthResult(state.report):state.output||'—'),status=E('span',{'class':'small muted'},state.running?'诊断正在后台运行…':state.finished?'上次运行 '+state.finished:'尚未运行');
 		function execute(){if(state.running)return;var argv=args();state.values={};fields.forEach(function(f){state.values[f[0]]=f[1].value;});state.running=true;state.report=null;status.textContent='诊断正在后台运行…';out.textContent='任务已提交，正在等待结果…';return UI.job(id==='health'?'health':'toolbox',id==='health'?argv:[id].concat(argv),function(res){if(res.text&&id!=='health'&&id!=='trace')out.textContent=res.text;}).then(function(res){if(id==='health'){var report=JSON.parse(res.text);if(!report.layers||!report.summary)throw new Error('未获得有效的分层检测结果');state.report=report;}state.output=id==='trace'?traceResult(JSON.parse(res.text)):res.text||'任务完成，无输出。';status.textContent='诊断完成';}).catch(function(err){state.output='诊断失败：'+err.message;status.textContent='诊断失败';}).finally(function(){state.running=false;state.finished=new Date().toLocaleTimeString();if(state.report)out.replaceChildren(healthResult(state.report));else out.textContent=state.output;if(active===id)draw();});}
@@ -107,7 +101,7 @@ return view.extend({render:function(){
 		E('div',{'class':'bb-tool-rail-list'},TOOLS.map(function(t){
 			var b=E('button',{type:'button','class':'rail-button','data-tool':t[0]},[
 				E('span',{'class':'rail-label'},[E('strong',{},t[1]),t[3]?E('small',{},t[3]):null]),
-				t[0]==='speedtest'?UI.artwork('speedtest',t[2]):UI.icon(t[2])
+				t[0]==='speedtest'?UI.artwork('speedtest',t[2]):UI.badge(t[2],'bb-small-icon')
 			]);
 			b.addEventListener('click',function(){
 				active=t[0];

@@ -120,12 +120,20 @@ if [ "$active" = 1 ] && ! /usr/libexec/bettbox/apply.sh live > "$work/apply.log"
 	die '合并订阅应用失败，已恢复上一份配置'
 fi
 save() {
+	local counts proxies groups
+	counts=$(ucode -e 'let r=json(ARGV[0]); print((int(r?.proxies) ?? 0) + " " + (int(r?.groups) ?? 0));' "$report" 2>/dev/null)
+	proxies=${counts%% *}
+	groups=${counts#* }
+	[ -n "$proxies" ] || proxies=0
+	[ -n "$groups" ] || groups=0
 	if [ "$action" = create ]; then uci set "bettbox.$sid=subscription" || return 1; fi
 	if [ "$action" != refresh ]; then
 		uci set "bettbox.$sid.label=${label:-合并订阅}" &&
 			uci set "bettbox.$sid.merge_members=$members" || return 1
 	fi
-	uci set "bettbox.$sid.last_update=$(date +%s)" && uci commit bettbox
+	uci set "bettbox.$sid.merge_proxies=$proxies" &&
+		uci set "bettbox.$sid.merge_groups=$groups" &&
+		uci set "bettbox.$sid.last_update=$(date +%s)" && uci commit bettbox
 }
 if ! save; then
 	uci -q revert "bettbox.$sid"

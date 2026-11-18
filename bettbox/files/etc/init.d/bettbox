@@ -144,6 +144,7 @@ service_started() {
 }
 
 stop_service() {
+	/usr/libexec/bettbox/cron.sh remove >/dev/null 2>&1 || true
 	# rc.common calls this BEFORE procd_kill. Do not kill the DNS provider if
 	# restoring the normal resolver failed; leave it available for a retry.
 	if ! bettbox_release_network; then
@@ -180,7 +181,11 @@ service_triggers() {
 }
 
 restart() {
-	[ "$(uci -q get bettbox.config.enabled)" = 1 ] || { stop; return $?; }
+	[ "$(uci -q get bettbox.config.enabled)" = 1 ] || {
+		/usr/libexec/bettbox/cron.sh remove >/dev/null 2>&1 || true
+		stop
+		return $?
+	}
 	procd_lock
 	mkdir -p "$RUN_DIR"
 	local previous='' rc compatible=0

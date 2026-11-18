@@ -20,16 +20,11 @@ if (request.kind == 'exit') {
 	command='/usr/libexec/bettbox/network-check.sh delay '+q(args[0])+' '+q(args[1]);
 } else if (request.kind == 'toolbox') {
 	let tool = args[0];
-	if (!(tool in ['dns','ip','ping','speedtest','media','trace','traffic-stats','mrs','nat','age','iperf'])) die('bad diagnostic tool');
+	if (!(tool in ['dns','ip','ping','speedtest','media','trace','traffic-stats','mrs'])) die('bad diagnostic tool');
 	command = '/usr/libexec/bettbox/toolbox.sh ' + q(tool);
 	for (let i = 1; i < length(args); i++) {
-		if (tool == 'age' && i == 3) {
-			writefile(dir + '/input', args[i]);
-			continue;
-		}
 		command += ' ' + q(args[i]);
 	}
-	if (tool == 'age') command += ' < ' + q(dir + '/input');
 } else if (request.kind == 'service') {
 	if(length(args)!=1 || !(args[0] in ['start','stop','restart','apply']))die('bad service action');
 	command=args[0]=='apply'?'/usr/bin/bettbox apply-service':'/etc/init.d/bettbox '+args[0];

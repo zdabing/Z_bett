@@ -5,7 +5,14 @@
 
 var startJob = rpc.declare({ object: 'bettbox', method: 'diagnostic_start', params: ['kind', 'args_json'] });
 var getJob = rpc.declare({ object: 'bettbox', method: 'diagnostic_status', params: ['id'] });
-var PAGES = [ ['overview','概览','grid'], ['proxies','代理','route'], ['connections','连接','link'], ['profiles','订阅','file'], ['resources','资源','layers'], ['toolbox','工具箱','terminal'], ['logs','日志','list'], ['settings','设置','settings'] ];
+var PAGES = [ ['overview','概览','grid','blue'], ['proxies','代理','route','green'], ['connections','连接','link','purple'], ['profiles','订阅','file','orange'], ['resources','资源','layers','teal'], ['toolbox','工具箱','terminal','blue'], ['logs','日志','list','orange'], ['settings','设置','settings','teal'] ];
+var TINTS = {
+	grid:'blue', activity:'blue', globe:'blue', down:'blue', terminal:'blue', search:'blue',
+	route:'green', chip:'green', shield:'green', power:'green', check:'green',
+	up:'orange', file:'orange', list:'orange', clock:'orange', bolt:'orange', tune:'orange',
+	traffic:'purple', link:'purple', palette:'purple',
+	layers:'teal', lan:'teal', settings:'teal', download:'teal'
+};
 var PATHS = {
 	palette:'<path d="M21 12a9 9 0 1 0-9 9h1a2 2 0 0 0 1.5-3.3 1.8 1.8 0 0 1 1.4-3H18a3 3 0 0 0 3-2.7Z"/><circle cx="7.5" cy="11" r=".8"/><circle cx="11" cy="7" r=".8"/><circle cx="16" cy="8.5" r=".8"/>',
 	eye:'<path d="M2 12c5-9 15-9 20 0-5 9-15 9-20 0Z"/><circle cx="12" cy="12" r="3"/>',
@@ -26,6 +33,12 @@ function icon(name) {
 	svg.setAttribute('class','ico');svg.setAttribute('aria-hidden','true');
 	// Only static, application-owned SVG paths enter innerHTML.
 	svg.innerHTML=PATHS[name]||PATHS.grid;return svg;
+}
+function badge(name, extra, tint) {
+	return E('span', {
+		'class': 'bb-icon-badge bb-tint-' + (tint || TINTS[name] || 'blue') + (extra ? ' ' + extra : ''),
+		'aria-hidden': 'true'
+	}, icon(name));
 }
 var ARTWORK = {
 	proxy:'Proxy', auto:'Auto', direct:'Direct', reject:'Reject', final:'Final', global:'Global',
@@ -56,8 +69,8 @@ function button(label,fn,kind,ico){
 		if(result && typeof result.then==='function'){el.disabled=true;return Promise.resolve(result).catch(error).finally(function(){el.disabled=false;});}});
 	return el;
 }
-var styles = { meridian:'Meridian 橙彩玻璃', apple:'Apple 清爽卡片', host:'跟随宿主主题' };
-var styleLabels = { meridian:'橙彩玻璃', apple:'Apple 卡片', host:'跟随宿主' };
+var styles = { meridian:'Meridian 橙彩', apple:'Apple 卡片', host:'跟随宿主主题' };
+var styleLabels = { meridian:'Meridian', apple:'Apple', host:'跟随宿主' };
 var styleOrder = ['meridian', 'apple', 'host'];
 var modes = { system:'跟随系统', light:'浅色', dark:'深色' };
 var appearanceKey = 'bettbox.appearance.v1';
@@ -143,7 +156,7 @@ function mount(){
 	if(!link){
 		var guard=E('style',{id:'bettbox-fouc-guard'},'.bb-app{visibility:hidden}');
 		var reveal=function(){if(guard.parentNode)guard.remove();};
-		link=E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261116-1'});
+		link=E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261118-1'});
 		link.addEventListener('load',reveal,{once:true});
 		link.addEventListener('error',reveal,{once:true});
 		document.head.appendChild(guard);
@@ -154,8 +167,8 @@ function mount(){
 }
 function page(id,title,actions,content){
 	mount();
-	var links=E('div',{'class':'bb-nav-links'},PAGES.map(function(p){return E('a',{'class':'nav-item'+(p[0]===id?' active':''),href:L.url('admin','services','bettbox',p[0]),'aria-current':p[0]===id?'page':null},[icon(p[2]),E('span',{},p[1])]);}));
-	var styleBtn=E('button',{type:'button','class':'bb-nav-chip',title:'切换界面风格 (Meridian / Apple / 跟随宿主)'},[icon('palette'),E('span',{},styleLabels[appearance.style]||'橙彩玻璃')]);
+	var links=E('div',{'class':'bb-nav-links'},PAGES.map(function(p){return E('a',{'class':'nav-item'+(p[0]===id?' active':''),href:L.url('admin','services','bettbox',p[0]),'aria-current':p[0]===id?'page':null},[badge(p[2],'bb-nav-icon',p[3]),E('span',{},p[1])]);}));
+	var styleBtn=E('button',{type:'button','class':'bb-nav-chip',title:'切换界面风格 (Meridian / Apple / 跟随宿主)'},[icon('palette'),E('span',{},styleLabels[appearance.style]||'Meridian')]);
 	styleBtn.addEventListener('click',function(){
 		var idx=styleOrder.indexOf(appearance.style);
 		setAppearance({style:styleOrder[(idx+1)%styleOrder.length]});
@@ -169,7 +182,7 @@ function page(id,title,actions,content){
 	function syncNav(){
 		if (!quick.isConnected && quick._mounted) return false;
 		if (quick.isConnected) quick._mounted = true;
-		styleBtn.querySelector('span').textContent=styleLabels[appearance.style]||'橙彩玻璃';
+		styleBtn.querySelector('span').textContent=styleLabels[appearance.style]||'Meridian';
 		var resolved=document.body.dataset.bbScheme;
 		schemeBtn.querySelector('span').textContent=appearance.mode==='system'?(resolved==='dark'?'深色(系统)':'浅色(系统)'):modes[appearance.mode];
 	}
@@ -178,7 +191,7 @@ function page(id,title,actions,content){
 	var toolbar=E('div',{'class':'heading-actions'},actions||[]);
 	return E('div',{'class':'bb-app','data-bb-page':id},[nav,E('main',{'class':'shell','aria-label':title},[toolbar,E('div',{'class':'bb-page-content'},content||[])])]);
 }
-function panel(title,ico,body,actions){return E('section',{'class':'panel'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[icon(ico),document.createTextNode(title)])]),E('div',{'class':'button-row'},actions||[])]),E('div',{'class':'panel-body'},body||[])]);}
+function panel(title,ico,body,actions){return E('section',{'class':'panel'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[badge(ico,'bb-section-icon'),document.createTextNode(title)])]),E('div',{'class':'button-row'},actions||[])]),E('div',{'class':'panel-body'},body||[])]);}
 function tag(text,kind){return E('span',{'class':'tag '+(kind||'')},String(text));}
 function bytes(n){if(n==null||!isFinite(n))return '—';var a=['B','KB','MB','GB','TB'],i=0;while(n>=1024&&i<a.length-1){n/=1024;i++;}return n.toFixed(i?2:0)+' '+a[i];}
 function speed(n){if(n==null||!isFinite(n))return '—';var a=['B/s','KB/s','MB/s','GB/s'],i=0;while(n>=1000&&i<a.length-1){n/=1000;i++;}return n.toFixed(i?1:0)+' '+a[i];}
@@ -191,4 +204,4 @@ function waitJob(id,budget,onProgress,reconnect){var until=Date.now()+budget,fai
 function job(kind,args,onProgress){return startJob(kind,JSON.stringify(args||[])).then(checked).then(function(start){return waitJob(start.id,185000,onProgress);});}
 function operation(result){checked(result);var budget=Number(result.timeout_ms)||630000;budget=Math.max(1000,Math.min(result.reconnect?2430000:1230000,budget));return result.id?waitJob(result.id,budget,null,result.reconnect===true):result;}
 if (typeof document !== 'undefined' && document.head && document.body) mount();
-return baseclass.extend({icon:icon,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,mount:mount,themePicker:themePicker,appearanceControls:appearanceControls,pages:PAGES});
+return baseclass.extend({icon:icon,badge:badge,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,mount:mount,themePicker:themePicker,appearanceControls:appearanceControls,pages:PAGES});

@@ -25,9 +25,39 @@ function load(fresh) {
 	});
 }
 function mount() {
-	[['bettbox-subscriptions-css','subscriptions.css'],['bettbox-scripts-css','scripts.css']].forEach(function(item) {
-		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=20261114-3' }));
+	[['bettbox-subscriptions-css','subscriptions.css','20261118-1'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
+		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=' + item[2] }));
 	});
+}
+
+function pad2(n) { return n < 10 ? '0' + n : String(n); }
+function formatDate(ts) {
+	if (!ts || ts <= 0) return '';
+	var d = new Date(ts * 1000);
+	return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+function formatRelative(ts) {
+	if (!ts || ts <= 0) return '未更新';
+	var diff = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+	if (diff < 60) return '刚刚';
+	if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+	if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+	if (diff < 2592000) return Math.floor(diff / 86400) + ' 天前';
+	return formatDate(ts);
+}
+function formatInterval(mins) {
+	var m = +mins || 1440;
+	return m >= 60 && m % 60 === 0 ? '每 ' + (m / 60) + ' 小时' : '每 ' + m + ' 分钟';
+}
+function ringSvg(percent, hasTotal) {
+	var r = 15, circ = 2 * Math.PI * r;
+	var clamped = hasTotal ? Math.max(0, Math.min(100, percent)) : 0;
+	var offset = circ * (1 - clamped / 100);
+	var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	svg.setAttribute('viewBox', '0 0 40 40');
+	svg.setAttribute('aria-hidden', 'true');
+	svg.innerHTML = '<circle class="track" cx="20" cy="20" r="15"/><circle class="fill" cx="20" cy="20" r="15" stroke-dasharray="' + circ.toFixed(2) + '" stroke-dashoffset="' + offset.toFixed(2) + '"/>';
+	return E('div', { 'class': 'hub-ring' + (hasTotal ? '' : ' empty') }, [svg, E('span', {}, hasTotal ? Math.round(clamped) + '%' : '—')]);
 }
 
 return baseclass.extend({
@@ -86,54 +116,155 @@ return baseclass.extend({
 				return (pasted ? importRPC(value, name.value.trim()) : addRPC(value, name.value.trim())).then(UI.checked).then(refresh).then(function() { box.setBusy(false); return box.close(true); }).catch(function(err) { error.textContent = '添加失败：' + err.message; }).finally(function() { box.setBusy(false); });
 			}, 'primary', 'plus')]);
 		}
-		function card(p) {
-			var current = p.id === active, merged = (p.merge_members || []).length > 0;
-			var used = (+p.sub_upload || 0) + (+p.sub_download || 0), total = +p.sub_total || 0;
-			var percent = total > 0 ? Math.max(0, Math.min(100, used / total * 100)) : 0;
-			var formatted = UI.bytes(used).split(' '), expiry = p.sub_expire > 0 ? new Date(p.sub_expire * 1000).toLocaleDateString() : '未提供';
-			function fact(label, value, mono) { return E('div', {}, [E('span', {}, label), E('strong', { 'class': mono ? 'mono' : '' }, value)]); }
-			var select = current ? E('span', { 'class': 'hub-current-label' }, [UI.icon('check'), document.createTextNode('当前使用')]) : UI.button('选用', function() { return choose(p); }, 'soft');
-			if (!current) select.disabled = busy;
-			var updateButton = UI.button(merged ? '重新合并' : '更新', function() { return update(p.id, false); }, '', 'refresh'); updateButton.disabled = busy;
-			var scriptLink = E('button', { type: 'button', 'class': 'hub-script-link', 'aria-label': '配置' + (p.label || p.id) + '的覆写脚本' }, [E('span', {}, [UI.icon('code'), E('span', {}, '覆写脚本')]), E('strong', {}, p.use_script ? p.script || '未选择脚本' : '未启用'), UI.icon('chevron')]);
-			scriptLink.addEventListener('click', function() { scriptSettings(p); });
+		function card(p, byId) {
+			var current = p.id === active, memberIds = p.merge_members || [], merged = memberIds.length > 0;
+			var local = !merged && /^file:\/\//.test(p.url || '');
+			var members = merged ? memberIds.map(function(id) { return byId[id] || { id: id, label: id, missing: true }; }) : [];
+			var expiryTs = merged ? members.reduce(function(min, m) {
+				var t = +m.sub_expire || 0;
+				return t > 0 && (!min || t < min) ? t : min;
+			}, 0) : (+p.sub_expire || 0);
+			var expiryText = expiryTs > 0 ? formatDate(expiryTs) : (local ? '本地文件' : '');
+			var updatedLabel = formatRelative(p.last_update);
+			var updatedTitle = p.last_update > 0 ? new Date(p.last_update * 1000).toLocaleString() : '';
+
+			var bodyNode;
+			var sublineText;
+			if (merged) {
+				bodyNode = E('div', { 'class': 'hub-merge-grid' }, members.map(function(m) {
+					var mUsed = (+m.sub_upload || 0) + (+m.sub_download || 0), mTotal = +m.sub_total || 0;
+					var mPct = mTotal > 0 ? Math.max(0, Math.min(100, mUsed / mTotal * 100)) : 0;
+					var mText = m.missing ? '成员已删除或缺失'
+						: mTotal > 0 ? UI.bytes(mUsed) + ' / ' + UI.bytes(mTotal)
+						: mUsed > 0 ? UI.bytes(mUsed) + ' / Unlimited'
+						: '无用量统计';
+					return E('div', { 'class': 'hub-merge-tile', title: (m.label || m.id) + ' · ' + mText }, [
+						ringSvg(mPct, !m.missing && mTotal > 0),
+						E('div', { 'class': 'hub-merge-tile-info' }, [
+							E('strong', {}, m.label || m.id),
+							E('span', {}, mText)
+						])
+					]);
+				}));
+				var parts = ['合并 ' + members.length + ' 个配置'];
+				if (+p.merge_proxies > 0) parts.push(p.merge_proxies + ' 个节点');
+				parts.push(updatedLabel);
+				sublineText = parts.join(' · ');
+			} else {
+				var used = (+p.sub_upload || 0) + (+p.sub_download || 0), total = +p.sub_total || 0;
+				var percent = total > 0 ? Math.max(0, Math.min(100, used / total * 100)) : 0;
+				var hasTraffic = used > 0 || total > 0;
+				bodyNode = hasTraffic
+					? E('div', { 'class': 'hub-usage-row' }, [
+						E('div', { 'class': 'progress' }, E('i', { style: 'width:' + percent + '%' })),
+						E('div', { 'class': 'hub-usage-meta' }, [
+							E('span', {}, UI.bytes(used) + ' / ' + (total > 0 ? UI.bytes(total) : 'Unlimited')),
+							total > 0 ? E('strong', {}, percent.toFixed(1) + '%') : ''
+						])
+					])
+					: E('div', { 'class': 'hub-usage-empty' }, '无用量统计');
+				var modeText = local ? '本地导入' : (p.auto_update ? '自动更新 · ' + formatInterval(p.update_interval) : '手动更新');
+				sublineText = modeText + ' · ' + updatedLabel;
+			}
+
+			var overrideLabel = p.use_managed ? '托管分流' : (p.use_script ? ('脚本: ' + (p.script || '未选择')) : '覆写: 未启用');
+			var scriptPill = E('button', {
+				type: 'button',
+				'class': 'hub-script-pill' + (p.use_managed || p.use_script ? ' active' : ''),
+				'aria-label': '配置' + (p.label || p.id) + '的覆写脚本或托管分流'
+			}, [UI.icon('code'), E('span', {}, overrideLabel)]);
+			scriptPill.addEventListener('click', function() { if (p.use_managed) edit(p); else scriptSettings(p); });
+
+			var btns = [];
+			if (!current) {
+				var chooseBtn = UI.button('选用', function() { return choose(p); }, 'soft');
+				chooseBtn.disabled = busy;
+				btns.push(chooseBtn);
+			}
+			var updateButton = UI.button(merged ? '重新合并' : '更新', function() { return update(p.id, false); }, '', 'refresh');
+			updateButton.disabled = busy;
+			btns.push(updateButton);
+			if (merged) {
+				var membersBtn = UI.button('成员', function() { return mergeProfiles(p); }, '', 'layers');
+				membersBtn.disabled = busy;
+				btns.push(membersBtn);
+			}
+			var editBtn = UI.button('编辑', function() { edit(p); }, '', 'edit');
+			editBtn.disabled = busy;
+			btns.push(editBtn);
+
 			return E('article', { 'class': 'panel hub-profile' + (current ? ' current' : ''), 'data-profile-id': p.id }, [
-				E('div', { 'class': 'hub-card-top' }, [E('div', { 'class': 'hub-name' }, [E('span', { 'class': 'hub-icon' }, UI.icon('file')), E('h2', {}, p.label || p.id)]), UI.tag(current ? '当前使用' : '未选用', current ? '' : 'neutral')]),
-				E('div', { 'class': 'hub-usage' }, [E('div', {}, [E('span', { 'class': 'label' }, '已用流量'), E('div', { 'class': 'hub-number' }, total > 0 ? [document.createTextNode(formatted[0]), E('small', {}, [document.createTextNode(formatted[1]), E('span', {}, ' / ' + UI.bytes(total))])] : E('span', { 'class': 'hub-no-usage' }, '未提供用量'))]), total > 0 ? E('span', { 'class': 'hub-usage-percent mono' }, percent.toFixed(1) + '%') : '']),
-				E('div', { 'class': 'progress' }, E('i', { style: 'width:' + percent + '%' })),
-				E('div', { 'class': 'hub-profile-facts' }, [fact('下载 / 上传', UI.bytes(p.sub_download || 0) + ' / ' + UI.bytes(p.sub_upload || 0), true), fact('到期时间', expiry), fact('自动更新', merged ? '随成员更新' : p.auto_update ? '每 ' + p.update_interval + ' 分钟' : '手动更新'), fact('上次更新', p.last_update > 0 ? new Date(p.last_update * 1000).toLocaleString() : '未更新')]), scriptLink,
-				E('div', { 'class': 'hub-card-actions' }, [E('div', {}, select), E('div', {}, [
-					...(merged ? [UI.button('编辑成员', function() { return mergeProfiles(p); })] : []),
-					updateButton, UI.button('编辑订阅', function() { edit(p); }, '', 'edit')])])]);
+				E('div', { 'class': 'hub-card-top' }, [
+					E('div', { 'class': 'hub-name' }, [
+						E('span', { 'class': 'hub-icon bb-icon-badge ' + (merged ? 'bb-tint-purple' : local ? 'bb-tint-teal' : 'bb-tint-blue') }, UI.icon(merged ? 'layers' : 'file')),
+						E('div', { 'class': 'hub-name-text' }, [
+							E('h2', {}, p.label || p.id),
+							expiryText ? E('span', { 'class': 'hub-expiry' }, '· ' + expiryText) : ''
+						])
+					]),
+					current ? E('div', { 'class': 'hub-card-top-right' }, [UI.tag('当前使用', '')]) : ''
+				]),
+				bodyNode,
+				E('div', { 'class': 'hub-subline', title: updatedTitle }, sublineText),
+				E('div', { 'class': 'hub-card-actions' }, [
+					scriptPill,
+					E('div', { 'class': 'hub-card-btns' }, btns)
+				])
+			]);
 		}
 		function mergeProfiles(profile) {
 			var eligible = profiles.filter(function(p) { return p.file && !(p.merge_members || []).some(Boolean); });
 			var label = E('input', { 'class': 'field', placeholder: '合并订阅', 'aria-label': '合并订阅名称' });
 			if (profile) label.value = profile.label || '';
-			var members = E('div'), status = E('p', { role: 'status' }), selects = [], box;
-			function syncButtons() {
-				addButton.disabled = selects.length >= Math.min(8, eligible.length);
-				removeButton.disabled = selects.length <= 2;
+			var list = E('div', { 'class': 'hub-merge-list' }), status = E('p', { 'class': 'hub-merge-preview', role: 'status' }), countHint = E('span', { 'class': 'hub-merge-count' }), rows = [], box;
+			var addButton = UI.button('添加成员', function() { addMember(); }, '', 'plus');
+			function syncRows() {
+				rows.forEach(function(item, idx) {
+					item.badge.textContent = idx === 0 ? '#1 主规则' : '#' + (idx + 1);
+					item.select.setAttribute('aria-label', '成员 ' + (idx + 1));
+					item.up.disabled = idx === 0;
+					item.down.disabled = idx === rows.length - 1;
+					item.del.disabled = rows.length <= 2;
+				});
+				var maxMembers = Math.min(8, eligible.length);
+				addButton.disabled = rows.length >= maxMembers;
+				countHint.textContent = '已选 ' + rows.length + ' / ' + maxMembers + ' 个成员（至少 2 个）';
+			}
+			function moveRow(item, delta) {
+				var idx = rows.indexOf(item), next = idx + delta;
+				if (idx < 0 || next < 0 || next >= rows.length) return;
+				rows.splice(idx, 1);
+				rows.splice(next, 0, item);
+				rows.forEach(function(r) { list.appendChild(r.row); });
+				status.textContent = '';
+				syncRows();
 			}
 			function addMember(id) {
-				var select = E('select', { 'class': 'field', 'aria-label': '成员 ' + (selects.length + 1) }, [E('option', { value: '' }, '请选择订阅')].concat(eligible.map(function(p) {
+				var usedIds = rows.map(function(r) { return r.select.value; });
+				var chosenId = id !== undefined ? id : ((eligible.find(function(p) { return usedIds.indexOf(p.id) < 0; }) || {}).id || '');
+				var badge = E('span', { 'class': 'hub-merge-badge' });
+				var select = E('select', { 'class': 'field' }, [E('option', { value: '' }, '请选择订阅')].concat(eligible.map(function(p) {
 					return E('option', { value: p.id }, p.label || p.id);
 				})));
-				select.value = id || '';
-				selects.push(select);
-				members.appendChild(H.field('成员 ' + selects.length, select));
+				select.value = chosenId || '';
+				var item = { badge: badge, select: select };
+				item.up = UI.button('上移', function() { moveRow(item, -1); }, 'bb-icon-only', 'up');
+				item.down = UI.button('下移', function() { moveRow(item, 1); }, 'bb-icon-only', 'down');
+				item.del = UI.button('移除', function() {
+					if (rows.length <= 2) return;
+					rows = rows.filter(function(r) { return r !== item; });
+					item.row.remove();
+					status.textContent = '';
+					syncRows();
+				}, 'bb-icon-only', 'close');
+				item.row = E('div', { 'class': 'hub-merge-row' }, [badge, select, E('div', { 'class': 'hub-merge-row-actions' }, [item.up, item.down, item.del])]);
+				rows.push(item);
+				list.appendChild(item.row);
 				select.addEventListener('change', function() { status.textContent = ''; });
-				syncButtons();
+				syncRows();
 			}
-			var addButton = UI.button('添加成员', function() { addMember(); }, '', 'plus');
-			var removeButton = UI.button('移除末位成员', function() {
-				selects.pop();
-				members.lastElementChild.remove();
-				status.textContent = '';
-				syncButtons();
-			});
 			function submit(action) {
-				var ids = selects.map(function(select) { return select.value; });
+				var ids = rows.map(function(item) { return item.select.value; });
 				if (ids.some(function(id) { return !id; }) || new Set(ids).size !== ids.length) {
 					status.textContent = '请为每个位置选择不同的订阅';
 					return;
@@ -151,8 +282,11 @@ return baseclass.extend({
 			}
 			(profile ? profile.merge_members : ['', '']).forEach(addMember);
 			box = H.dialog('合并订阅', [
-				E('p', {}, '按顺序选择成员。第一份订阅提供规则，后续订阅补充节点和策略组。'),
-				H.field('名称', label), members, addButton, removeButton, status
+				E('p', { 'class': 'hub-merge-intro' }, '按顺序选择成员：#1 主规则提供路由规则与 DNS，其余成员补充节点和策略组。'),
+				H.field('名称', label),
+				list,
+				E('div', { 'class': 'hub-merge-add-bar' }, [addButton, countHint]),
+				status
 			], [
 				UI.button('取消', function() { return box.close(); }),
 				UI.button('预览', function() { return submit('preview'); }),
@@ -169,11 +303,13 @@ return baseclass.extend({
 				if (!root.isConnected) window.requestAnimationFrame(function() { if (root.isConnected && section === 'scripts') manager.activate(); });
 			}
 			else {
+				var byId = Object.create(null);
+				profiles.forEach(function(item) { byId[item.id] = item; });
 				var updateAll = UI.button('更新全部', function() { return update('', true); }, '', 'refresh'); updateAll.disabled = busy || !profiles.length;
 				var merge = UI.button('合并订阅', function() { return mergeProfiles(); }, '', 'layers');
 				merge.disabled = busy || profiles.filter(function(p) { return p.file && !(p.merge_members || []).some(Boolean); }).length < 2;
 				actions.replaceChildren(updateAll, merge, UI.button('添加订阅', add, 'primary', 'plus'));
-				panel.replaceChildren(profiles.length ? E('div', { 'class': 'hub-grid' }, profiles.map(card)) : E('section', { 'class': 'panel hub-empty' }, [E('span', { 'class': 'hub-icon' }, UI.icon('file')), E('h2', {}, '还没有订阅'), UI.button('添加订阅', add, 'primary', 'plus')]));
+				panel.replaceChildren(profiles.length ? E('div', { 'class': 'hub-grid' }, profiles.map(function(p) { return card(p, byId); })) : E('section', { 'class': 'panel hub-empty' }, [E('span', { 'class': 'hub-icon' }, UI.icon('file')), E('h2', {}, '还没有订阅'), UI.button('添加订阅', add, 'primary', 'plus')]));
 			}
 		}
 		[['profiles','订阅管理'],['scripts','脚本管理']].forEach(function(item) {

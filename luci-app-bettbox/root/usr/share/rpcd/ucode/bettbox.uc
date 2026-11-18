@@ -92,6 +92,8 @@ function profile_list() {
 			url: s.url ?? '',
 			merge_members: s.merge_members ? split(s.merge_members, ' ') : [],
 			merge_prefix: s.merge_prefix ?? '',
+			merge_proxies: int(s.merge_proxies) ?? 0,
+			merge_groups: int(s.merge_groups) ?? 0,
 			auto_update: (s.auto_update == '1'),
 			update_interval: int(s.update_interval) ?? 1440,
 			use_script: (s.use_script == '1'),
@@ -264,7 +266,7 @@ function diagnostic_start(request) {
 	if(type(args)!='array'||length(args)>8) return {ok:false,error:'invalid diagnostic arguments'};
 	for(let arg in args) if(type(arg)!='string'||length(arg)>65536) return {ok:false,error:'invalid diagnostic argument'};
 	if(kind=='exit' && !(args[0] in ['direct','proxy'])) return {ok:false,error:'invalid exit mode'};
-	if(kind=='toolbox' && !(args[0] in ['dns','ip','ping','speedtest','media','trace','traffic-stats','mrs','nat','age','iperf'])) return {ok:false,error:'invalid tool'};
+	if(kind=='toolbox' && !(args[0] in ['dns','ip','ping','speedtest','media','trace','traffic-stats','mrs'])) return {ok:false,error:'invalid tool'};
 	if(kind=='health' && (length(args)!=1 || type(args[0])!='string' || length(args[0])>253 || !match(args[0],/^[A-Za-z0-9_][A-Za-z0-9._-]*$/)))return {ok:false,error:'invalid health target'};
 	return create_job(kind,args);
 }
@@ -544,7 +546,7 @@ return {
 		},
 		get_logs: {
 			call: function() {
-				return { text: run("logread | grep -E 'bettbox|mihomo' | tail -n 300") };
+				return { text: run("logread | grep -E 'bettbox|mihomo' | grep -Ev 'crond(\\[[0-9]+\\])?: USER .* cmd /usr/bin/bettbox (subscription )?cron([[:space:]]|$)' | tail -n 300") };
 			}
 		},
 		set_script_source: {

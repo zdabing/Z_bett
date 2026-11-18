@@ -18,8 +18,6 @@ var SCHEMA = [
 		{ opt: 'mixed_port', kind: 'value', icon: 'port', label: _('Mixed 端口 (HTTP+SOCKS)') },
 		{ opt: 'tproxy_port', kind: 'value', icon: 'port', label: _('TPROXY 端口') },
 		{ opt: 'redir_port', kind: 'value', icon: 'port', label: _('REDIR 端口 (0=关)') },
-		{ opt: 'socks_port', kind: 'value', icon: 'port', label: _('SOCKS 端口 (0=关)') },
-		{ opt: 'port', kind: 'value', icon: 'port', label: _('HTTP 端口 (0=关)') },
 		{ opt: 'allow_lan', kind: 'flag', icon: 'lan', label: _('允许局域网') },
 		{ opt: 'transparent_mode', kind: 'list', icon: 'shield', label: _('透明代理'), sub: _('TUN 内核自管路由；TPROXY/REDIR 走 nftables'), list: [ ['tun', 'TUN (推荐)'], ['tproxy', 'TPROXY (TCP+UDP)'], ['redir', 'REDIR (仅 TCP)'], ['off', '关闭'] ] },
 		{ opt: 'hijack_dnsmasq', kind: 'flag', icon: 'shield', label: _('dnsmasq 转发内核 DNS'), sub: _('LAN 客户端 DNS 经 dnsmasq 进入分流') }
@@ -67,14 +65,7 @@ var SCHEMA = [
 		{ opt: 'watchdog_interval', kind: 'value', icon: 'clock', label: _('检查间隔 (秒)') },
 		{ opt: 'health_interval', kind: 'value', icon: 'activity', label: _('网络检测间隔 (秒)'), ph: '300；0 关闭定期检测' },
 		{ opt: 'traffic_history', kind: 'flag', icon: 'activity', label: _('记录历史流量') },
-		{ opt: 'traffic_retention', kind: 'list', label: _('流量记录保留'), list: [ ['7', _('7 天')], ['14', _('14 天')], ['30', _('30 天')] ], ph: '7' },
-		{ opt: 'age_identity', kind: 'value', icon: 'key', label: _('age 身份密钥 (全局)'), sub: _('加密订阅解密密钥'), pass: true, ph: 'AGE-SECRET-KEY-…', wide: true }
-	] },
-	{ section: 'backup', title: _('备份 WebDAV'), opts: [
-		{ opt: 'url', kind: 'value', icon: 'cloud', label: _('WebDAV 地址'), ph: 'https://dav.example.com/dav/bettbox/', wide: true },
-		{ opt: 'username', kind: 'value', icon: 'key', label: _('用户名') },
-		{ opt: 'password', kind: 'value', icon: 'lock', label: _('密码'), pass: true },
-		{ opt: 'filename', kind: 'value', icon: 'doc', label: _('远程文件名'), ph: 'bettbox-backup.tar' }
+		{ opt: 'traffic_retention', kind: 'list', label: _('流量记录保留'), list: [ ['7', _('7 天')], ['14', _('14 天')], ['30', _('30 天')] ], ph: '7' }
 	] },
 	{ section: 'experimental', title: _('实验选项'), opts: [
 		{ opt: 'quic_gso', kind: 'flag', icon: 'bolt', label: 'quic-go-disable-gso' },
@@ -119,7 +110,7 @@ function watchField(control,o,changed){
 	});
 	return function(){restore();return readField(control,o);};
 }
-function category(sec){if(sec.opts.some(function(o){return o.opt==='device_mode';}))return 'devices';if(sec.section==='tun')return 'tun';if(sec.section==='dns')return 'dns';if(sec.section==='backup')return 'backup';if(sec.opts.some(function(o){return o.opt==='mixed_port';}))return 'network';if(sec.opts.some(function(o){return o.opt==='enabled'||o.opt==='watchdog';}))return 'general';return 'other';}
+function category(sec){if(sec.opts.some(function(o){return o.opt==='device_mode';}))return 'devices';if(sec.section==='tun')return 'tun';if(sec.section==='dns')return 'dns';if(sec.opts.some(function(o){return o.opt==='mixed_port';}))return 'network';if(sec.opts.some(function(o){return o.opt==='enabled'||o.opt==='watchdog';}))return 'general';return 'other';}
 function validateMacs(values){
 	if(values.length>256)throw new Error('设备 MAC 列表最多 256 项');
 	values.forEach(function(text){
@@ -138,7 +129,7 @@ function validateDevices(values){
 }
 return view.extend({
 	load:function(){return Promise.all([uci.load('bettbox'),callProfiles(),callProxyGroups('GET','/proxies','').catch(function(){return null;})]);},
-	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['devices','设备控制','lan'],['tun','TUN','route'],['dns','DNS','globe'],['backup','备份','layers'],['other','高级','grid']];
+	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['devices','设备控制','lan'],['tun','TUN','route'],['dns','DNS','globe'],['other','高级','grid']];
 		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261114-5'}));
 		var requested=new URLSearchParams(window.location.search).get('category');
 		if(categories.some(function(c){return c[0]===requested;}))selected=requested;
@@ -199,11 +190,10 @@ return view.extend({
 					form.appendChild(E('div',{'class':'device-setting'},children));
 					return;
 				}
-				var wide=o.opt==='age_identity';
-				form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(wide?' wide':'')+(o.kind==='list-multi'?' multiline':'')},[label,field]));
+				form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(o.kind==='list-multi'?' multiline':'')},[label,field]));
 			});
 			var panel=E('section',{'class':'panel settings-panel'+(cat==='devices'?' device-settings':''),'aria-labelledby':headingId},[
-				E('div',{'class':'panel-head'},E('h2',{id:headingId},[UI.icon(cat==='general'?'settings':cat==='network'||cat==='devices'?'lan':cat==='tun'?'route':cat==='dns'?'globe':'grid'),document.createTextNode(sec.title)])),form]);
+				E('div',{'class':'panel-head'},E('h2',{id:headingId},[UI.badge(cat==='general'?'settings':cat==='network'||cat==='devices'?'lan':cat==='tun'?'route':cat==='dns'?'globe':'grid','bb-section-icon'),document.createTextNode(sec.title)])),form]);
 			panel.hidden=cat!==selected;sections.push({panel:panel,category:cat});content.appendChild(panel);
 		});
 		var fallbackList=E('div',{'class':'device-fallback-list'});
@@ -247,7 +237,7 @@ return view.extend({
 		if(selected==='devices')devicePicker.loadDevices();
 		syncDeviceControls();
 		var nav=E('nav',{'class':'settings-categories','aria-label':'设置类别'},categories.map(function(c){
-			var b=E('button',{type:'button','class':'category-button'+(selected===c[0]?' active':''),'aria-pressed':String(selected===c[0])},[UI.icon(c[2]),E('span',{},c[1])]);
+			var b=E('button',{type:'button','class':'category-button'+(selected===c[0]?' active':''),'aria-pressed':String(selected===c[0])},[UI.badge(c[2],'bb-nav-icon'),E('span',{},c[1])]);
 			b.addEventListener('click',function(){
 				selected=c[0];Array.from(nav.children).forEach(function(x){x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});
 				sections.forEach(function(s){s.panel.hidden=s.category!==selected;});content.setAttribute('aria-label',c[1]+'设置');

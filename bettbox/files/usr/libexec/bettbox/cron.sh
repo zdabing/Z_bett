@@ -33,8 +33,20 @@ rewrite() {
 	/etc/init.d/cron restart 2>/dev/null
 }
 
+has_auto_subscriptions() {
+	local sid
+	for sid in $(uci -q show bettbox | sed -n "s/^bettbox\.\([^.]*\)\.auto_update='1'/\1/p"); do
+		[ -n "$(uci_get "bettbox.$sid.url")" ] && return 0
+	done
+	return 1
+}
+
 ensure() {
-	rewrite ensure
+	if [ "$(uci_get bettbox.config.enabled)" = "1" ] && has_auto_subscriptions; then
+		rewrite ensure
+	else
+		rewrite remove
+	fi
 }
 
 remove() {
