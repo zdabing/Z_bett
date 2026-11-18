@@ -3,7 +3,7 @@
 .bb-app[data-bb-page="connections"] .bb-connection-state .chips{flex:0 1 auto}
 .bb-app[data-bb-page="connections"] .bb-connection-tabs{gap:3px;padding:3px;border:1px solid var(--bb-line);border-radius:11px;background:var(--subtle)}
 .bb-app[data-bb-page="connections"] .bb-connection-tabs .chip{border:0;background:transparent;min-height:32px;padding:5px 11px;border-radius:8px}
-.bb-app[data-bb-page="connections"] .bb-connection-tabs .chip.active{background:var(--surface);color:var(--bb-accent);box-shadow:0 1px 3px #0001}
+.bb-app[data-bb-page="connections"] .bb-connection-tabs .chip.active{background:var(--surface-solid,var(--surface));color:var(--accent-strong,var(--bb-accent));box-shadow:0 1px 3px #0001}
 .bb-app[data-bb-page="connections"] .bb-connection-traffic{display:flex;gap:18px;flex-wrap:wrap;padding:10px 0 6px;font-size:12px}
 .bb-app[data-bb-page="connections"] .connection-summary{font-family:var(--mono);font-variant-numeric:tabular-nums;gap:14px}
 .bb-app[data-bb-page="connections"] .data-table td .tag{margin-top:4px}

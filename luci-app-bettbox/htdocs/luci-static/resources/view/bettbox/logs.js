@@ -1,7 +1,6 @@
 'use strict';
 'require view';
 'require rpc';
-'require poll';
 'require bettbox.ui as UI';
 
 var callLogs = rpc.declare({ object: 'bettbox', method: 'get_logs' });
@@ -100,6 +99,7 @@ return view.extend({
  var pause=UI.button('暂停',function(){paused=!paused;pause.replaceChildren(UI.icon(paused?'refresh':'pause'),E('span',{},paused?'继续':'暂停'));draw();if(!paused)return refresh();},'','pause');
  function download(){var blob=new Blob([shown.join('\n')+'\n'],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=E('a',{href:url,download:'bettbox-'+new Date().toISOString().slice(0,10)+'.log'});document.body.appendChild(a);a.click();a.remove();window.setTimeout(function(){URL.revokeObjectURL(url);},5000);}
  var toolbar=E('div',{'class':'log-toolbar'},[UI.search('搜索域名、IP 或日志内容…',function(v){filter=v.toLowerCase();draw();}),chips,E('div',{'class':'button-row'},[pause,UI.button('清空',clearView,'','close'),UI.button('导出',download,'','download')])]);
- poll.add(function(){if(!paused)return refresh();},3);refresh();return UI.page('logs','日志',[],[toolbar,E('div',{'class':'bb-log-state'},state),notice,list]);
+ var root=UI.page('logs','日志',[],[toolbar,E('div',{'class':'bb-log-state'},state),notice,list]);
+ UI.poll(root,function(){if(!paused)return refresh();},3);refresh();return root;
  },handleSaveApply:null,handleSave:null,handleReset:null
 });

@@ -130,7 +130,7 @@ function validateDevices(values){
 return view.extend({
 	load:function(){return Promise.all([uci.load('bettbox'),callProfiles(),callProxyGroups('GET','/proxies','').catch(function(){return null;})]);},
 	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['devices','设备控制','lan'],['tun','TUN','route'],['dns','DNS','globe'],['other','高级','grid']];
-		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261114-5'}));
+		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261118-1'}));
 		var requested=new URLSearchParams(window.location.search).get('category');
 		if(categories.some(function(c){return c[0]===requested;}))selected=requested;
 		content.setAttribute('aria-label',categories.find(function(c){return c[0]===selected;})[1]+'设置');
@@ -190,7 +190,7 @@ return view.extend({
 					form.appendChild(E('div',{'class':'device-setting'},children));
 					return;
 				}
-				form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(o.kind==='list-multi'?' multiline':'')},[label,field]));
+				form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(o.wide?' wide':'')+(o.kind==='list-multi'?' multiline':'')},[label,field]));
 			});
 			var panel=E('section',{'class':'panel settings-panel'+(cat==='devices'?' device-settings':''),'aria-labelledby':headingId},[
 				E('div',{'class':'panel-head'},E('h2',{id:headingId},[UI.badge(cat==='general'?'settings':cat==='network'||cat==='devices'?'lan':cat==='tun'?'route':cat==='dns'?'globe':'grid','bb-section-icon'),document.createTextNode(sec.title)])),form]);

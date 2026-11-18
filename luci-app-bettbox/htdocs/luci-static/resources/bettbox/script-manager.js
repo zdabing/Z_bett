@@ -118,7 +118,7 @@ return baseclass.extend({
 			if (!candidates.length) { report('请先添加订阅，再关联脚本'); return; }
 			var box, picker = E('div', { 'class': 'hub-profile-picker' });
 			candidates.forEach(function(p) {
-				var b = E('button', { type: 'button' }, [E('span', { 'class': 'hub-icon' }, UI.icon('file')), E('span', {}, [E('strong', {}, p.label || p.id), E('small', {}, used.length ? '已关联此脚本' : '选择后配置脚本开关')]), UI.icon('chevron')]);
+				var b = E('button', { type: 'button' }, [E('span', { 'class': 'hub-icon bb-icon-badge bb-tint-blue' }, UI.icon('file')), E('span', {}, [E('strong', {}, p.label || p.id), E('small', {}, used.length ? '已关联此脚本' : '选择后配置脚本开关')]), UI.icon('chevron')]);
 				b.addEventListener('click', function() { box.close(true).then(function() { config.onConfigure(p, item.name); }); }); picker.appendChild(b);
 			});
 			box = H.dialog(used.length ? '选择要配置的订阅' : '关联订阅', picker, [UI.button('取消', function() { return box.close(); })]);
@@ -132,26 +132,46 @@ return baseclass.extend({
 			}, 'text', 'info');
 			var removeButton = action('删除脚本', function() { return remove(item); }, 'text bb-delete', 'close'); removeButton.disabled = related(item.name).length > 0;
 			if (removeButton.disabled) removeButton.title = '请先解除订阅关联';
-			details.append(summary, E('div', {}, [version, action('更新来源', function() { sourceDialog(item, false); }, 'text', 'link'), action('编辑代码', function() { editCode(item); }, 'text', 'code'), removeButton]));
+			details.append(summary, E('div', {}, [action('编辑代码', function() { editCode(item); }, 'text', 'code'), action('更新来源', function() { sourceDialog(item, false); }, 'text', 'link'), version, removeButton]));
 			details.addEventListener('toggle', function() { if (details.open) host.querySelectorAll('details[open]').forEach(function(other) { if (other !== details) other.open = false; }); }); return details;
 		}
 		function count(item) { return Object.prototype.hasOwnProperty.call(counts, item.name) ? counts[item.name] : item.source && item.source.options_count != null ? item.source.options_count : null; }
 		function draw() {
 			if (disposed) return; countNodes = Object.create(null);
-			if (!scripts.length) { host.replaceChildren(E('section', { 'class': 'panel hub-empty' }, [E('span', { 'class': 'hub-icon' }, UI.icon('code')), E('h2', {}, '还没有覆写脚本'), UI.button('导入脚本', add, 'primary', 'plus')])); return; }
+			if (!scripts.length) { host.replaceChildren(E('section', { 'class': 'panel hub-empty' }, [E('span', { 'class': 'hub-icon bb-icon-badge bb-tint-orange' }, UI.icon('code')), E('h2', {}, '还没有覆写脚本'), UI.button('导入脚本', add, 'primary', 'plus')])); return; }
 			host.replaceChildren.apply(host, scripts.map(function(s) {
 				var used = related(s.name), number = E('strong', {}, count(s) == null ? '—' : String(count(s)) + ' 项'); countNodes[s.name] = number;
-				function stat(label, value) { return E('div', {}, [E('span', {}, label), value]); }
-				var references = E('div'); used.forEach(function(p) { var b = UI.button(p.label || p.id, function() { config.onConfigure(p); }, '', 'chevron'); references.appendChild(b); });
-				if (!used.length) references.appendChild(E('span', { 'class': 'muted' }, '尚未关联订阅'));
+				function stat(label, value) { return E('div', { 'class': 'hub-script-kv' }, [E('span', {}, label), value]); }
+				var references = E('div', { 'class': 'hub-associated-list' });
+				used.forEach(function(p) { var b = UI.button(p.label || p.id, function() { config.onConfigure(p); }, 'small', 'chevron'); references.appendChild(b); });
+				if (!used.length) references.appendChild(E('span', { 'class': 'muted small' }, '暂未关联订阅'));
 				var update = UI.button(s.source ? '检查更新' : '设置来源', function() { return check(s); }, '', 'refresh'); update.disabled = !!busy[s.name];
 				var configureButton = UI.button(used.length ? '设置开关' : '关联订阅', function() { configure(s); }, 'soft', 'settings');
+				var stampTs = s.source && s.source.updated_at;
+				var stampText = stampTs ? '最近同步 · ' + ago(stampTs * 1000) : '本地保存';
+				var stampTitle = stampTs ? new Date(stampTs * 1000).toLocaleString() : '';
+				var tags = [UI.tag(s.source ? '链接导入' : '本地脚本', s.source ? '' : 'neutral')];
+				if (s.source && s.source.modified) tags.push(UI.tag('已修改', 'warn'));
 				return E('article', { 'class': 'panel hub-script-card', 'data-script-name': s.name }, [
-					E('div', { 'class': 'hub-card-top' }, [E('div', { 'class': 'hub-name' }, [E('span', { 'class': 'hub-icon' }, UI.icon('code')), E('div', {}, [E('h2', {}, s.name), E('span', { 'class': 'small muted' }, s.name + '.js')])]), UI.tag(s.source ? '链接导入' : '本地脚本', 'neutral')]),
-					E('div', { 'class': 'hub-script-stats' }, [stat('脚本大小', E('strong', { 'class': 'mono' }, UI.bytes(s.size))), stat('脚本开关', number), stat('关联订阅', E('strong', {}, used.length + ' 个'))]),
-					E('div', { 'class': 'hub-associated' }, [E('span', { 'class': 'label' }, '应用于'), references]),
-					E('div', { 'class': 'hub-script-stamp' }, [E('span', {}, s.source && s.source.updated_at ? '最近同步 · ' + new Date(s.source.updated_at * 1000).toLocaleString() : '本地保存'), s.source && s.source.modified ? UI.tag('本地已修改', 'neutral') : '']),
-					E('div', { 'class': 'hub-card-actions' }, [E('div', {}, configureButton), E('div', {}, [update, more(s)])])]);
+					E('div', { 'class': 'hub-card-top' }, [
+						E('div', { 'class': 'hub-name' }, [
+							E('span', { 'class': 'hub-icon bb-icon-badge ' + (s.source ? 'bb-tint-purple' : 'bb-tint-teal') }, UI.icon('code')),
+							E('div', { 'class': 'hub-name-text' }, [
+								E('h2', {}, s.name),
+								E('span', { 'class': 'hub-expiry mono' }, '· ' + s.name + '.js')
+							])
+						]),
+						E('div', { 'class': 'hub-card-top-right' }, tags)
+					]),
+					E('div', { 'class': 'hub-script-meta' }, [
+						stat('脚本大小', E('strong', { 'class': 'mono' }, UI.bytes(s.size))),
+						stat('脚本开关', number),
+						stat('关联订阅', E('strong', {}, used.length + ' 个'))
+					]),
+					E('div', { 'class': 'hub-associated-inline' }, [E('span', { 'class': 'label' }, '应用于'), references]),
+					E('div', { 'class': 'hub-subline', title: stampTitle }, stampText),
+					E('div', { 'class': 'hub-card-actions' }, [configureButton, E('div', { 'class': 'hub-card-btns' }, [update, more(s)])])
+				]);
 			}));
 		}
 		function add() {

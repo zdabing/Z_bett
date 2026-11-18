@@ -1,6 +1,5 @@
 'use strict';
 'require view';
-'require poll';
 'require rpc';
 'require uci';
 'require ui';
@@ -694,7 +693,7 @@ return view.extend({
 		window.addEventListener('pagehide', dispose);
 		root.classList.add('v4-proxies');
 		host.appendChild(E('div', { 'class': 'v4-loading', role: 'status' }, [UI.icon('refresh'), document.createTextNode('正在读取服务状态…')]));
-		poll.add(function() {
+		UI.poll(root, function() {
 			if (disposed || !root.isConnected) return Promise.resolve();
 			if (Date.now() - lastAttempt < (inactive() ? 5000 : 15000)) return Promise.resolve();
 			return refresh();

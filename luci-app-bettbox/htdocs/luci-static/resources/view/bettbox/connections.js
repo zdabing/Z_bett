@@ -1,6 +1,5 @@
 'use strict';
 'require view';
-'require poll';
 'require rpc';
 'require ui';
 'require bettbox.core as Core';
@@ -20,7 +19,7 @@ return view.extend({
 		var tabs = E('div', { 'class': 'chips bb-connection-tabs', 'aria-label': '连接状态' }), tabButtons = {};
 
 		if (!document.getElementById('bettbox-connections-css'))
-			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261114-3' }));
+			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261118-1' }));
 
 		function target(c) { var m = c.metadata || {}; return m.host || m.destinationIP || '—'; }
 		function endpoint(ip, port) {
@@ -183,7 +182,7 @@ return view.extend({
 			E('div', { 'class': 'toolbar bb-connection-state' }, [stateLeft, stateActions]),
 			E('div', { 'class': 'toolbar bb-connection-filters' }, [UI.search('搜索目标、来源 IP 或规则…', function(value) { filter = value.toLowerCase(); pageNo = 0; draw(); }), sortSelect, chips]),
 			notice, list, pager]);
-		draw(); poll.add(refresh, 4); refresh(); return root;
+		draw(); UI.poll(root, refresh, 4); refresh(); return root;
 	},
 	handleSaveApply: null, handleSave: null, handleReset: null
 });

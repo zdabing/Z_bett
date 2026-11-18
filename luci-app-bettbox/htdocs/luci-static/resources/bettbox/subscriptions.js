@@ -25,7 +25,7 @@ function load(fresh) {
 	});
 }
 function mount() {
-	[['bettbox-subscriptions-css','subscriptions.css','20261118-2'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
+	[['bettbox-subscriptions-css','subscriptions.css','20261118-4'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
 		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=' + item[2] }));
 	});
 }
@@ -202,7 +202,7 @@ return baseclass.extend({
 							expiryText ? E('span', { 'class': 'hub-expiry' }, '· ' + expiryText) : ''
 						])
 					]),
-					current ? E('div', { 'class': 'hub-card-top-right' }, [UI.tag('当前使用', '')]) : ''
+					current ? E('div', { 'class': 'hub-card-top-right' }, [E('span', { 'class': 'tag hub-active-tag' }, [UI.icon('check'), E('span', {}, '已选用')])]) : ''
 				]),
 				bodyNode,
 				E('div', { 'class': 'hub-subline', title: updatedTitle }, sublineText),

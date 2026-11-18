@@ -1,7 +1,6 @@
 'use strict';
 'require view';
 'require rpc';
-'require poll';
 'require uci';
 'require ui';
 'require bettbox.core as Core';
@@ -210,6 +209,7 @@ return view.extend({
 		function paintService(){
 			stateTag.textContent=servicePending||(st.running?'运行中':'已停止');stateTag.className='tag '+(st.running?'':'neutral');
 			serviceTitle.textContent=st.running?'Bettbox 正在运行':'Bettbox 已停止';
+			serviceIcon.className='service-icon bb-icon-badge '+(st.running?'bb-tint-green':'bb-tint-orange');
 			serviceProfileText.textContent=currentProfileName();
 			if(!st.running)serviceExitText.textContent='未运行';
 			else if(st.mode==='direct')serviceExitText.textContent='直连 (Direct)';
@@ -265,7 +265,8 @@ return view.extend({
 			}).finally(function(){if(sequence===refreshSequence)busy=false;});
 		}
 		var refreshBtn=UI.button('刷新',refresh,'small','refresh');
-		var service=E('section',{'class':'panel service'},[E('div',{'class':'service-main'},[E('div',{'class':'service-icon'},UI.icon('power')),E('div',{},[E('div',{'class':'service-title'},[serviceTitle,stateTag]),meta])]),E('div',{'class':'service-actions'},[modes,E('div',{'class':'service-toggle'},[document.createTextNode('启动服务'),serviceSwitch]),refreshBtn])]);
-		var root=UI.page('overview','概览',[],[service,metrics,note,E('div',{'class':'net-grid overview-network'},[trafficPanel,networkPanel,lanPanel]),connectivity]);poll.add(refresh,2);checkExits();refresh();return root;
+		var serviceIcon=E('div',{'class':'service-icon bb-icon-badge '+(st.running?'bb-tint-green':'bb-tint-orange')},UI.icon('power'));
+		var service=E('section',{'class':'panel service'},[E('div',{'class':'service-main'},[serviceIcon,E('div',{},[E('div',{'class':'service-title'},[serviceTitle,stateTag]),meta])]),E('div',{'class':'service-actions'},[modes,E('div',{'class':'service-toggle'},[document.createTextNode('启动服务'),serviceSwitch]),refreshBtn])]);
+		var root=UI.page('overview','概览',[],[service,metrics,note,E('div',{'class':'net-grid overview-network'},[trafficPanel,networkPanel,lanPanel]),connectivity]);UI.poll(root,refresh,2);checkExits();refresh();return root;
 	},handleSaveApply:null,handleSave:null,handleReset:null
 });

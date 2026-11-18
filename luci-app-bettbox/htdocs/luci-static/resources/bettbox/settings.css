@@ -12,7 +12,7 @@
 .bb-app.bb-settings .settings-categories{position:static;display:flex;align-items:center;gap:18px;width:100%;max-width:100%;padding:0 4px;margin:0 0 18px;border:0;border-bottom:1px solid var(--bb-line);border-radius:0;background:transparent;overflow-x:auto}
 .bb-app.bb-settings .category-button{position:relative;display:flex;justify-content:center;align-items:center;gap:7px;width:auto;min-height:42px;padding:8px 4px 10px;margin:0;border-radius:0;font-size:13px;line-height:1.4;color:var(--secondary);background:transparent}
 .bb-app.bb-settings .category-button:hover{background:transparent;color:var(--ink)}
-.bb-app.bb-settings .category-button.active{background:transparent;color:var(--bb-accent);font-weight:600}
+.bb-app.bb-settings .category-button.active{background:transparent;color:var(--accent-strong,var(--bb-accent));font-weight:600}
 .bb-app.bb-settings .category-button.active::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px;background:var(--bb-accent)}
 .bb-app.bb-settings .category-button>.ico{width:16px;height:16px}
 .bb-app.bb-settings .bb-appearance-panel>.panel-body{padding:16px 20px 20px}
@@ -21,7 +21,8 @@
 .bb-app.bb-settings .settings-panel+.settings-panel{margin-top:0}
 .bb-app.bb-settings .settings-panel>.panel-head{align-items:center;padding:15px 20px 11px;min-height:48px}
 .bb-app.bb-settings .settings-panel>.panel-head h2{display:flex;align-items:center;gap:9px;margin:0;font-size:15px;font-weight:600;line-height:1.5}
-.bb-app.bb-settings .settings-panel>.panel-head .ico{width:17px;height:17px;color:var(--bb-accent)}
+.bb-app.bb-settings .settings-panel>.panel-head h2>.ico{width:17px;height:17px;color:var(--bb-accent)}
+.bb-app.bb-settings .settings-panel>.panel-head .bb-icon-badge>.ico{color:inherit}
 .bb-app.bb-settings .settings-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;padding:0 20px 14px;min-width:0}
 .bb-app.bb-settings .setting-row{display:grid;grid-template-columns:160px minmax(0,1fr);align-items:center;gap:16px;min-height:60px;padding:8px 0;border:0}
 .bb-app.bb-settings .setting-row.wide{grid-column:1/-1}
