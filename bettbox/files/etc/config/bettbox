@@ -33,7 +33,7 @@ config core 'config'
 	option external_ui '0'
 	option test_url 'https://www.gstatic.com/generate_204'
 	# geo
-	option geo_auto_update '1'
+	option geo_auto_update '0'
 	option geo_update_interval '24'
 	option geox_mmdb ''
 	option geox_geosite ''

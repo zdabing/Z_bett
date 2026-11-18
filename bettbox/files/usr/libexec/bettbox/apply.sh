@@ -97,7 +97,7 @@ apply_live() {
 			rm -f "$body"
 			return 1
 		fi
-		api_call PUT /configs "@$body" >/dev/null
+		api_call PUT '/configs?force=true' "@$body" >/dev/null
 		rc=$?
 		rm -f "$body"
 		return "$rc"

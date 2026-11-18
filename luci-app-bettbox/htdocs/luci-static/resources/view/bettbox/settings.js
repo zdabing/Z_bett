@@ -54,7 +54,7 @@ var SCHEMA = [
 		{ opt: 'override_destination', kind: 'flag', icon: 'eye', label: 'override-destination', sub: _('用嗅探结果覆盖目标地址') }
 	] },
 	{ section: 'config', title: _('Geo 资源'), opts: [
-		{ opt: 'geo_auto_update', kind: 'flag', icon: 'map', label: _('自动更新 Geo') },
+		{ opt: 'geo_auto_update', kind: 'flag', icon: 'map', label: _('自动更新 Geo'), sub: _('直连 GitHub 较慢或小内存路由建议关闭，改在「资源」页手动更新') },
 		{ opt: 'geo_update_interval', kind: 'value', icon: 'clock', label: _('更新间隔 (小时)') },
 		{ opt: 'geox_mmdb', kind: 'value', icon: 'globe', label: 'geox-url · mmdb', ph: 'https://…/geoip.metadb', wide: true },
 		{ opt: 'geox_geosite', kind: 'value', icon: 'globe', label: 'geox-url · geosite', ph: 'https://…/geosite.dat', wide: true },

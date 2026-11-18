@@ -180,6 +180,10 @@ let num = (v, d) => {
 
 /* ---------- UCI -> patch ---------- */
 
+let mode = uci('config', 'transparent_mode') ?? 'tun';
+let tproxy_port = (mode == 'tproxy') ? num(uci('config', 'tproxy_port'), 0) : 0;
+let redir_port = (mode == 'redir') ? num(uci('config', 'redir_port'), 0) : 0;
+
 let enabled_ports = [];
 let add_port = (p) => {
 	p = num(p, 0);
@@ -188,12 +192,11 @@ let add_port = (p) => {
 };
 
 add_port(uci('config', 'mixed_port'));
-add_port(uci('config', 'tproxy_port'));
-add_port(uci('config', 'redir_port'));
+add_port(tproxy_port);
+add_port(redir_port);
 add_port(uci('config', 'socks_port'));
 add_port(uci('config', 'port'));
 
-let mode = uci('config', 'transparent_mode') ?? 'tun';
 let controller = uci('config', 'external_controller') ?? '127.0.0.1:9097';
 let allow_lan = (uci('config', 'allow_lan') == '1');
 let bind_address = allow_lan ? (uci('config', 'bind_address') ?? '*') : '127.0.0.1';
@@ -233,8 +236,8 @@ if (uci('config', 'secret'))
 
 // Zero explicitly disables an inbound, overriding any subscription value.
 patch['mixed-port'] = num(uci('config', 'mixed_port'), 0);
-patch['tproxy-port'] = num(uci('config', 'tproxy_port'), 0);
-patch['redir-port'] = num(uci('config', 'redir_port'), 0);
+patch['tproxy-port'] = tproxy_port;
+patch['redir-port'] = redir_port;
 patch['socks-port'] = num(uci('config', 'socks_port'), 0);
 patch.port = num(uci('config', 'port'), 0);
 

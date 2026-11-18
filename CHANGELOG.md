@@ -1,5 +1,12 @@
 # 更新日志
 
+## v2026.11.18-r2 · 2026-11-18
+
+面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r13` 和 `luci-app-bettbox 1.19.8-r4`。
+
+- **修复随包核心入站与 TUN 未启动问题**：新增 [130-enable-listeners-tun.patch](bettbox/patches/130-enable-listeners-tun.patch)，恢复 `appshubcc/Bettbox` 核心 `ApplyConfig` 中被桌面端注释的 `updateListeners` 与 `updateTun` 调用，解决独立运行的 OpenWrt `/usr/bin/mihomo` 不创建代理端口与 `bettbox` TUN 网卡的问题；同时修复 `apply.sh` 热重载 `PUT /configs?force=true` 查询参数。
+- **OpenWrt 启动就绪与资源优化**：在 `init.d/bettbox` 中新增按系统总内存计算的自适应 `GOMEMLIMIT`（35%，限制 `64MiB`–`768MiB`）、TUN 设备分流模式就绪校验 `bettbox_tun_ready()` 以及 `core_switch` 回退实例判空；`render.uc` 按 `transparent_mode` 自动关闭未使用的 `tproxy-port` / `redir-port` 监听；默认关闭 `geo_auto_update` 并在设置页提示手动更新建议。
+
 ## v2026.11.18-r1 · 2026-11-18
 
 面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r12` 和 `luci-app-bettbox 1.19.8-r3`。
