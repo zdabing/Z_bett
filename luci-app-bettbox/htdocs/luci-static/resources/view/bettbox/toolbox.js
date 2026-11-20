@@ -33,7 +33,7 @@ function trafficPanel(){
 			E('p',{},'总流量 '+amount(result)+'。代理流量 '+amount({up:result['proxy-up'],down:result['proxy-down']})),
 			rows.length?E('dl',{'class':'definition-list'},rows.map(function(item){
 				return E('div',{'class':'definition-row'},[E('dt',{},item.name||item.label),E('dd',{},[
-					amount(item),item.subs&&item.subs.length?E('ul',{},item.subs.map(function(sub){return E('li',{},sub.name+' · '+amount(sub));})):null
+					amount(item),item.subs&&item.subs.length?E('ul',{},item.subs.map(function(sub){return E('li',{},sub.name+' · '+amount(sub));})):''
 				])]);
 			})):E('p',{},'所选范围暂无记录')
 		);
@@ -100,7 +100,7 @@ return view.extend({render:function(){
 		E('div',{'class':'rail-title'},'诊断与排障'),
 		E('div',{'class':'bb-tool-rail-list'},TOOLS.map(function(t){
 			var b=E('button',{type:'button','class':'rail-button','data-tool':t[0]},[
-				E('span',{'class':'rail-label'},[E('strong',{},t[1]),t[3]?E('small',{},t[3]):null]),
+				E('span',{'class':'rail-label'},[E('strong',{},t[1]),t[3]?E('small',{},t[3]):'']),
 				t[0]==='speedtest'?UI.artwork('speedtest',t[2]):UI.badge(t[2],'bb-small-icon')
 			]);
 			b.addEventListener('click',function(){

@@ -24,7 +24,7 @@ return baseclass.extend({
 		var selected = config.script || p.script || (scripts[0] && scripts[0].name) || '';
 		if (config.script) useScript = true;
 		var tab = config.tab || 'basic', dirty = !!config.script && (config.script !== p.script || !p.use_script), committed = false, ruleTouched = false;
-		var cache = Object.create(null), category = 'all', search = '', box, busy = false;
+		var cache = Object.create(null), category = 'all', search = '', serviceSearch = '', managedSearch = '', managedFoldOpen = false, box, busy = false;
 		var error = E('div', { 'class': 'hub-error', role: 'alert' }), status = E('span', { 'class': 'hub-save-state', role: 'status' });
 		var content = E('div', { 'class': 'hub-editor-content' }), optionsHost = E('div'), tabs = E('div', { 'class': 'hub-editor-tabs', role: 'tablist', 'aria-label': '订阅设置分区' });
 		function changed() { dirty = true; status.textContent = '有未保存的修改'; }
@@ -115,8 +115,18 @@ return baseclass.extend({
 				if (value) useScript = false;
 				changed(); renderTab();
 			});
-			var elements = [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '内置分流目录'), merged ? null : toggle])];
-			if (!useManaged && !merged) return section('托管分流', elements);
+			var headSub = merged
+				? '合并订阅由内置分流引擎统一生成策略组与规则，修改后将自动重新合并。'
+				: (useScript ? '当前已启用外部「覆写脚本」，开启内置托管后将自动替代外部脚本。' : '免写 JS 的可视化分流，与「脚本开关」二选一。');
+			var topHead = E('div', { 'class': 'hub-setting-line' }, [
+				E('div', { 'class': 'hub-setting-copy' }, [
+					E('h3', {}, merged ? '合并分流引擎' : '内置托管脚本'),
+					E('p', { 'class': 'small muted' }, headSub)
+				])
+			].concat(merged ? [] : [toggle]));
+			var blocks = [E('section', { 'class': 'hub-form-section' }, [topHead])];
+			if (!useManaged && !merged) return blocks;
+
 			if (!catalog && !catalogError && !catalogPending) {
 				catalogPending = catalogRPC().then(UI.checked).then(function(result) {
 					catalog = result.catalog;
@@ -127,84 +137,166 @@ return baseclass.extend({
 				});
 			}
 			if (!catalog) {
-				elements.push(E('p', {}, catalogError || '正在读取内置目录…'));
-				return section('托管分流', elements);
+				blocks[0].appendChild(E('p', { 'class': 'small muted', style: 'margin:0' }, catalogError || '正在读取内置目录…'));
+				return blocks;
 			}
-			var service = E('select', { 'class': 'field', 'aria-label': '目录服务' }, catalog.services.map(function(item, index) {
-				return E('option', { value: index }, item.name);
+
+			var regionDefaults = catalog.regions.filter(function(item) { return item.default; }).map(function(item) { return item.name; });
+			var activeRegions = Array.isArray(managed.regions) ? managed.regions.slice() : regionDefaults.slice();
+			var regionCount = E('span', { 'class': 'hub-option-count' }, activeRegions.length + ' / ' + catalog.regions.length + ' 个地区已开启');
+			var regionGrid = E('div', { 'class': 'hub-option-grid' }, catalog.regions.map(function(region) {
+				return E('div', { 'class': 'hub-option' }, [
+					E('span', {}, [UI.icon('globe'), E('strong', {}, region.name)]),
+					H.toggle(activeRegions.indexOf(region.name) >= 0, region.name, function(value) {
+						activeRegions = activeRegions.filter(function(name) { return name !== region.name; });
+						if (value) activeRegions.push(region.name);
+						managed.regions = activeRegions.slice();
+						regionCount.textContent = activeRegions.length + ' / ' + catalog.regions.length + ' 个地区已开启';
+						changed();
+					})
+				]);
 			}));
-			function addRoute(item) {
-				managed.routes.push({name: item.name, icon: item.icon, sets: (item.sets || []).slice(), enabled: true});
-				changed(); renderTab();
-			}
-			elements.push(E('div', { 'class': 'hub-input-action hub-managed-toolbar' }, [
-				service, UI.button('添加目录服务', function() { addRoute(catalog.services[Number(service.value)]); }),
-				UI.button('添加自定义分流', function() { addRoute({name: ''}); })
-			]));
-			var regions = catalog.regions.map(function(region) {
-				var active = Array.isArray(managed.regions) ? managed.regions : catalog.regions.filter(function(item) { return item.default; }).map(function(item) { return item.name; });
-				return H.field(region.name, H.toggle(active.includes(region.name), region.name, function(value) {
-					managed.regions = active.filter(function(name) { return name !== region.name; });
-					if (value) managed.regions.push(region.name);
-					changed(); renderTab();
-				}));
-			});
-			elements.push(E('div', { 'class': 'hub-form-grid' }, regions));
-			managed.customRegions.forEach(function(region, index) {
-				var name = input(region.name), pattern = input(region.regex);
+			var customRegionNodes = managed.customRegions.map(function(region, index) {
+				var name = input(region.name, 'text', { placeholder: '地区名（如 英国）', 'aria-label': '自定义地区名称' });
+				var pattern = input(region.regex, 'text', { placeholder: '节点正则（如 UK|London|英国）', 'aria-label': '节点名称正则' });
 				name.addEventListener('input', function() { region.name = name.value.trim(); });
 				pattern.addEventListener('input', function() { region.regex = pattern.value.trim(); });
-				elements.push(section('自定义地区', [
-					E('div', { 'class': 'hub-form-grid' }, [H.field('地区名称', name), H.field('节点名称正则', pattern)]),
-					E('div', { 'class': 'button-row', style: 'margin-top:12px' }, [
-						UI.button('删除地区', function() { managed.customRegions.splice(index, 1); changed(); renderTab(); }, 'danger small')
-					])
-				]));
+				var del = UI.button('删除地区', function() { managed.customRegions.splice(index, 1); changed(); renderTab(); }, 'bb-icon-only danger', 'close');
+				return E('div', { 'class': 'hub-custom-region-row' }, [name, pattern, del]);
 			});
-			elements.push(UI.button('添加自定义地区', function() {
-				managed.customRegions.push({name:'',regex:''});
+			var regionCard = E('section', { 'class': 'hub-form-section' }, [
+				E('div', { 'class': 'hub-options-heading' }, [E('h3', {}, '地区分组'), regionCount]),
+				regionGrid
+			].concat(customRegionNodes.length ? [E('div', { 'class': 'hub-custom-region-list' }, customRegionNodes)] : []).concat([
+				E('div', { 'class': 'hub-inline-footer' }, [
+					UI.button('添加自定义地区', function() { managed.customRegions.push({ name: '', regex: '' }); changed(); renderTab(); }, 'small', 'plus')
+				])
+			]));
+			blocks.push(regionCard);
+
+			var filterInput = E('input', { 'class': 'field', type: 'search', placeholder: '搜索 ' + catalog.services.length + ' 项内置服务（如 ChatGPT、B站）…', 'aria-label': '搜索目录服务' });
+			filterInput.value = serviceSearch;
+			var service = E('select', { 'class': 'field', 'aria-label': '目录服务' });
+			var addServiceBtn = UI.button('添加服务', function() {
+				var idx = Number(service.value);
+				if (Number.isInteger(idx) && catalog.services[idx]) addRoute(catalog.services[idx]);
+			}, 'soft', 'plus');
+			function syncServices() {
+				var q = serviceSearch.trim().toLowerCase(), matches = [];
+				catalog.services.forEach(function(item, index) {
+					var hay = [item.name].concat(item.keywords || []).join(' ').toLowerCase();
+					if (!q || hay.indexOf(q) >= 0) matches.push({ item: item, index: index });
+				});
+				service.replaceChildren.apply(service, matches.length
+					? matches.map(function(m) { return E('option', { value: String(m.index) }, m.item.name); })
+					: [E('option', { value: '' }, '无匹配服务')]);
+				service.disabled = !matches.length;
+				addServiceBtn.disabled = !matches.length;
+			}
+			syncServices();
+			filterInput.addEventListener('input', function() { serviceSearch = filterInput.value; syncServices(); });
+			function addRoute(item) {
+				managed.routes.push({ name: item.name, icon: item.icon, sets: (item.sets || []).slice(), enabled: true });
 				changed(); renderTab();
-			}));
-			var options = Object.keys(managedDefaults).map(function(key) {
-				var value = Object.prototype.hasOwnProperty.call(managedOptions, key) ? managedOptions[key] : managedDefaults[key];
-				return H.field(key, H.toggle(value, key, function(next) { managedOptions[key] = next; changed(); }));
+			}
+			var routeNodes = managed.routes.map(function(route, index) {
+				var titleNode = E('strong', { 'class': 'hub-route-title' }, route.name || ('自定义分流 ' + (index + 1)));
+				var name = input(route.name, 'text', { placeholder: '分流组名称' });
+				var sets = E('textarea', { 'class': 'field mono', rows: '2', placeholder: 'geosite:openai\ndomain:https://example.com/rules.mrs' });
+				var target = E('select', { 'class': 'field' }, [E('option', { value: '' }, '建立独立策略组')].concat(catalog.targets.map(function(value) { return E('option', { value: value }, value); })));
+				target.value = route.target || '';
+				sets.value = (route.sets || []).join('\n');
+				name.addEventListener('input', function() { route.name = name.value.trim(); titleNode.textContent = route.name || ('自定义分流 ' + (index + 1)); });
+				sets.addEventListener('input', function() { route.sets = sets.value.split('\n').map(function(value) { return value.trim(); }).filter(Boolean); changed(); });
+				target.addEventListener('change', function() { route.target = target.value; changed(); });
+				var upBtn = UI.button('上移', function() {
+					if (!index) return;
+					managed.routes.splice(index, 1);
+					managed.routes.splice(index - 1, 0, route);
+					changed(); renderTab();
+				}, 'bb-icon-only', 'up');
+				upBtn.disabled = index === 0;
+				var delBtn = UI.button('删除分流', function() { managed.routes.splice(index, 1); changed(); renderTab(); }, 'bb-icon-only danger', 'close');
+				return E('div', { 'class': 'hub-route-card' }, [
+					E('div', { 'class': 'hub-route-head' }, [
+						UI.badge('layers', 'bb-small-icon', 'orange'),
+						titleNode,
+						H.toggle(!!route.enabled, '启用分流 ' + (index + 1), function(value) { route.enabled = value; changed(); }),
+						E('div', { 'class': 'hub-route-actions' }, [upBtn, delBtn])
+					]),
+					E('div', { 'class': 'hub-form-grid' }, [
+						H.field('名称', name), H.field('出口', target), H.field('规则集（每行一条）', sets, true)
+					])
+				]);
 			});
-			if (options.length) elements.push(section('脚本开关', [E('div', { 'class': 'hub-form-grid' }, options)]));
-			var order = E('textarea', { 'class': 'field', rows: 3, placeholder: '每行一个策略组名称' });
+			var routeCard = E('section', { 'class': 'hub-form-section' }, [
+				E('div', { 'class': 'hub-options-heading' }, [
+					E('h3', {}, '分流服务与规则'),
+					E('span', { 'class': 'hub-option-count' }, managed.routes.length ? '已添加 ' + managed.routes.length + ' 项' : '可按需添加')
+				]),
+				E('div', { 'class': 'hub-managed-picker' }, [
+					E('label', { 'class': 'search hub-option-search' }, [UI.icon('search'), filterInput]),
+					E('div', { 'class': 'hub-input-action' }, [service, addServiceBtn, UI.button('自定义', function() { addRoute({ name: '' }); }, '', 'plus')])
+				])
+			].concat(routeNodes.length
+				? [E('div', { 'class': 'hub-route-list' }, routeNodes)]
+				: [E('p', { 'class': 'small muted', style: 'margin:12px 0 0' }, '未额外添加服务时，将沿用内置默认分流规则。')]));
+			blocks.push(routeCard);
+
+			var optionKeys = Object.keys(managedDefaults);
+			var enabledOptCount = optionKeys.filter(function(key) {
+				return Object.prototype.hasOwnProperty.call(managedOptions, key) ? !!managedOptions[key] : !!managedDefaults[key];
+			}).length;
+			var optSummaryText = E('span', { 'class': 'hub-option-count' });
+			function syncOptSummary() {
+				optSummaryText.textContent = (optionKeys.length ? enabledOptCount + ' / ' + optionKeys.length + ' 项开启 · ' : '') + (managedFoldOpen ? '收起' : '展开调整');
+			}
+			syncOptSummary();
+			var optSearchInput = E('input', { 'class': 'field', type: 'search', placeholder: '筛选内置开关…', 'aria-label': '筛选内置开关' });
+			optSearchInput.value = managedSearch;
+			var optRows = Object.create(null);
+			var optGrid = E('div', { 'class': 'hub-option-grid' }, optionKeys.map(function(key) {
+				var value = Object.prototype.hasOwnProperty.call(managedOptions, key) ? !!managedOptions[key] : !!managedDefaults[key];
+				var row = E('div', { 'class': 'hub-option' }, [
+					E('span', {}, [UI.icon('settings'), E('strong', {}, key)]),
+					H.toggle(value, key, function(next) {
+						var prev = Object.prototype.hasOwnProperty.call(managedOptions, key) ? !!managedOptions[key] : !!managedDefaults[key];
+						managedOptions[key] = next;
+						if (next !== prev) enabledOptCount += next ? 1 : -1;
+						syncOptSummary();
+						changed();
+					})
+				]);
+				optRows[key] = row;
+				return row;
+			}));
+			function filterManagedOpts() {
+				var q = managedSearch.trim().toLowerCase();
+				optionKeys.forEach(function(key) { optRows[key].hidden = q && key.toLowerCase().indexOf(q) < 0; });
+			}
+			filterManagedOpts();
+			optSearchInput.addEventListener('input', function() { managedSearch = optSearchInput.value; filterManagedOpts(); });
+			var order = E('textarea', { 'class': 'field', rows: '2', placeholder: '每行一个策略组名称（留空按默认顺序）' });
 			order.value = Array.isArray(managed.order) ? managed.order.join('\n') : '';
 			order.addEventListener('input', function() {
 				managed.order = Array.from(new Set(order.value.split('\n').map(function(value) { return value.trim(); }).filter(Boolean)));
 				changed();
 			});
-			elements.push(H.field('策略组顺序', order));
-			managed.routes.forEach(function(route, index) {
-				var name = input(route.name), sets = E('textarea', { 'class': 'field mono', rows: 3, placeholder: 'geosite:openai\ndomain:https://example.com/rules.mrs' });
-				var target = E('select', { 'class': 'field' }, [E('option', { value: '' }, '建立策略组')].concat(catalog.targets.map(function(value) { return E('option', { value: value }, value); })));
-				target.value = route.target || '';
-				sets.value = (route.sets || []).join('\n');
-				name.addEventListener('input', function() { route.name = name.value.trim(); });
-				sets.addEventListener('input', function() { route.sets = sets.value.split('\n').map(function(value) { return value.trim(); }).filter(Boolean); changed(); });
-				target.addEventListener('change', function() { route.target = target.value; changed(); });
-				elements.push(section('分流 ' + (index + 1), [
-					E('div', { 'class': 'hub-setting-line' }, [
-						E('span', { 'class': 'small muted' }, '启用此分流规则'),
-						H.toggle(!!route.enabled, '启用分流 ' + (index + 1), function(value) { route.enabled = value; changed(); })
-					]),
-					E('div', { 'class': 'hub-form-grid' }, [
-						H.field('名称', name), H.field('出口', target), H.field('规则集', sets, true)
-					]),
-					E('div', { 'class': 'button-row', style: 'margin-top:14px' }, [
-						UI.button('上移', function() {
-							if (!index) return;
-							managed.routes.splice(index, 1);
-							managed.routes.splice(index - 1, 0, route);
-							changed(); renderTab();
-						}),
-						UI.button('删除分流', function() { managed.routes.splice(index, 1); changed(); renderTab(); }, 'danger')
-					])
-				]));
-			});
-			return section('托管分流', elements);
+			var fold = E('details', { 'class': 'hub-form-section hub-fold' });
+			if (managedFoldOpen) fold.open = true;
+			fold.addEventListener('toggle', function() { managedFoldOpen = fold.open; syncOptSummary(); });
+			fold.append(
+				E('summary', { 'class': 'hub-fold-summary' }, [
+					E('span', { 'class': 'hub-fold-title' }, [E('strong', {}, '内置开关与策略组排序'), UI.icon('chevron')]),
+					optSummaryText
+				]),
+				E('div', { 'class': 'hub-fold-body' }, (optionKeys.length ? [
+					E('label', { 'class': 'search hub-option-search', style: 'margin-bottom:12px' }, [UI.icon('search'), optSearchInput]),
+					optGrid
+				] : []).concat([E('div', { style: 'margin-top:14px' }, [H.field('策略组顺序', order)])]))
+			);
+			blocks.push(fold);
+			return blocks;
 		}
 		function renderTab() {
 			Array.from(tabs.children).forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
@@ -219,9 +311,16 @@ return baseclass.extend({
 					...(merged ? [] : [E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '自动更新'), autoToggle]), E('div', { 'class': 'hub-form-grid' }, [H.field('更新周期', period), H.field('间隔（分钟）', interval)])])]), error);
 			} else if (tab === 'script') {
 				scriptSelect.disabled = !useScript;
-				content.replaceChildren(E('section', { 'class': 'hub-form-section' }, [E('div', { 'class': 'hub-setting-line' }, [E('h3', {}, '覆写脚本'), H.toggle(useScript, '启用覆写脚本', function(value) { useScript = value; if (value) useManaged = false; scriptSelect.disabled = !value; changed(); if (value) loadOptions(selected); else drawOptions(); })]), H.field('选择脚本', scriptSelect)]), optionsHost, error); drawOptions();
+				var scriptLine = E('div', { 'class': 'hub-setting-line' }, [
+					E('div', { 'class': 'hub-setting-copy' }, [
+						E('h3', {}, '覆写脚本'),
+						E('p', { 'class': 'small muted' }, useManaged ? '当前已启用「托管分流」；开启外部脚本后将自动切换。' : '从「脚本管理」选择外部脚本并按需调整可视化开关。')
+					]),
+					H.toggle(useScript, '启用覆写脚本', function(value) { useScript = value; if (value) useManaged = false; scriptSelect.disabled = !value; changed(); if (value) loadOptions(selected); else drawOptions(); })
+				]);
+				content.replaceChildren(E('section', { 'class': 'hub-form-section' }, [scriptLine, H.field('选择脚本', scriptSelect)]), optionsHost, error); drawOptions();
 			} else if (tab === 'managed') {
-				content.replaceChildren(managedControls(), error);
+				content.replaceChildren.apply(content, managedControls().concat([error]));
 			} else {
 				var remove = UI.button('删除订阅', function() {
 					return H.confirm('删除订阅', '确定删除“' + (label.value || p.id) + '”？', '删除订阅', true).then(function(yes) {
@@ -234,7 +333,11 @@ return baseclass.extend({
 			box.body.scrollTop = 0;
 		}
 		scriptSelect.addEventListener('change', function() { selected = scriptSelect.value; category = 'all'; search = ''; changed(); loadOptions(selected); });
-		[['basic','基本信息'],['script','脚本开关'],['managed','托管分流'],['advanced','高级']].forEach(function(item) {
+		if (merged && tab === 'script') tab = 'managed';
+		(merged
+			? [['basic','基本信息'],['managed','托管分流'],['advanced','高级']]
+			: [['basic','基本信息'],['script','脚本开关'],['managed','托管分流'],['advanced','高级']]
+		).forEach(function(item) {
 			var b = E('button', { type: 'button', role: 'tab', 'data-tab': item[0] }, item[1]); b.addEventListener('click', function() { tab = item[0]; renderTab(); }); tabs.appendChild(b);
 		});
 		function save() {

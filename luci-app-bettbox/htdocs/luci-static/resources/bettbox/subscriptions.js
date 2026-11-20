@@ -25,7 +25,7 @@ function load(fresh) {
 	});
 }
 function mount() {
-	[['bettbox-subscriptions-css','subscriptions.css','20261118-4'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
+	[['bettbox-subscriptions-css','subscriptions.css','20261120-1'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
 		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=' + item[2] }));
 	});
 }
@@ -69,8 +69,8 @@ return baseclass.extend({
 		var panel = E('div', { id: 'bettbox-subscription-panel', role: 'tabpanel' }), tabs = E('div', { 'class': 'hub-tabs', role: 'tablist', 'aria-label': '订阅管理分区' });
 		var summary = E('span', { 'class': 'hub-section-summary' }), notice = E('div', { 'class': 'hub-live-note', role: 'status' });
 		var buttons = {}, manager = null, refreshing = null, busy = false, root, actions;
-		function edit(p, script) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: script ? 'script' : 'basic', script: script, onSaved: refresh }); }
-		function scriptSettings(p) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: 'script', onSaved: refresh }); }
+		function edit(p, script, tab) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: tab || (script ? 'script' : 'basic'), script: script, onSaved: refresh }); }
+		function scriptSettings(p) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: (p.use_managed || (p.merge_members || []).length > 0) ? 'managed' : 'script', onSaved: refresh }); }
 		function createManager() {
 			if (manager) manager.dispose();
 			manager = Scripts.create({ scripts: scripts, profiles: profiles, notice: notice, onChanged: refresh, onConfigure: function(p, script) { if (script) edit(p, script); else scriptSettings(p); } });
@@ -167,13 +167,13 @@ return baseclass.extend({
 				sublineText = modeText + ' · ' + updatedLabel;
 			}
 
-			var overrideLabel = p.use_managed ? '托管分流' : (p.use_script ? ('脚本: ' + (p.script || '未选择')) : '覆写: 未启用');
+			var overrideLabel = (merged || p.use_managed) ? '托管分流' : (p.use_script ? ('脚本: ' + (p.script || '未选择')) : '覆写: 未启用');
 			var scriptPill = E('button', {
 				type: 'button',
-				'class': 'hub-script-pill' + (p.use_managed || p.use_script ? ' active' : ''),
+				'class': 'hub-script-pill' + (merged || p.use_managed || p.use_script ? ' active' : ''),
 				'aria-label': '配置' + (p.label || p.id) + '的覆写脚本或托管分流'
 			}, [UI.icon('code'), E('span', {}, overrideLabel)]);
-			scriptPill.addEventListener('click', function() { if (p.use_managed) edit(p); else scriptSettings(p); });
+			scriptPill.addEventListener('click', function() { scriptSettings(p); });
 
 			var btns = [];
 			if (!current) {

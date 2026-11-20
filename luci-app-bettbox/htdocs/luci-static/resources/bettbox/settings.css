@@ -24,6 +24,7 @@
 .bb-app.bb-settings .settings-panel>.panel-head h2>.ico{width:17px;height:17px;color:var(--bb-accent)}
 .bb-app.bb-settings .settings-panel>.panel-head .bb-icon-badge>.ico{color:inherit}
 .bb-app.bb-settings .settings-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;padding:0 20px 14px;min-width:0}
+.bb-app.bb-settings .settings-form>.settings-form-help{grid-column:1/-1;margin-bottom:6px}
 .bb-app.bb-settings .setting-row{display:grid;grid-template-columns:160px minmax(0,1fr);align-items:center;gap:16px;min-height:60px;padding:8px 0;border:0}
 .bb-app.bb-settings .setting-row.wide{grid-column:1/-1}
 .bb-app.bb-settings .setting-label{display:block;margin:0;padding:0;line-height:1.5;font-size:12px;font-weight:500;overflow-wrap:anywhere}
@@ -33,6 +34,7 @@
 .bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto;gap:16px}
 .bb-app.bb-settings .setting-row.flag>.setting-control{width:44px;flex:none}
 .bb-app.bb-settings .setting-row.flag .switch{width:44px;height:44px;min-height:44px;padding:0;border:0;background:transparent;border-radius:10px}
+.bb-app.bb-settings .setting-row.flag .switch.is-managed:disabled{cursor:not-allowed}
 .bb-app.bb-settings .setting-row.flag .switch::before{content:'';position:absolute;left:2px;top:10px;width:40px;height:24px;border-radius:14px;background:var(--bb-accent)}
 .bb-app.bb-settings .setting-row.flag .switch.off::before{background:var(--switch-off,#bdc7c0)}
 .bb-app.bb-settings .setting-row.flag .switch::after{width:18px;height:18px;top:13px;right:5px;left:auto}

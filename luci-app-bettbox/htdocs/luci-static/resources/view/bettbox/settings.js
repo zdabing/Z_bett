@@ -130,12 +130,14 @@ function validateDevices(values){
 return view.extend({
 	load:function(){return Promise.all([uci.load('bettbox'),callProfiles(),callProxyGroups('GET','/proxies','').catch(function(){return null;})]);},
 	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['devices','设备控制','lan'],['tun','TUN','route'],['dns','DNS','globe'],['other','高级','grid']];
-		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261118-1'}));
+		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261119-1'}));
 		var requested=new URLSearchParams(window.location.search).get('category');
 		if(categories.some(function(c){return c[0]===requested;}))selected=requested;
 		content.setAttribute('aria-label',categories.find(function(c){return c[0]===selected;})[1]+'设置');
 		var state=E('strong',{},'当前配置');
 		var modeHelp=E('p',{'class':'device-setting-help',id:'bettbox-device-mode-help'});
+		var tunRoutingHelp=E('p',{'class':'device-setting-help settings-form-help',id:'bettbox-tun-routing-help'},
+			_('设备控制已接管 TUN 路由，auto-route、auto-redirect 和 strict-route 已锁定。要编辑这些开关，请在「设备控制」中将模式设为「关闭」。'));
 		var modeDescriptions={
 			off:_('全部设备进入分流。'),
 			include:_('仅名单中的设备进入分流。'),
@@ -145,10 +147,19 @@ return view.extend({
 			var mode=inputs.find(function(it){return it.option.opt==='device_mode';}),transport=inputs.find(function(it){return it.option.opt==='transparent_mode';});
 			if(!mode||!transport)return;
 			modeHelp.textContent=modeDescriptions[mode.control.value]||'';
-			var selected=mode.control.value!=='off'&&transport.control.value!=='off';
+			var devicesEnabled=mode.control.value!=='off'&&transport.control.value!=='off';
+			var tunManaged=devicesEnabled&&transport.control.value==='tun';
+			tunRoutingHelp.hidden=!tunManaged;
 			inputs.forEach(function(it){
-				var owned=it.option.opt==='hijack_dnsmasq'?selected:it.section==='tun'&&['auto_route','auto_redirect','strict_route'].indexOf(it.option.opt)>=0?selected&&transport.control.value==='tun':null;
-				if(owned!==null){it.control.disabled=owned;it.control.title=owned?'设备控制启用时，由插件按名单接管 DNS 和路由':'';}
+				var dnsManagedOption=it.option.opt==='hijack_dnsmasq';
+				var tunManagedOption=it.section==='tun'&&['auto_route','auto_redirect','strict_route'].indexOf(it.option.opt)>=0;
+				if(!dnsManagedOption&&!tunManagedOption)return;
+				var locked=dnsManagedOption?devicesEnabled:tunManaged;
+				it.control.disabled=locked;
+				it.control.classList.toggle('is-managed',locked);
+				if(dnsManagedOption)it.control.title=locked?_('设备控制启用时，由插件按名单接管 DNS 和路由'):'';
+				else if(locked)it.control.setAttribute('aria-describedby',tunRoutingHelp.id);
+				else it.control.removeAttribute('aria-describedby');
 			});
 		}
 		var fallbackRows=[],savedFallbacks=[],fallbackError='';
@@ -168,6 +179,7 @@ return view.extend({
 		SCHEMA.forEach(function(sec,index){
 			var cat=category(sec),headingId='bettbox-settings-section-'+index;
 			var cfg=uci.get('bettbox',sec.section)||{},form=E('div',{'class':cat==='devices'?'device-settings-form':'settings-form'});
+			if(cat==='tun')form.appendChild(tunRoutingHelp);
 			sec.opts.forEach(function(o){
 				var control=fieldFor(cfg,o,profiles),read=watchField(control,o,changed),id='bettbox-setting-'+sec.section+'-'+o.opt;
 				control.id=id;inputs.push({section:sec.section,option:o,control:control,read:read,original:JSON.stringify(read())});

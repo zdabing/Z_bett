@@ -42,3 +42,26 @@
 .bb-app.hub-drawer .hub-option-search{display:block;position:relative;margin:0}
 .bb-app.hub-drawer .hub-option-search>.ico{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none}
 .bb-app.hub-drawer .hub-option-search input{display:block;width:100%;margin:0;padding-left:38px}
+.bb-app.hub-drawer .hub-setting-copy{min-width:0;flex:1}
+.bb-app.hub-drawer .hub-setting-copy p{margin:4px 0 0;line-height:1.45}
+.bb-app.hub-drawer .hub-setting-line:last-child{margin-bottom:0}
+.bb-app.hub-drawer .hub-custom-region-list{display:grid;gap:10px;margin-top:12px}
+.bb-app.hub-drawer .hub-custom-region-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) auto;gap:8px;align-items:center}
+.bb-app.hub-drawer .hub-custom-region-row .field{min-height:40px;margin:0}
+.bb-app.hub-drawer .hub-custom-region-row .btn,.bb-app.hub-drawer .hub-route-actions .btn{min-width:36px;width:36px;height:36px;min-height:36px;padding:0;justify-content:center}
+.bb-app.hub-drawer .hub-inline-footer{margin-top:12px;display:flex;justify-content:flex-start}
+.bb-app.hub-drawer .hub-managed-picker{display:grid;gap:10px}
+.bb-app.hub-drawer .hub-route-list{display:grid;gap:12px;margin-top:14px}
+.bb-app.hub-drawer .hub-route-card{padding:14px;border:1px solid var(--bb-line);border-radius:12px;background:var(--subtle)}
+.bb-app.hub-drawer .hub-route-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.bb-app.hub-drawer .hub-route-title{font-size:13px;font-weight:600;min-width:0;flex:1;overflow-wrap:anywhere}
+.bb-app.hub-drawer .hub-route-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.bb-app.hub-drawer .hub-fold{padding:0}
+.bb-app.hub-drawer .hub-fold-summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;user-select:none}
+.bb-app.hub-drawer .hub-fold-summary::-webkit-details-marker{display:none}
+.bb-app.hub-drawer .hub-fold-title{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.bb-app.hub-drawer .hub-fold-title strong{font-size:15px;font-weight:600}
+.bb-app.hub-drawer .hub-fold-title .ico{width:15px;height:15px;color:var(--muted);transition:transform .16s ease}
+.bb-app.hub-drawer .hub-fold[open] .hub-fold-title .ico{transform:rotate(90deg)}
+.bb-app.hub-drawer .hub-fold-body{padding:0 22px 20px;border-top:1px solid var(--bb-line);padding-top:16px}
+@media(max-width:599px){.bb-app.hub-drawer .hub-custom-region-row{grid-template-columns:minmax(0,1fr) auto}.bb-app.hub-drawer .hub-custom-region-row input:first-child{grid-column:1/-1}.bb-app.hub-drawer .hub-custom-region-row .btn,.bb-app.hub-drawer .hub-route-actions .btn{min-width:40px;width:40px;height:40px;min-height:40px}.bb-app.hub-drawer .hub-fold-summary{padding:15px 16px}.bb-app.hub-drawer .hub-fold-body{padding:14px 16px 16px}}
