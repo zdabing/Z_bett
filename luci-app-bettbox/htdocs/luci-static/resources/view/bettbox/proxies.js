@@ -5,9 +5,11 @@
 'require ui';
 'require bettbox.core as Core';
 'require bettbox.ui as UI';
+'require bettbox.qrcode as QRCode';
 
 var getStatus = rpc.declare({ object: 'bettbox', method: 'get_status' });
 var serviceAction = rpc.declare({ object: 'bettbox', method: 'service_action', params: ['action'] });
+var importNodesRPC = rpc.declare({ object: 'bettbox', method: 'import_nodes', params: ['content'] });
 
 function encode(value) {
 	return encodeURIComponent(value).replace(/[!'()*]/g, function(c) {
@@ -267,7 +269,7 @@ return view.extend({
 		if (['default', 'delay', 'name'].indexOf(sortMode) < 0) sortMode = 'default';
 		var testURL = stored('test-url', uci.get('bettbox', 'config', 'test_url') || 'https://www.gstatic.com/generate_204');
 		if (!document.getElementById('bettbox-proxy-state-css'))
-			document.head.appendChild(E('link', { id: 'bettbox-proxy-state-css', rel: 'stylesheet', href: L.resource('bettbox/proxy-state.css') + '?v=20261030-1' }));
+			document.head.appendChild(E('link', { id: 'bettbox-proxy-state-css', rel: 'stylesheet', href: L.resource('bettbox/proxy-state.css') + '?v=20261123-1' }));
 		var host = E('div', { 'class': 'v4-groups', 'aria-live': 'off' });
 		var banner = E('div', { 'class': 'v4-connection-state', role: 'status', hidden: true });
 		var count = E('span', { 'class': 'v4-group-count' }, '—');
@@ -379,6 +381,64 @@ return view.extend({
 			button.addEventListener('click', function(event) { event.stopPropagation(); testOne(proxy); });
 			return button;
 		}
+		function shareable(proxy) {
+			return proxy && !Array.isArray(proxy.all) &&
+				!/^(Direct|Reject|RejectDrop|Pass|Compatible|Unknown|Selector|URLTest|Fallback|LoadBalance|Relay)$/i.test(proxy.type || '');
+		}
+		function showProxyConfig(proxy) {
+			var body = E('div', { 'class': 'bb-proxy-share' }, [
+				E('div', { 'class': 'v4-loading', role: 'status' }, [UI.icon('refresh'), document.createTextNode('正在读取节点配置…')])
+			]);
+			var actions = E('div', { 'class': 'button-row bb-proxy-share-actions' }, [UI.button('关闭', ui.hideModal)]);
+			UI.modal('配置信息 · ' + (proxy.name || ''), [body, actions]);
+			Core.get('/bettbox/proxy-config?name=' + encode(proxy.name)).then(function(res) {
+				var data = res && res.data;
+				if (!data || !data.yaml) throw new Error('未能读取节点配置');
+				var nodes = [];
+				if (data.dialer) {
+					nodes.push(E('div', { 'class': 'bb-proxy-share-meta' }, [
+						UI.tag('前置代理: ' + data.dialer, 'neutral')
+					]));
+				}
+				if (data.uri) {
+					var qrSvg = QRCode.svg(data.uri, { size: 184, label: (proxy.name || '') + ' 二维码' });
+					if (qrSvg) nodes.push(E('div', { 'class': 'bb-qr-card' }, [qrSvg]));
+					var uriInput = E('input', { 'class': 'field mono', type: 'text', value: data.uri, readonly: true, 'aria-label': '分享链接' });
+					nodes.push(UI.field('分享链接', E('div', { 'class': 'bb-proxy-share-row' }, [
+						uriInput,
+						UI.button('复制 URI', function() { return UI.copy(data.uri); }, 'soft', 'copy')
+					])));
+				} else {
+					nodes.push(E('p', { 'class': 'small muted', style: 'margin:0' }, '此协议暂不支持生成 URI 分享链接，可使用下方 YAML 片段。'));
+				}
+				var yamlEl = E('pre', { 'class': 'bb-proxy-yaml mono' }, data.yaml);
+				nodes.push(UI.field('YAML 配置', yamlEl));
+				body.replaceChildren.apply(body, nodes);
+				var saveBtn = UI.button('保存到节点库', function() {
+					return importNodesRPC(data.yaml).then(UI.checked).then(function() {
+						ui.addNotification(null, E('p', {}, '已将节点“' + proxy.name + '”保存到节点库'), 'info');
+					});
+				}, '', 'plus');
+				actions.replaceChildren(
+					UI.button('复制 YAML', function() { return UI.copy(data.yaml); }, 'soft', 'copy'),
+					saveBtn,
+					UI.button('关闭', ui.hideModal)
+				);
+			}).catch(function(err) {
+				body.replaceChildren(E('p', { 'class': 'v4-state-error', style: 'margin:0' }, '读取失败：' + (err.message || err)));
+			});
+		}
+		function nodeFooter(proxy) {
+			var parts = [E('span', { 'class': 'v4-protocol' }, proxy.type || '—')];
+			if (shareable(proxy)) {
+				var infoBtn = UI.button('', function(event) { event.stopPropagation(); showProxyConfig(proxy); }, 'bb-icon-only v4-node-info', 'code');
+				infoBtn.setAttribute('aria-label', '查看 ' + proxy.name + ' 配置与分享');
+				infoBtn.setAttribute('title', '配置信息 / 分享');
+				parts.push(infoBtn);
+			}
+			parts.push(latency(proxy));
+			return parts;
+		}
 		function nodeCard(group, proxy) {
 			var selected = group.now === proxy.name;
 			var choose = E('button', {
@@ -389,7 +449,7 @@ return view.extend({
 			choose.disabled = offline || selecting.has(group.name);
 			choose.addEventListener('click', function() { selectNode(group, proxy); });
 			var card = E('article', { 'class': 'v4-node' + (selected ? ' selected' : ''), 'data-proxy-name': proxy.name }, [
-				choose, E('div', { 'class': 'v4-node-footer' }, [E('span', { 'class': 'v4-protocol' }, proxy.type || '—'), latency(proxy)])
+				choose, E('div', { 'class': 'v4-node-footer' }, nodeFooter(proxy))
 			]);
 			card.addEventListener('contextmenu', function(event) { event.preventDefault(); if (!offline) testOne(proxy); });
 			return card;
@@ -524,7 +584,7 @@ return view.extend({
 			if (disposed) return;
 			Array.from(host.querySelectorAll('[data-proxy-name]')).forEach(function(card) {
 				var proxy = get(card.dataset.proxyName), footer = card.querySelector('.v4-node-footer');
-				footer.replaceChildren(E('span', { 'class': 'v4-protocol' }, proxy.type || '—'), latency(proxy));
+				footer.replaceChildren.apply(footer, nodeFooter(proxy));
 			});
 			Array.from(host.querySelectorAll('[data-test-group]')).forEach(function(button) {
 				var group = get(button.dataset.testGroup), testing = groupTests.has(group.name);

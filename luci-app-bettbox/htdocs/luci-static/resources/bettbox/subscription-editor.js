@@ -23,7 +23,7 @@ return baseclass.extend({
 		if (!Array.isArray(managed.customRegions)) managed.customRegions = [];
 		var selected = config.script || p.script || (scripts[0] && scripts[0].name) || '';
 		if (config.script) useScript = true;
-		var tab = config.tab || 'basic', dirty = !!config.script && (config.script !== p.script || !p.use_script), committed = false, ruleTouched = false;
+		var tab = config.tab || 'basic', dirty = !!config.script && (config.script !== p.script || !p.use_script), committed = false, ruleTouched = false, sharedRuleTouched = false;
 		var cache = Object.create(null), category = 'all', search = '', serviceSearch = '', managedSearch = '', managedFoldOpen = false, box, busy = false;
 		var error = E('div', { 'class': 'hub-error', role: 'alert' }), status = E('span', { 'class': 'hub-save-state', role: 'status' });
 		var content = E('div', { 'class': 'hub-editor-content' }), optionsHost = E('div'), tabs = E('div', { 'class': 'hub-editor-tabs', role: 'tablist', 'aria-label': '订阅设置分区' });
@@ -35,6 +35,16 @@ return baseclass.extend({
 		var label = input(name), url = input(p.url, 'password', { autocomplete: 'off' });
 		var merged = (p.merge_members || []).length > 0;
 		var mergePrefix = input(p.merge_prefix, 'text', { maxlength: 32, placeholder: '可选，合并时区分同名节点' });
+		var dlModeValue = ['auto', 'direct', 'proxy'].indexOf(p.download_mode) >= 0 ? p.download_mode : 'auto';
+		var downloadMode = E('select', { 'class': 'field', 'aria-label': '下载方式' }, [
+			E('option', { value: 'auto' }, '自动回退（直连失败时走本地代理）'),
+			E('option', { value: 'direct' }, '仅直连下载'),
+			E('option', { value: 'proxy' }, '强制走本地代理下载')
+		]);
+		downloadMode.value = dlModeValue;
+		downloadMode.addEventListener('change', changed);
+		var skipCertVerify = !!p.skip_cert_verify;
+		var userAgent = input(p.user_agent, 'text', { maxlength: '160', placeholder: '留空使用全局 User-Agent' });
 		var interval = input(String(p.update_interval || 1440), 'number', { min: '1', max: '10080', step: '1' });
 		var period = E('select', { 'class': 'field', 'aria-label': '更新周期' }, [60, 360, 720, 1440].map(function(v) { return E('option', { value: String(v) }, '每 ' + (v / 60) + ' 小时'); }).concat([E('option', { value: 'custom' }, '自定义')]));
 		function syncPeriod() { period.value = [60,360,720,1440].indexOf(+interval.value) >= 0 ? interval.value : 'custom'; }
@@ -44,6 +54,7 @@ return baseclass.extend({
 		if (selected && !scripts.some(function(s) { return s.name === selected; })) scriptSelect.appendChild(E('option', { value: selected }, selected + '（文件不存在）'));
 		scriptSelect.value = selected;
 		var oldRules = H.object(p.override_rules), rules = E('textarea', { 'class': 'field hub-rules mono', rows: '7', placeholder: 'DOMAIN-SUFFIX,example.com,DIRECT', 'aria-label': '规则内容' });
+		var oldShared = H.object(uci.get('bettbox', 'config', 'shared_managed_rules')), sharedRules = E('textarea', { 'class': 'field hub-rules mono', rows: '6', placeholder: 'DOMAIN-SUFFIX,openai.com,默认代理', 'aria-label': '全局托管共享规则内容' });
 		var presets = H.object(uci.get('bettbox', 'config', 'rule_presets'));
 		var savedPreset = uci.get('bettbox', p.id, 'rule_preset') || '';
 		var preset = E('select', { 'class': 'field', 'aria-label': '分流预设' }, [E('option', { value: '' }, '无')].concat(
@@ -55,6 +66,8 @@ return baseclass.extend({
 		var presetName = input('', 'text', { maxlength: '64', placeholder: '输入名称可将下方规则保存为预设' });
 		rules.value = Array.isArray(oldRules.rules) ? oldRules.rules.join('\n') : '';
 		rules.addEventListener('input', function() { ruleTouched = true; changed(); });
+		sharedRules.value = Array.isArray(oldShared.rules) ? oldShared.rules.join('\n') : '';
+		sharedRules.addEventListener('input', function() { sharedRuleTouched = true; changed(); });
 
 		function entry(script) {
 			if (!cache[script]) cache[script] = { values: Object.assign(Object.create(null), script === p.script ? original : {}), defaults: {}, groups: [], loaded: false, promise: null, error: '' };
@@ -328,7 +341,31 @@ return baseclass.extend({
 						return deleteRPC(p.id).then(UI.checked).then(config.onSaved).then(function() { busy = false; box.setBusy(false); return box.close(true); }).catch(function(err) { error.textContent = err.message; }).finally(function() { busy = false; box.setBusy(false); });
 					});
 				}, 'danger', 'close'); remove.disabled = config.active; if (config.active) remove.title = '请先选用其他订阅';
-				content.replaceChildren(section('附加规则', [E('div', { 'class': 'hub-form-grid' }, [H.field('分流预设', preset), H.field('另存为分流预设', presetName), H.field('规则内容', rules, true)])]), E('section', { 'class': 'hub-form-section hub-delete-section' }, [E('h3', {}, '删除订阅'), remove]), error);
+				var advBlocks = [
+					section('附加规则', [E('div', { 'class': 'hub-form-grid' }, [H.field('分流预设', preset), H.field('另存为分流预设', presetName), H.field('规则内容', rules, true)])]),
+					section('全局托管共享规则', [
+						E('p', { 'class': 'small muted', style: 'margin:0 0 10px' }, '对所有启用「内置托管脚本」或「合并订阅」的配置统一置顶追加规则；若目标策略组在某订阅中不存在，将自动回退到“默认代理”。'),
+						H.field('共享规则（全局，每行一条）', sharedRules, true)
+					])
+				];
+				if (!merged) {
+					var skipToggle = H.toggle(skipCertVerify, '跳过 TLS 证书验证', function(value) { skipCertVerify = value; changed(); });
+					advBlocks.push(section('下载设置', [
+						E('div', { 'class': 'hub-setting-line' }, [
+							E('div', { 'class': 'hub-setting-copy' }, [
+								E('h4', { style: 'margin:0;font-size:14px' }, '跳过 TLS 证书验证'),
+								E('p', { 'class': 'small muted', style: 'margin:2px 0 0' }, '仅用于自签证书或 TLS 握手异常的机场链接。')
+							]),
+							skipToggle
+						]),
+						E('div', { 'class': 'hub-form-grid' }, [
+							H.field('下载方式', downloadMode),
+							H.field('自定义 User-Agent', userAgent)
+						])
+					]));
+				}
+				advBlocks.push(E('section', { 'class': 'hub-form-section hub-delete-section' }, [E('h3', {}, '删除订阅'), remove]), error);
+				content.replaceChildren.apply(content, advBlocks);
 			}
 			box.body.scrollTop = 0;
 		}
@@ -362,6 +399,11 @@ return baseclass.extend({
 				})) { error.textContent = '请检查分流名称和规则集'; return; }
 			}
 			var list = rules.value.split('\n').map(function(v) { return v.trim(); }).filter(Boolean);
+			var sharedList = sharedRules.value.split('\n').map(function(v) { return v.trim(); }).filter(Boolean);
+			if (sharedList.length > 512) {
+				error.textContent = '全局共享规则最多保存 512 条';
+				return;
+			}
 			var newPreset = presetName.value.trim();
 			if (newPreset && (!list.length || list.length > 512 || newPreset.length > 64 || /[\r\n]/.test(newPreset) ||
 			    Object.prototype.hasOwnProperty.call(presets, newPreset) || Object.keys(presets).length >= 32)) {
@@ -376,6 +418,12 @@ return baseclass.extend({
 				uci.set('bettbox', p.id, 'update_interval', String(intervalValue));
 				if (mergePrefix.value.trim()) uci.set('bettbox', p.id, 'merge_prefix', mergePrefix.value.trim());
 				else if (p.merge_prefix) uci.unset('bettbox', p.id, 'merge_prefix');
+				if (downloadMode.value !== 'auto') uci.set('bettbox', p.id, 'download_mode', downloadMode.value);
+				else uci.unset('bettbox', p.id, 'download_mode');
+				if (skipCertVerify) uci.set('bettbox', p.id, 'skip_cert_verify', '1');
+				else uci.unset('bettbox', p.id, 'skip_cert_verify');
+				if (userAgent.value.trim()) uci.set('bettbox', p.id, 'user_agent', userAgent.value.trim());
+				else uci.unset('bettbox', p.id, 'user_agent');
 			}
 			uci.set('bettbox', p.id, 'use_script', useScript ? '1' : '0'); uci.set('bettbox', p.id, 'script', selected);
 			var routing = JSON.stringify(managed), routingOptions = JSON.stringify(managedOptions);
@@ -397,6 +445,9 @@ return baseclass.extend({
 			}
 			if (ruleTouched) {
 				if (list.length) uci.set('bettbox', p.id, 'override_rules', JSON.stringify({ rules: list })); else uci.unset('bettbox', p.id, 'override_rules');
+			}
+			if (sharedRuleTouched) {
+				if (sharedList.length) uci.set('bettbox', 'config', 'shared_managed_rules', JSON.stringify({ rules: sharedList })); else uci.unset('bettbox', 'config', 'shared_managed_rules');
 			}
 			return uci.save().then(function() { return commitRPC('bettbox'); }).then(function(res) {
 				if (res && res.error) throw new Error('配置提交失败'); committed = true;

@@ -855,7 +855,11 @@ int forge_extract_options(const char *script, size_t script_len,
 		"    }\n"
 		"  }\n"
 		"}\n"
-		"return JSON.stringify({ options: __options, icons: __icons, policyGroupOptions: __groups });\n"
+		"var __result = { options: __options, icons: __icons, policyGroupOptions: __groups };\n"
+		"if (typeof Compatible_With_Bettbox !== 'undefined' && Compatible_With_Bettbox && Compatible_With_Bettbox.nodeRegions && typeof Compatible_With_Bettbox.nodeRegions === 'object') {\n"
+		"  __result.nodeRegions = Compatible_With_Bettbox.nodeRegions;\n"
+		"}\n"
+		"return JSON.stringify(__result);\n"
 		"})()";
 
 	StrBuf wrapped = {0};

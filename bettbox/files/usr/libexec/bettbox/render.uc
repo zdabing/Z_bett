@@ -28,7 +28,8 @@ let base = json(readfile(argv[0]));
 if (type(base) != 'object')
 	die('profile JSON is not an object\n');
 
-let sid = (length(argv) > 2) ? argv[2] : null;
+let sid = (length(argv) > 2 && length(argv[2])) ? argv[2] : null;
+let keep_markers = (length(argv) > 3 && argv[3] == 'keep-markers');
 
 let ctx = cursor();
 let devices = device_access(ctx);
@@ -377,6 +378,84 @@ if (sid != null) {
 		prepend = concat(prepend, rules);
 	}
 }
+function parse_shared_rule(value) {
+	let raw = trim(value ?? '');
+	let no_resolve = false, src = false;
+	while (true) {
+		if (substr(raw, -11) == ',no-resolve') {
+			no_resolve = true;
+			raw = trim(substr(raw, 0, length(raw) - 11));
+		} else if (substr(raw, -4) == ',src') {
+			src = true;
+			raw = trim(substr(raw, 0, length(raw) - 4));
+		} else {
+			break;
+		}
+	}
+	let first = index(raw, ',');
+	if (first < 0)
+		return { action: raw, content: '', target: '', has_target: false, sub_rule: '', no_resolve: no_resolve, src: src };
+	let action = trim(substr(raw, 0, first));
+	let rest = trim(substr(raw, first + 1));
+	if (action == 'MATCH' || action == 'FINAL')
+		return { action: action, content: '', target: rest, has_target: true, sub_rule: '', no_resolve: no_resolve, src: src };
+	let last = rindex(rest, ',');
+	if (last < 0)
+		return { action: action, content: rest, target: '', has_target: false, sub_rule: '', no_resolve: no_resolve, src: src };
+	let content = trim(substr(rest, 0, last));
+	let target = trim(substr(rest, last + 1));
+	if (action == 'SUB-RULE')
+		return { action: action, content: content, target: '', has_target: false, sub_rule: target, no_resolve: no_resolve, src: src };
+	return { action: action, content: content, target: target, has_target: true, sub_rule: '', no_resolve: no_resolve, src: src };
+}
+
+function format_shared_rule(r) {
+	if (r.action == 'MATCH' || r.action == 'FINAL')
+		return length(r.target) ? r.action + ',' + r.target : r.action;
+	let parts = [ r.action ];
+	if (length(r.content)) push(parts, r.content);
+	if (r.has_target && length(r.target)) push(parts, r.target);
+	if (!r.has_target && length(r.sub_rule)) push(parts, r.sub_rule);
+	if (r.no_resolve) push(parts, 'no-resolve');
+	if (r.src) push(parts, 'src');
+	return join(',', parts);
+}
+
+function resolve_shared_rules(base_cfg, rules, fallback) {
+	if (type(rules) != 'array' || length(rules) == 0)
+		return [];
+	let targets = { DIRECT: true, REJECT: true, 'REJECT-DROP': true, COMPATIBLE: true, PASS: true };
+	for (let proxy in (base_cfg.proxies ?? [])) {
+		if (type(proxy?.name) == 'string' && length(proxy.name))
+			targets[proxy.name] = true;
+	}
+	for (let group in (base_cfg['proxy-groups'] ?? [])) {
+		if (type(group?.name) == 'string' && length(group.name) && group.name != 'GLOBAL')
+			targets[group.name] = true;
+	}
+	let sub_rules = type(base_cfg['sub-rules']) == 'object' ? base_cfg['sub-rules'] : {};
+	let rule_providers = type(base_cfg['rule-providers']) == 'object' ? base_cfg['rule-providers'] : {};
+	let out = [];
+	for (let raw_rule in rules) {
+		if (type(raw_rule) != 'string' || !length(trim(raw_rule)))
+			continue;
+		let r = parse_shared_rule(raw_rule);
+		if (r.action == 'SUB-RULE') {
+			if (sub_rules[r.sub_rule] == null) continue;
+		} else if (r.action == 'RULE-SET') {
+			let is_bettbox_rs = length(r.content) > 8 && substr(r.content, -8) == '_bettbox';
+			if (rule_providers[r.content] == null && !is_bettbox_rs) continue;
+		}
+		if (r.has_target && !targets[r.target]) {
+			if (!targets[fallback]) continue;
+			r.target = fallback;
+			raw_rule = format_shared_rule(r);
+		}
+		push(out, raw_rule);
+	}
+	return out;
+}
+
 // per-subscription rule override (UCI, LuCI profiles page)
 if (sid != null) {
 	let ov_text = uci(sid, 'override_rules');
@@ -385,6 +464,17 @@ if (sid != null) {
 		try { ov = json(ov_text); } catch (e) { ov = null; }
 		if (type(ov) == 'object' && type(ov.rules) == 'array') {
 			prepend = concat(prepend, ov.rules);
+		}
+	}
+}
+// global shared rules across all managed/merged profiles
+if (is_managed) {
+	let shared_text = uci('config', 'shared_managed_rules');
+	if (shared_text) {
+		let shared = null;
+		try { shared = json(shared_text); } catch (e) { shared = null; }
+		if (type(shared) == 'object' && type(shared.rules) == 'array') {
+			prepend = concat(prepend, resolve_shared_rules(base, shared.rules, '默认代理'));
 		}
 	}
 }
@@ -512,6 +602,14 @@ if (length(device_rules)) {
 	final.rules = inserted ? ordered : concat(ordered, device_rules);
 }
 ensure_bettbox_rule_providers(final);
+if (!keep_markers && type(final['proxy-groups']) == 'array') {
+	for (let g in final['proxy-groups']) {
+		if (type(g) == 'object') {
+			delete g['x-region'];
+			delete g['x-region-nodes'];
+		}
+	}
+}
 let real_domains=uci_list('dns','real_ip_domains');
 if(type(real_domains)=='string')real_domains=[real_domains];
 else real_domains=map(real_domains,d=>d);

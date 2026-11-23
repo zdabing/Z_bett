@@ -22,16 +22,31 @@ set_userinfo() {
 	uci -q set "bettbox.$sid.sub_expire=${expire:-0}"
 }
 
+mixed_proxy_port() {
+	local mp
+	[ -f "$BETTBOX_RUN/config.yaml" ] || return 1
+	mp=$(timeout 3 yq -r '."mixed-port" // 0' "$BETTBOX_RUN/config.yaml" 2>/dev/null)
+	case "$mp" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$mp" -ge 1 ] && [ "$mp" -le 65535 ] || return 1
+	api_call GET /version >/dev/null 2>&1 || return 1
+	printf '%s\n' "$mp"
+}
+
 update_one() (
 	# $1 = uci section id
 	sid="$1"
-	local url ua tmp hdr n normalized work
+	local url ua tmp hdr n normalized work mode skip_verify insecure_flag mp rc
 	case "$sid" in ''|*[!A-Za-z0-9_-]*) die 'invalid subscription id' ;; esac
 	url=$(uci_get "bettbox.$sid.url")
 	[ -n "$url" ] || { log "subscription $sid has no url"; return 1; }
 
 	ua=$(uci_get "bettbox.$sid.user_agent")
 	[ -n "$ua" ] || ua="$DEFAULT_UA"
+	mode=$(uci_get "bettbox.$sid.download_mode")
+	case "$mode" in auto|direct|proxy) ;; *) mode='auto' ;; esac
+	skip_verify=$(uci_get "bettbox.$sid.skip_cert_verify")
+	insecure_flag=''
+	[ "$skip_verify" = 1 ] && insecure_flag='-k'
 
 	mkdir -p "$BETTBOX_STATE"
 	work=$(mktemp -d "$BETTBOX_STATE/subscription.XXXXXX") || return 1
@@ -47,10 +62,42 @@ update_one() (
 			return 1
 		fi
 		: > "$hdr"
-	elif ! curl -sSL --fail -m 90 -A "$ua" -D "$hdr" -o "$tmp" "$url"; then
-		rm -f "$tmp" "$hdr"
-		log "subscription $sid download failed"
-		return 1
+	elif [ "$mode" = proxy ]; then
+		mp=$(mixed_proxy_port) || {
+			rm -f "$tmp" "$hdr"
+			log "subscription $sid proxy download failed: mixed proxy unavailable"
+			echo '订阅设置为经代理下载，但当前服务未运行或未开启 Mixed 端口' >&2
+			return 1
+		}
+		if ! curl -sSL --fail -m 90 $insecure_flag --proxy "http://127.0.0.1:$mp" --noproxy '' -A "$ua" -D "$hdr" -o "$tmp" "$url"; then
+			rc=$?
+			rm -f "$tmp" "$hdr"
+			if [ "$skip_verify" != 1 ] && case "$rc" in 35|51|60|77) true ;; *) false ;; esac; then
+				echo 'TLS 证书或握手校验失败，可在订阅高级设置中开启「跳过证书验证」后重试' >&2
+			fi
+			log "subscription $sid proxy download failed (curl $rc)"
+			return 1
+		fi
+	else
+		rc=0
+		curl -sSL --fail -m 90 $insecure_flag -A "$ua" -D "$hdr" -o "$tmp" "$url" || rc=$?
+		if [ "$rc" != 0 ] && [ "$mode" = auto ]; then
+			mp=$(mixed_proxy_port) || mp=''
+			if [ -n "$mp" ]; then
+				log "subscription $sid direct download failed (curl $rc), retrying via local mixed proxy"
+				rm -f "$tmp" "$hdr"
+				rc=0
+				curl -sSL --fail -m 90 $insecure_flag --proxy "http://127.0.0.1:$mp" --noproxy '' -A "$ua" -D "$hdr" -o "$tmp" "$url" || rc=$?
+			fi
+		fi
+		if [ "$rc" != 0 ]; then
+			rm -f "$tmp" "$hdr"
+			if [ "$skip_verify" != 1 ] && case "$rc" in 35|51|60|77) true ;; *) false ;; esac; then
+				echo 'TLS 证书或握手校验失败，可在订阅高级设置中开启「跳过证书验证」后重试' >&2
+			fi
+			log "subscription $sid download failed (curl $rc)"
+			return 1
+		fi
 	fi
 
 	# age-encrypted subscription (Bettbox parity): armor and raw formats share

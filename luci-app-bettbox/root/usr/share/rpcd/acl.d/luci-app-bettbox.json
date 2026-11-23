@@ -20,6 +20,8 @@
 					"get_network",
 					"get_resources",
 					"managed_catalog",
+					"get_nodes",
+					"test_node",
 					"diagnostic_start",
 					"diagnostic_status"
 				]
@@ -48,7 +50,12 @@
 					"dashboard",
 					"geo_update",
 					"backup_call",
-					"backup_file"
+					"backup_file",
+					"import_nodes",
+					"save_node",
+					"del_node",
+					"reorder_nodes",
+					"register_warp"
 				]
 			},
 			"uci": [

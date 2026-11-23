@@ -39,7 +39,12 @@ if [ "$sid" = new ]; then
 else
 	uci -q get "bettbox.$sid.managed_routing" > "$work/managed.json" || printf '{}\n' > "$work/managed.json"
 fi
-ucode /usr/libexec/bettbox/managed-routing.uc "$work/managed.json" "$work/managed.js" || exit 1
+node_names=''
+if [ -s /etc/bettbox/nodes.json ]; then
+	node_names="$work/active-node-names.json"
+	ucode /usr/libexec/bettbox/node-store.uc active-names "$sid" 1 > "$node_names" || node_names=''
+fi
+ucode /usr/libexec/bettbox/managed-routing.uc "$work/managed.json" "$work/managed.js" ${node_names:+"$node_names"} || exit 1
 opts=$(uci_get "bettbox.$sid.managed_options")
 for member in "$@"; do
 	case "$member" in ''|*[!A-Za-z0-9_-]*) die '无效的成员订阅 ID' ;; esac

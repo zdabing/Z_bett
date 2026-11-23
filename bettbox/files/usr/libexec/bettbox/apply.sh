@@ -25,9 +25,20 @@ apply() (
 	local base="$work/base.json"
 	yq -o=json -I=0 '.' "$src" > "$base" || die "profile is not valid YAML"
 
-	local managed
+	local managed is_managed=0 active_nodes="$work/active-nodes.json" active_names="$work/active-node-names.json" has_nodes=0 names_arg=""
 	managed=$(uci_get "bettbox.$sid.use_managed")
 	[ -z "$(uci_get "bettbox.$sid.merge_members")" ] || managed=0
+	if [ "$managed" = "1" ] || [ -n "$(uci_get "bettbox.$sid.merge_members")" ]; then
+		is_managed=1
+	fi
+	if [ -s /etc/bettbox/nodes.json ]; then
+		ucode /usr/libexec/bettbox/node-store.uc active-for "$sid" "$is_managed" > "$active_nodes" || printf '[]\n' > "$active_nodes"
+		ucode /usr/libexec/bettbox/node-store.uc active-names "$sid" "$is_managed" > "$active_names" || printf '[]\n' > "$active_names"
+		if [ "$(ucode -e 'import {readfile} from "fs"; let a=null; try{a=json(readfile(ARGV[0]));}catch(e){} print(type(a)=="array"&&length(a)>0?"1":"0");' "$active_nodes")" = "1" ]; then
+			has_nodes=1
+			names_arg="$active_names"
+		fi
+	fi
 	# JS override (Bettbox script contract) via bettbox-forge
 	if [ "$(uci_get bettbox.$sid.use_script)" = "1" ] || [ "$managed" = "1" ]; then
 		local script
@@ -36,7 +47,7 @@ apply() (
 		if [ "$managed" = "1" ]; then
 			script_file="$work/managed.js"
 			uci -q get "bettbox.$sid.managed_routing" > "$work/managed.json" || printf '{}\n' > "$work/managed.json"
-			ucode /usr/libexec/bettbox/managed-routing.uc "$work/managed.json" "$script_file" || return 1
+			ucode /usr/libexec/bettbox/managed-routing.uc "$work/managed.json" "$script_file" ${names_arg:+"$names_arg"} || return 1
 		fi
 		if [ -f "$script_file" ] && command -v bettbox-forge >/dev/null; then
 			local opts out="$work/scripted.json" err="$work/forge.err"
@@ -60,7 +71,7 @@ apply() (
 
 	local out="$work/config.yaml" validation="$work/validation.log" core
 	core=$(core_binary)
-	if ! ucode /usr/libexec/bettbox/render.uc "$base" "$out" "$sid" 2> "$work/render.log"; then
+	if ! ucode /usr/libexec/bettbox/render.uc "$base" "$out" "$sid" $([ "$has_nodes" = 1 ] && echo keep-markers) 2> "$work/render.log"; then
 		cat "$work/render.log" >&2
 		rm -f "$out"
 		die "config render failed"
@@ -68,6 +79,14 @@ apply() (
 	if [ -s "$work/render.log" ]; then
 		cat "$work/render.log" >&2
 		while IFS= read -r message; do [ -z "$message" ] || log "$message"; done < "$work/render.log"
+	fi
+
+	if [ "$has_nodes" = 1 ]; then
+		if ! timeout 20 /usr/bin/mihomo bettbox-patch-nodes "$out" "$active_nodes" "$out.patched"; then
+			rm -f "$out" "$out.patched"
+			die "node library patch failed"
+		fi
+		mv -f "$out.patched" "$out"
 	fi
 
 	if ! timeout 120 "$core" -t -d "$BETTBOX_ETC" -f "$out" >"$validation" 2>&1; then

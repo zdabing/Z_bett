@@ -46,6 +46,8 @@ config core 'config'
 	option health_interval '300'
 	# age identity for encrypted subscriptions (per-subscription overrides)
 	option age_identity ''
+	# rules shared across all managed/merged profiles
+	option shared_managed_rules ''
 
 config backup 'backup'
 	option url ''

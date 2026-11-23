@@ -6,9 +6,11 @@
 'require bettbox.subscription-controls as H';
 'require bettbox.subscription-editor as Editor';
 'require bettbox.script-manager as Scripts';
+'require bettbox.node-library as Nodes';
 
 var profilesRPC = rpc.declare({ object: 'bettbox', method: 'get_profiles' });
 var scriptsRPC = rpc.declare({ object: 'bettbox', method: 'get_scripts' });
+var nodesRPC = rpc.declare({ object: 'bettbox', method: 'get_nodes' });
 var updateRPC = rpc.declare({ object: 'bettbox', method: 'update_profile', params: ['sid','all','background'] });
 var addRPC = rpc.declare({ object: 'bettbox', method: 'add_profile', params: ['url','label'] });
 var importRPC = rpc.declare({ object: 'bettbox', method: 'import_profile', params: ['content','label'] });
@@ -18,14 +20,14 @@ var applyRPC = rpc.declare({ object: 'bettbox', method: 'apply' });
 
 function load(fresh) {
 	if (fresh && uci.unload) uci.unload('bettbox');
-	return Promise.all([profilesRPC(), scriptsRPC(), uci.load('bettbox')]).then(function(data) {
+	return Promise.all([profilesRPC(), scriptsRPC(), nodesRPC().catch(function() { return { ok: false, nodes: [] }; }), uci.load('bettbox')]).then(function(data) {
 		if (!data[0] || data[0].error || !Array.isArray(data[0].profiles)) throw new Error((data[0] && data[0].error) || '无法读取订阅');
 		if (!data[1] || data[1].error || !Array.isArray(data[1].scripts)) throw new Error((data[1] && data[1].error) || '无法读取脚本');
 		return data;
 	});
 }
 function mount() {
-	[['bettbox-subscriptions-css','subscriptions.css','20261120-1'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
+	[['bettbox-subscriptions-css','subscriptions.css','20261123-1'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
 		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=' + item[2] }));
 	});
 }
@@ -64,21 +66,26 @@ return baseclass.extend({
 	load: function() { return load(false); },
 	render: function(data) {
 		mount();
-		var profiles = data[0].profiles, scripts = data[1].scripts, active = uci.get('bettbox','config','profile') || '';
-		var section = new URLSearchParams(window.location.search).get('section') === 'scripts' ? 'scripts' : 'profiles';
+		var profiles = data[0].profiles, scripts = data[1].scripts, nodes = (data[2] && Array.isArray(data[2].nodes)) ? data[2].nodes : [], active = uci.get('bettbox','config','profile') || '';
+		var urlSection = new URLSearchParams(window.location.search).get('section');
+		var section = urlSection === 'scripts' ? 'scripts' : (urlSection === 'nodes' ? 'nodes' : 'profiles');
 		var panel = E('div', { id: 'bettbox-subscription-panel', role: 'tabpanel' }), tabs = E('div', { 'class': 'hub-tabs', role: 'tablist', 'aria-label': '订阅管理分区' });
 		var summary = E('span', { 'class': 'hub-section-summary' }), notice = E('div', { 'class': 'hub-live-note', role: 'status' });
-		var buttons = {}, manager = null, refreshing = null, busy = false, root, actions;
+		var buttons = {}, manager = null, nodeManager = null, refreshing = null, busy = false, root, actions;
 		function edit(p, script, tab) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: tab || (script ? 'script' : 'basic'), script: script, onSaved: refresh }); }
 		function scriptSettings(p) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: (p.use_managed || (p.merge_members || []).length > 0) ? 'managed' : 'script', onSaved: refresh }); }
 		function createManager() {
 			if (manager) manager.dispose();
 			manager = Scripts.create({ scripts: scripts, profiles: profiles, notice: notice, onChanged: refresh, onConfigure: function(p, script) { if (script) edit(p, script); else scriptSettings(p); } });
+			if (nodeManager) nodeManager.updateData(nodes, profiles);
+			else nodeManager = Nodes.create({ nodes: nodes, profiles: profiles, notice: notice, onChanged: refresh });
 		}
 		function refresh() {
 			if (refreshing) return refreshing;
 			refreshing = load(true).then(function(next) {
-				profiles = next[0].profiles; scripts = next[1].scripts; active = uci.get('bettbox','config','profile') || '';
+				profiles = next[0].profiles; scripts = next[1].scripts;
+				if (next[2] && Array.isArray(next[2].nodes)) nodes = next[2].nodes;
+				active = uci.get('bettbox','config','profile') || '';
 				createManager(); draw();
 			}).catch(function(err) { notice.textContent = '无法刷新，保留已有数据：' + err.message; throw err; }).finally(function() { refreshing = null; });
 			return refreshing;
@@ -295,14 +302,38 @@ return baseclass.extend({
 		}
 		function draw() {
 			if (!root) return;
-			Object.keys(buttons).forEach(function(key) { var b = buttons[key]; b.querySelector('span').textContent = key === 'profiles' ? '订阅管理' : '脚本管理'; b.querySelector('em').textContent = String(key === 'profiles' ? profiles.length : scripts.length); b.classList.toggle('active', section === key); b.setAttribute('aria-selected', String(section === key)); });
-			var selected = profiles.find(function(p) { return p.id === active; }); summary.textContent = section === 'profiles' ? '当前使用 · ' + (selected ? selected.label || selected.id : '未选用') : '按订阅配置开关';
+			var tabMeta = {
+				profiles: ['订阅管理', profiles.length],
+				scripts: ['脚本管理', scripts.length],
+				nodes: ['节点库', nodes.length]
+			};
+			Object.keys(buttons).forEach(function(key) {
+				var b = buttons[key], meta = tabMeta[key];
+				b.querySelector('span').textContent = meta[0];
+				b.querySelector('em').textContent = String(meta[1]);
+				b.classList.toggle('active', section === key);
+				b.setAttribute('aria-selected', String(section === key));
+			});
+			var selected = profiles.find(function(p) { return p.id === active; });
+			var enabledNodes = nodes.filter(function(n) { return n && n.enabled; }).length;
+			summary.textContent = section === 'profiles'
+				? '当前使用 · ' + (selected ? selected.label || selected.id : '未选用')
+				: (section === 'nodes' ? '已启用 ' + enabledNodes + ' / ' + nodes.length + ' 个节点' : '按订阅配置开关');
 			panel.setAttribute('aria-labelledby', buttons[section].id);
 			if (section === 'scripts') {
 				panel.replaceChildren(manager.element); actions.replaceChildren(UI.button('导入脚本', function() { manager.add(); }, 'primary', 'plus')); manager.activate();
 				if (!root.isConnected) window.requestAnimationFrame(function() { if (root.isConnected && section === 'scripts') manager.activate(); });
-			}
-			else {
+			} else if (section === 'nodes') {
+				panel.replaceChildren(nodeManager.element);
+				var applyNodesBtn = UI.button('应用更改', function() { return nodeManager.apply(); }, '', 'check');
+				applyNodesBtn.disabled = !nodes.length;
+				actions.replaceChildren(
+					applyNodesBtn,
+					UI.button('一键生成 WARP', function() { return nodeManager.registerWarp(); }, '', 'shield'),
+					UI.button('导入节点', function() { nodeManager.add(); }, 'primary', 'plus')
+				);
+				nodeManager.activate();
+			} else {
 				var byId = Object.create(null);
 				profiles.forEach(function(item) { byId[item.id] = item; });
 				var updateAll = UI.button('更新全部', function() { return update('', true); }, '', 'refresh'); updateAll.disabled = busy || !profiles.length;
@@ -312,7 +343,7 @@ return baseclass.extend({
 				panel.replaceChildren(profiles.length ? E('div', { 'class': 'hub-grid' }, profiles.map(function(p) { return card(p, byId); })) : E('section', { 'class': 'panel hub-empty' }, [E('span', { 'class': 'hub-icon' }, UI.icon('file')), E('h2', {}, '还没有订阅'), UI.button('添加订阅', add, 'primary', 'plus')]));
 			}
 		}
-		[['profiles','订阅管理'],['scripts','脚本管理']].forEach(function(item) {
+		[['profiles','订阅管理'],['scripts','脚本管理'],['nodes','节点库']].forEach(function(item) {
 			var b = E('button', { type: 'button', role: 'tab', id: 'bettbox-sub-tab-' + item[0], 'aria-controls': panel.id }, [E('span', {}, item[1]), E('em', {}, '0')]); buttons[item[0]] = b;
 			b.addEventListener('click', function() { section = item[0]; var url = new URL(window.location.href); url.searchParams.set('section', section); window.history.replaceState({}, '', url.href); draw(); }); tabs.appendChild(b);
 		});

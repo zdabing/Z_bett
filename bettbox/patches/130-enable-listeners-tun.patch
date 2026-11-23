@@ -1,14 +1,14 @@
 From: Bettbox for OpenWrt contributors
-Subject: [PATCH] Enable listener and TUN initialization during ApplyConfig
+Subject: [PATCH] Enable listener, TUN, and tunnel initialization during ApplyConfig
 
 Upstream appshubcc/Bettbox embeds core/Clash.Meta behind a Flutter FFI host
-and comments out updateListeners and updateTun in ApplyConfig. OpenWrt runs
-the standalone mihomo binary from rendered YAML, so both must initialize
-with every config load and hot reload.
+and comments out updateListeners, updateTun, and updateTunnels in ApplyConfig.
+OpenWrt runs the standalone mihomo binary from rendered YAML, so all three
+must initialize with every config load and hot reload.
 
 --- a/hub/executor/executor.go
 +++ b/hub/executor/executor.go
-@@ -111,8 +111,8 @@
+@@ -112,10 +112,10 @@
  	updateGeneral(cfg.General, true)
  	updateDNS(cfg.DNS, cfg.General.IPv6)
  	updateNTP(cfg.NTP) // initialize NTP after DNS because an NTP server may be a hostname.
@@ -17,5 +17,8 @@ with every config load and hot reload.
 +	updateListeners(cfg.General, cfg.Listeners, force)
 +	updateTun(cfg.General) // tun should not care "force"
  	updateIPTables(cfg)
- 	updateTunnels(cfg.Tunnels)
+-	// updateTunnels(cfg.Tunnels)
++	updateTunnels(cfg.Tunnels)
+ 
+ 	tunnel.OnInnerLoading()
  

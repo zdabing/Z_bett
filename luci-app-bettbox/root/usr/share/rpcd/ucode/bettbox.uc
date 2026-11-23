@@ -100,9 +100,12 @@ function profile_list() {
 			use_managed: (s.use_managed == '1'),
 			managed_routing: s.managed_routing ?? '{}',
 			managed_options: s.managed_options ?? '{}',
-				script: s.script ?? '',
-				age_identity: s.age_identity ?? '',
-				custom_options: s.custom_options ?? '{}',
+			user_agent: s.user_agent ?? '',
+			download_mode: s.download_mode ?? 'auto',
+			skip_cert_verify: (s.skip_cert_verify == '1'),
+			script: s.script ?? '',
+			age_identity: s.age_identity ?? '',
+			custom_options: s.custom_options ?? '{}',
 			override_rules: s.override_rules ?? '',
 			last_update: int(s.last_update) ?? 0,
 			sub_upload: int(s.sub_upload) ?? 0,
@@ -187,7 +190,7 @@ function create_job(kind, args, upload) {
 	// closed. A completed job must not leave the watchdog disabled indefinitely.
 	let unlock=service?'if [ "$(cat /var/run/bettbox-service.lock/job 2>/dev/null)" = '+shellquote(id)+' ]; then rm -f /var/run/bettbox-service.lock/job; rmdir /var/run/bettbox-service.lock 2>/dev/null || true; fi':'';
 	let subscription = kind in ['profile-merge', 'profile-update', 'profile-regenerate'];
-	let limit=kind=='package'?2400:kind=='core' || kind=='profile-update'?1200:service || subscription?600:160;
+	let limit=kind=='package'?2400:kind=='core' || kind=='profile-update'?1200:service || subscription?600:kind=='warp-register'?60:kind=='node-test'?30:160;
 	if(kind=='package'){
 		let worker=readfile('/usr/libexec/bettbox/diagnostic.uc');
 		let cleanup='';
@@ -206,8 +209,8 @@ function create_job(kind, args, upload) {
 		}
 		return {ok:true,id:id,timeout_ms:2430000,reconnect:true};
 	}
-	// A diagnostic file-size limit must not be inherited by config/Geo writers.
-	let filelimit=service || subscription ? '' : 'ulimit -f 2048; ';
+	// A diagnostic file-size limit must not be inherited by config/Geo/node writers.
+	let filelimit=service || subscription || kind=='warp-register' ? '' : 'ulimit -f 2048; ';
 	let cmd='(umask 077; '+filelimit+'timeout '+limit+' ucode /usr/libexec/bettbox/diagnostic.uc '+shellquote(dir)+' > '+shellquote(dir+'/output')+' 2>&1; echo $? > '+shellquote(dir+'/code')+'; '+(unlock||':')+') </dev/null >/dev/null 2>&1 &';
 	if(system(cmd)!=0)return {ok:false,error:'could not start diagnostic'};
 	return {ok:true,id:id,timeout_ms:(limit+30)*1000};
@@ -591,6 +594,121 @@ return {
 					return { error: 'invalid file path' };
 				let cmd = '/usr/libexec/bettbox/backup.sh ' + action + ((f && (action == 'create' || action == 'restore')) ? ' ' + shellquote(f) : '');
 				return run_result(cmd + ' 2>&1');
+			}
+		},
+		get_nodes: {
+			call: function() {
+				let res = run_result('ucode /usr/libexec/bettbox/node-store.uc list');
+				try {
+					let parsed = json(res.text);
+					if (type(parsed) == 'object') return parsed;
+				} catch (e) {}
+				return { ok: false, error: trim(res.text) || '无法读取节点库' };
+			}
+		},
+		import_nodes: {
+			args: { content: '' },
+			call: function(request) {
+				let content = request.args.content;
+				if (type(content) != 'string' || !length(trim(content)) || length(content) > 524288)
+					return { ok: false, error: '导入内容为空或超过 512 KiB 上限' };
+				let dir = trim(run('umask 077; mktemp -d /tmp/bettbox-nodes.XXXXXX'));
+				if (!match(dir, /^\/tmp\/bettbox-nodes\.[A-Za-z0-9]+$/))
+					return { ok: false, error: '无法创建节点导入工作区' };
+				let res = { ok: false, text: '无法写入导入内容' };
+				if (writefile(dir + '/input', content) != null)
+					res = run_result('ucode /usr/libexec/bettbox/node-store.uc import ' + shellquote(dir + '/input'));
+				unlink(dir + '/input');
+				system('rmdir ' + shellquote(dir));
+				try {
+					let parsed = json(res.text);
+					if (type(parsed) == 'object') return parsed;
+				} catch (e) {}
+				return { ok: false, error: trim(res.text) || '节点导入失败' };
+			}
+		},
+		save_node: {
+			args: { node_json: '' },
+			call: function(request) {
+				let payload = request.args.node_json;
+				if (type(payload) != 'string' || !length(trim(payload)) || length(payload) > 65536)
+					return { ok: false, error: '节点配置大小无效' };
+				let obj = null;
+				try { obj = json(payload); } catch (e) { obj = null; }
+				if (type(obj) != 'object' || !match(obj.id ?? '', /^node_[A-Za-z0-9_-]+$/))
+					return { ok: false, error: '无效的节点配置格式' };
+				let dir = trim(run('umask 077; mktemp -d /tmp/bettbox-nodes.XXXXXX'));
+				if (!match(dir, /^\/tmp\/bettbox-nodes\.[A-Za-z0-9]+$/))
+					return { ok: false, error: '无法创建节点保存工作区' };
+				let res = { ok: false, text: '无法写入节点数据' };
+				if (writefile(dir + '/node.json', payload) != null)
+					res = run_result('ucode /usr/libexec/bettbox/node-store.uc save ' + shellquote(dir + '/node.json'));
+				unlink(dir + '/node.json');
+				system('rmdir ' + shellquote(dir));
+				try {
+					let parsed = json(res.text);
+					if (type(parsed) == 'object') return parsed;
+				} catch (e) {}
+				return { ok: false, error: trim(res.text) || '保存节点失败' };
+			}
+		},
+		del_node: {
+			args: { id: '' },
+			call: function(request) {
+				let id = request.args.id ?? '';
+				if (!match(id, /^node_[A-Za-z0-9_-]+$/))
+					return { ok: false, error: '无效的节点 ID' };
+				let res = run_result('ucode /usr/libexec/bettbox/node-store.uc delete ' + shellquote(id));
+				try {
+					let parsed = json(res.text);
+					if (type(parsed) == 'object') return parsed;
+				} catch (e) {}
+				return { ok: false, error: trim(res.text) || '删除节点失败' };
+			}
+		},
+		reorder_nodes: {
+			args: { ids_json: '' },
+			call: function(request) {
+				let payload = request.args.ids_json;
+				if (type(payload) != 'string' || length(payload) > 16384)
+					return { ok: false, error: '排序参数无效' };
+				let ids = null;
+				try { ids = json(payload); } catch (e) { ids = null; }
+				if (type(ids) != 'array')
+					return { ok: false, error: '排序列表必须为数组' };
+				for (let id in ids)
+					if (!match(id ?? '', /^node_[A-Za-z0-9_-]+$/))
+						return { ok: false, error: '排序列表包含无效 ID' };
+				let dir = trim(run('umask 077; mktemp -d /tmp/bettbox-nodes.XXXXXX'));
+				if (!match(dir, /^\/tmp\/bettbox-nodes\.[A-Za-z0-9]+$/))
+					return { ok: false, error: '无法创建排序工作区' };
+				let res = { ok: false, text: '无法写入排序数据' };
+				if (writefile(dir + '/ids.json', payload) != null)
+					res = run_result('ucode /usr/libexec/bettbox/node-store.uc reorder ' + shellquote(dir + '/ids.json'));
+				unlink(dir + '/ids.json');
+				system('rmdir ' + shellquote(dir));
+				try {
+					let parsed = json(res.text);
+					if (type(parsed) == 'object') return parsed;
+				} catch (e) {}
+				return { ok: false, error: trim(res.text) || '排序节点失败' };
+			}
+		},
+		register_warp: {
+			call: function() {
+				return create_job('warp-register', []);
+			}
+		},
+		test_node: {
+			args: { id: '', dialer: '' },
+			call: function(request) {
+				let id = request.args.id ?? '';
+				if (!match(id, /^node_[A-Za-z0-9_-]+$/))
+					return { ok: false, error: '无效的节点 ID' };
+				let dialer = request.args.dialer;
+				if (dialer != null && (type(dialer) != 'string' || length(dialer) > 256 || match(dialer, /[\r\n]/)))
+					return { ok: false, error: '无效的前置代理名称' };
+				return create_job('node-test', dialer != null ? [id, dialer] : [id]);
 			}
 		}
 	}

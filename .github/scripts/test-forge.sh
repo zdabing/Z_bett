@@ -57,7 +57,7 @@ def extract_options(script_text):
 
 # 1. version
 r = invoke(['version'])
-assert r.returncode == 0 and r.stdout.strip() == '1.19.8', r
+assert r.returncode == 0 and r.stdout.strip() == '1.19.10', r
 
 # 2. basic object mutation & arrow entry
 r = run_script("function main(c) { c.mode = 'global'; return c }", {"mode": "rule"})
@@ -185,11 +185,16 @@ with tempfile.TemporaryDirectory() as tmp:
 r = extract_options(
     "const ruleOptionsEnable = { ai: true, ads: false };\n"
     "const serviceConfigs = [{ name: 'AI', icon: 'ai.png' }];\n"
-    "const Compatible_With_Bettbox = { policyGroupOptions: ['AI', 42] };\n"
+    "const Compatible_With_Bettbox = { policyGroupOptions: ['AI', 42], nodeRegions: { 'HK 01': ['香港'] } };\n"
     "function main(c) { return c }"
 )
 assert r.returncode == 0
-assert json.loads(r.stdout) == {"options": {"ai": True, "ads": False}, "icons": {"AI": "ai.png"}, "policyGroupOptions": ["AI"]}
+assert json.loads(r.stdout) == {
+    "options": {"ai": True, "ads": False},
+    "icons": {"AI": "ai.png"},
+    "policyGroupOptions": ["AI"],
+    "nodeRegions": {"HK 01": ["香港"]},
+}
 
 managed_js = root / 'bettbox/files/usr/libexec/bettbox/managed-routing.js'
 r = invoke(['options', '--script', str(managed_js)])
@@ -197,14 +202,22 @@ assert r.returncode == 0, r.stderr
 m_opts = json.loads(r.stdout)
 assert isinstance(m_opts.get('options'), dict) and len(m_opts['options']) > 0
 
-# Real ES2021 ??= path in managed-routing.js
+# Real ES2021 ??= + nodeRegions path in managed-routing.js
 with tempfile.TemporaryDirectory() as tmp:
+    sp = Path(tmp) / 'managed_with_nodes.js'
+    sp.write_text('const bettboxNodeNames = ["🇭🇰 Test HK"];\n' + managed_js.read_text(encoding='utf-8'), encoding='utf-8')
+    r = invoke(['options', '--script', str(sp)])
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout).get('nodeRegions') == {'🇭🇰 Test HK': ['香港']}, r.stdout
+
     cp = Path(tmp) / 'managed_cfg.json'
     cp.write_text('{"proxies":[{"name":"HK 01","type":"ss","server":"1.2.3.4","port":443,"cipher":"aes-128-gcm","password":"x"}]}', encoding='utf-8')
-    r = invoke(['run', '--script', str(managed_js), '--config', str(cp)])
+    r = invoke(['run', '--script', str(sp), '--config', str(cp)])
     assert r.returncode == 0, r.stderr
     m_out = json.loads(r.stdout)
     assert 'proxy-groups' in m_out and 'rules' in m_out
+    hk_group = next((g for g in m_out['proxy-groups'] if g.get('name') == '香港'), None)
+    assert hk_group and hk_group.get('x-region') == '香港' and hk_group.get('x-region-nodes') == ['🇭🇰 Test HK'], hk_group
 
 sub_js = root / 'bettbox/files/usr/libexec/bettbox/subscription-parser.js'
 with tempfile.TemporaryDirectory() as tmp:

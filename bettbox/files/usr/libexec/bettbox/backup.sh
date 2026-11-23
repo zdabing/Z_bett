@@ -8,12 +8,9 @@ umask 077
 
 create() {
 	[ -n "$1" ] || die "usage: backup.sh create <file.tar>"
-	tar -C / -cf "$1" \
-		etc/config/bettbox \
-		etc/bettbox/profiles \
-		etc/bettbox/scripts \
-		etc/bettbox/rules \
-		2>/dev/null || die "backup failed"
+	set -- etc/config/bettbox etc/bettbox/profiles etc/bettbox/scripts etc/bettbox/rules
+	[ ! -f /etc/bettbox/nodes.json ] || set -- "$@" etc/bettbox/nodes.json
+	tar -C / -cf "$1" "$@" 2>/dev/null || die "backup failed"
 	chmod 600 "$1" || die "could not secure backup permissions"
 	log "backup written to $1"
 }
@@ -27,7 +24,7 @@ restore() (
 	[ -s "$stage/list" ] || die "empty backup archive"
 	while IFS= read -r entry; do
 		case "$entry" in
-			etc/config/bettbox|etc/bettbox/profiles/|etc/bettbox/profiles/*|etc/bettbox/scripts/|etc/bettbox/scripts/*|etc/bettbox/rules/|etc/bettbox/rules/*) ;;
+			etc/config/bettbox|etc/bettbox/nodes.json|etc/bettbox/profiles/|etc/bettbox/profiles/*|etc/bettbox/scripts/|etc/bettbox/scripts/*|etc/bettbox/rules/|etc/bettbox/rules/*) ;;
 			*) die "backup contains an unexpected path" ;;
 		esac
 		case "/$entry/" in *'/../'*|*'/./'*|*'//'*) die "backup contains an unsafe path" ;; esac
@@ -41,6 +38,11 @@ restore() (
 	[ -z "$(uci -q changes bettbox)" ] || die "save or discard pending Bettbox changes before restore"
 	cp -p "$stage/etc/config/bettbox" /etc/config/bettbox || die "restore configuration failed"
 	chmod 600 /etc/config/bettbox || die "could not secure restored configuration"
+	if [ -f "$stage/etc/bettbox/nodes.json" ]; then
+		[ ! -L /etc/bettbox/nodes.json ] || die "restore target must not be a symbolic link"
+		cp -p "$stage/etc/bettbox/nodes.json" /etc/bettbox/nodes.json || die "restore node library failed"
+		chmod 600 /etc/bettbox/nodes.json || die "could not secure restored node library"
+	fi
 	local directory
 	for directory in profiles scripts rules; do
 		if [ -d "$stage/etc/bettbox/$directory" ]; then

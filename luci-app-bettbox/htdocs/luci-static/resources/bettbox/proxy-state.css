@@ -15,3 +15,18 @@
 .bb-app .v4-state-card.starting .v4-state-symbol>.ico{animation:proxy-spin 1s linear infinite}
 @media(max-width:599px){.bb-app.v4-proxies .v4-state-card{min-height:320px;padding:28px 18px}.bb-app .v4-state-card h2{font-size:19px}.bb-app .v4-state-actions{flex-direction:column;width:min(240px,100%);gap:6px}.bb-app .v4-state-actions>.btn{width:100%}}
 @media(prefers-reduced-motion:reduce){.bb-app .v4-state-card.starting .v4-state-symbol>.ico{animation:none}}
+.bb-app .v4-node-footer{gap:4px}
+.bb-app .v4-protocol{margin-right:auto}
+.bb-app .v4-node-info.btn{min-width:28px;width:28px;min-height:28px;height:28px;padding:0;justify-content:center;border-color:transparent;background:transparent;color:var(--muted)}
+.bb-app .v4-node-info.btn:hover{color:var(--bb-accent);background:var(--soft);border-color:transparent}
+.bb-app .v4-node-info>.ico{width:14px;height:14px}
+.bb-app .bb-proxy-share{display:grid;gap:14px}
+.bb-app .bb-proxy-share-meta{display:flex;gap:8px;flex-wrap:wrap}
+.bb-app .bb-qr-card{display:flex;justify-content:center;align-items:center;padding:12px;border:1px solid var(--bb-line);border-radius:12px;background:#ffffff;width:fit-content;margin:0 auto}
+.bb-app .bb-qr-card svg{display:block;max-width:100%;height:auto}
+.bb-app .bb-proxy-share-row{display:flex;gap:8px;align-items:center}
+.bb-app .bb-proxy-share-row .field{flex:1;min-width:0}
+.bb-app .bb-proxy-share-row .btn{flex-shrink:0}
+.bb-app .bb-proxy-yaml{margin:0;padding:12px 14px;border:1px solid var(--bb-line);border-radius:10px;background:var(--subtle);color:var(--ink);font-size:12px;line-height:1.55;max-height:220px;overflow:auto;white-space:pre;user-select:all}
+.bb-app .bb-proxy-share-actions{margin-top:14px;justify-content:flex-end;flex-wrap:wrap}
+@media(max-width:599px){.bb-app .v4-node-info.btn{min-width:34px;width:34px;min-height:36px;height:36px}.bb-app .bb-proxy-share-row{flex-direction:column;align-items:stretch}}

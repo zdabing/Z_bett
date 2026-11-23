@@ -2,6 +2,8 @@
 package route
 
 import (
+	"encoding/json"
+	"io"
 	"strconv"
 
 	"github.com/metacubex/chi/render"
@@ -23,4 +25,29 @@ func bettboxTrafficStats(w http.ResponseWriter, r *http.Request) {
 	render.JSON(w, r, bettbox.TrafficStats(bettbox.TrafficStatsQuery{
 		Start: query.Get("start"), End: query.Get("end"), Top: top, Host: query.Get("host"),
 	}))
+}
+
+func bettboxProxyConfig(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	res, err := bettbox.GetProxyConfig(name)
+	if err != nil {
+		render.Status(r, http.StatusNotFound)
+		render.JSON(w, r, newError(err.Error()))
+		return
+	}
+	render.JSON(w, r, res)
+}
+
+func bettboxTestNode(w http.ResponseWriter, r *http.Request) {
+	var params bettbox.NodeTestParams
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&params); err != nil || params.Proxy == nil {
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, ErrBadRequest)
+		return
+	}
+	render.JSON(w, r, bettbox.TestNode(r.Context(), params))
+}
+
+func bettboxRegisterWarp(w http.ResponseWriter, r *http.Request) {
+	render.JSON(w, r, bettbox.RegisterWarp(r.Context()))
 }

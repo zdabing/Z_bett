@@ -47,4 +47,13 @@ let prelude = sprintf('const bettboxRoutes = %J;\n', routes);
 if (type(props.regions) == 'array') prelude += sprintf('const bettboxRegions = %J;\n', props.regions);
 if (type(props.customRegions) == 'array') prelude += sprintf('const bettboxCustomRegions = %J;\n', props.customRegions);
 if (type(props.order) == 'array') prelude += sprintf('const bettboxOrder = %J;\n', props.order);
+if (length(ARGV) > 2 && ARGV[2]) {
+	let nodes = null;
+	try { nodes = json(readfile(ARGV[2]) ?? '[]'); } catch (e) { nodes = null; }
+	if (type(nodes) == 'array' && length(nodes) > 0) {
+		let clean_names = filter(nodes, n => type(n) == 'string' && length(n) > 0);
+		if (length(clean_names) > 0)
+			prelude += sprintf('const bettboxNodeNames = %J;\n', clean_names);
+	}
+}
 if (writefile(ARGV[1], prelude + source) == null) die('无法写入托管脚本');

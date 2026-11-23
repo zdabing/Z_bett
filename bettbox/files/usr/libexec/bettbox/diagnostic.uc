@@ -53,6 +53,18 @@ if (request.kind == 'exit') {
 	let action=request.kind=='core-check'?'check':args[0];
 	if((request.kind=='core-check' && length(args)!=0) || (request.kind=='core' && (length(args)!=1 || !(action in ['update','rollback','package']))))die('bad core action');
 	command='/usr/bin/bettbox core '+action;
+} else if (request.kind == 'warp-register') {
+	if (length(args) != 0) die('bad warp action');
+	command = 'ucode /usr/libexec/bettbox/node-store.uc warp';
+} else if (request.kind == 'node-test') {
+	if (length(args) < 1 || length(args) > 2 || type(args[0]) != 'string' || !match(args[0], /^node_[A-Za-z0-9_-]+$/))
+		die('invalid node id');
+	command = 'ucode /usr/libexec/bettbox/node-store.uc test ' + q(args[0]);
+	if (length(args) == 2) {
+		if (type(args[1]) != 'string' || length(args[1]) > 256 || match(args[1], /[\r\n]/))
+			die('invalid dialer');
+		command += ' ' + q(args[1]);
+	}
 } else die('bad diagnostic kind');
 let fd = popen(command + ' 2>&1', 'r');
 if (!fd) die('could not start diagnostic');

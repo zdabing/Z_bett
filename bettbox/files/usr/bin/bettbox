@@ -19,6 +19,7 @@ usage: bettbox <command> [args]
     update <sid> | update-all | cron
     add <url> [label] | remove <sid>
     import <file> [label]                    import YAML/share links/Base64
+    nodes <list|import|warp|test|...>        node library & landing nodes
   toolbox
     health [domain]                          layered read-only network checks
     dns <name> [type] [follow|system|custom] [server]
@@ -88,6 +89,9 @@ update|update-all|cron|add|remove|import)
 subscription|subscriptions)
 	# Accept commands written by older versions of cron.sh.
 	sh "$LIBEXEC/subscription.sh" "$@"
+	;;
+nodes)
+	exec ucode "$LIBEXEC/node-store.uc" "$@"
 	;;
 dns|ip|ping|speedtest|media|trace|traffic-stats|mrs|nat|age|iperf)
 	sh "$LIBEXEC/toolbox.sh" "$cmd" "$@"

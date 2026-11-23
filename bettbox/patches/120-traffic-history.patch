@@ -16,7 +16,7 @@
  	"github.com/metacubex/mihomo/common/cmd"
  	"github.com/metacubex/mihomo/component/age"
  	"github.com/metacubex/mihomo/component/generator"
-@@ -78,6 +80,20 @@
+@@ -78,6 +80,53 @@
  }
  
  func main() {
@@ -32,6 +32,39 @@
 +			os.Exit(1)
 +		}
 +		_ = json.NewEncoder(os.Stdout).Encode(report)
++		return
++	}
++	if len(args) > 0 && args[0] == "bettbox-parse-nodes" {
++		if len(args) != 2 {
++			fmt.Fprintln(os.Stderr, "usage: mihomo bettbox-parse-nodes INPUT")
++			os.Exit(2)
++		}
++		result, err := bettbox.ParseNodesFile(args[1])
++		if err != nil {
++			fmt.Fprintln(os.Stderr, err)
++			os.Exit(1)
++		}
++		_ = json.NewEncoder(os.Stdout).Encode(result)
++		return
++	}
++	if len(args) > 0 && args[0] == "bettbox-patch-nodes" {
++		if len(args) != 4 {
++			fmt.Fprintln(os.Stderr, "usage: mihomo bettbox-patch-nodes CONFIG NODES OUTPUT")
++			os.Exit(2)
++		}
++		if err := bettbox.PatchNodesFile(args[1], args[2], args[3]); err != nil {
++			fmt.Fprintln(os.Stderr, err)
++			os.Exit(1)
++		}
++		return
++	}
++	if len(args) > 0 && args[0] == "bettbox-register-warp" {
++		result := bettbox.RegisterWarpCLI()
++		_ = json.NewEncoder(os.Stdout).Encode(result)
++		if result.Error != "" {
++			fmt.Fprintln(os.Stderr, result.Error)
++			os.Exit(1)
++		}
 +		return
 +	}
  	// Defensive programming: panic when code mistakenly calls net.DefaultResolver
@@ -52,7 +85,52 @@
  }
  
  // TLS config
-@@ -361,8 +363,10 @@
+@@ -194,24 +196,26 @@
+ 
+ // Config is mihomo config manager
+ type Config struct {
+-	General       *General
+-	Controller    *Controller
+-	Experimental  *Experimental
+-	IPTables      *IPTables
+-	NTP           *NTP
+-	DNS           *DNS
+-	Hosts         *trie.DomainTrie[resolver.HostValue]
+-	Profile       *Profile
+-	Rules         []C.Rule
+-	SubRules      map[string][]C.Rule
+-	Users         []auth.AuthUser
+-	Proxies       map[string]C.Proxy
+-	Listeners     map[string]C.InboundListener
+-	Providers     map[string]P.ProxyProvider
+-	RuleProviders map[string]P.RuleProvider
+-	Tunnels       []LC.Tunnel
+-	Sniffer       *sniffer.Config
+-	TLS           *TLS
++	General           *General
++	Controller        *Controller
++	Experimental      *Experimental
++	IPTables          *IPTables
++	NTP               *NTP
++	DNS               *DNS
++	Hosts             *trie.DomainTrie[resolver.HostValue]
++	Profile           *Profile
++	Rules             []C.Rule
++	SubRules          map[string][]C.Rule
++	Users             []auth.AuthUser
++	Proxies           map[string]C.Proxy
++	Listeners         map[string]C.InboundListener
++	Providers         map[string]P.ProxyProvider
++	RuleProviders     map[string]P.RuleProvider
++	RawProxies        []map[string]any
++	RawProxyProviders map[string]map[string]any
++	Tunnels           []LC.Tunnel
++	Sniffer           *sniffer.Config
++	TLS               *TLS
+ }
+ 
+ type RawCors struct {
+@@ -363,8 +367,10 @@
  }
  
  type RawProfile struct {
@@ -65,7 +143,17 @@
  }
  
  type RawGeoXUrl struct {
-@@ -861,8 +865,10 @@
+@@ -751,6 +757,9 @@
+ 		return nil, err
+ 	}
+ 
++	config.RawProxies = rawCfg.Proxy
++	config.RawProxyProviders = rawCfg.ProxyProvider
++
+ 	elapsedTime := time.Since(startTime) / time.Millisecond                     // duration in ms
+ 	log.Infoln("Initial configuration complete, total time: %dms", elapsedTime) //Segment finished in xxm
+ 
+@@ -862,8 +871,10 @@
  
  func parseProfile(cfg *RawConfig) (*Profile, error) {
  	return &Profile{
@@ -80,7 +168,7 @@
  
 --- a/tunnel/statistic/manager.go
 +++ b/tunnel/statistic/manager.go
-@@ -14,6 +14,9 @@ var IsDirectFunc func(string) bool
+@@ -14,6 +14,9 @@
  
  var DefaultManager *Manager
  
@@ -90,7 +178,7 @@
  func init() {
  	DefaultManager = &Manager{
  		uploadTemp:         atomic.NewInt64(0),
-@@ -65,13 +68,17 @@ func (m *Manager) Join(c Tracker) {
+@@ -65,13 +68,17 @@
  func (m *Manager) Leave(c Tracker) {
  	m.historyMu.Lock()
  	// A tracker can be closed by both the API and its relay goroutine.
@@ -127,7 +215,7 @@
  )
  
  var mux sync.Mutex
-@@ -82,6 +84,10 @@
+@@ -82,11 +84,15 @@
  }
  
  // ApplyConfig dispatch configure to all parts without ExternalController
@@ -138,7 +226,20 @@
  func ApplyConfig(cfg *config.Config, force bool) {
  	mux.Lock()
  	defer mux.Unlock()
-@@ -237,6 +243,11 @@
+ 	log.SetLevel(cfg.General.LogLevel)
+ 
+ 	tunnel.OnSuspend()
+ 
+ 	ca.ResetCertificate()
+@@ -98,6 +105,7 @@
+ 	updateExperimental(cfg.Experimental)
+ 	updateUsers(cfg.Users)
+ 	updateProxies(cfg.Proxies, cfg.Providers)
++	bettbox.SetRuntimeProxies(cfg.RawProxies, cfg.RawProxyProviders)
+ 	updateRules(cfg.Rules, cfg.SubRules, cfg.RuleProviders)
+ 	updateSniffer(cfg.Sniffer)
+ 	updateHosts(cfg.Hosts)
+@@ -237,6 +245,11 @@
  }
  
  func updateDNS(c *config.DNS, generalIPv6 bool) {
@@ -150,7 +251,7 @@
  	if !c.Enable {
  		resolver.DefaultResolver = nil
  		resolver.DefaultHostMapper = nil
-@@ -439,6 +450,13 @@
+@@ -439,6 +452,13 @@
  
  func updateProfile(cfg *config.Config) {
  	profileCfg := cfg.Profile
@@ -164,7 +265,7 @@
  
  	profile.StoreSelected.Store(profileCfg.StoreSelected)
  	if profileCfg.StoreSelected {
-@@ -534,6 +552,7 @@
+@@ -534,6 +554,7 @@
  	listener.Cleanup()
  	tproxy.CleanupTProxyIPTables()
  	resolver.StoreFakePoolState()
@@ -174,12 +275,15 @@
  }
 --- a/hub/route/server.go
 +++ b/hub/route/server.go
-@@ -125,6 +125,8 @@
+@@ -125,6 +125,11 @@
  		r.Get("/traffic", traffic)
  		r.Get("/memory", memory)
  		r.Get("/version", version)
 +		r.Get("/bettbox/route-trace", bettboxTrace)
 +		r.Get("/bettbox/traffic-stats", bettboxTrafficStats)
++		r.Get("/bettbox/proxy-config", bettboxProxyConfig)
++		r.Post("/bettbox/test-node", bettboxTestNode)
++		r.Post("/bettbox/warp-register", bettboxRegisterWarp)
  		r.Mount("/configs", configRouter())
  		r.Mount("/proxies", proxyRouter())
  		r.Mount("/group", groupRouter())

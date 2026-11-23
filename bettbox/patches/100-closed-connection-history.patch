@@ -7,10 +7,10 @@ response is unchanged unless history=true is requested.
 
 --- a/tunnel/statistic/manager.go
 +++ b/tunnel/statistic/manager.go
-@@ -3,6 +3,7 @@ package statistic
+@@ -3,6 +3,7 @@
  import (
  	"os"
- 	"runtime"
+ 	"runtime/metrics"
 +	"sync"
  	"time"
  

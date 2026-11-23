@@ -15,10 +15,10 @@ No connections, DNS entries, TUN state or live application data are removed.
  	"github.com/metacubex/mihomo/component/resolver"
  	"github.com/metacubex/mihomo/component/resource"
  	"github.com/metacubex/mihomo/component/sniffer"
-@@ -115,7 +116,7 @@
+@@ -115,7 +115,7 @@
  	loadProvider(cfg.Providers)
  	updateProfile(cfg)
- 	loadProvider(cfg.RuleProviders)
+ 	loadRuleProviders(cfg.RuleProviders)
 -	runtime.GC()
 +	reclaimer.AfterConfig()
  	tunnel.OnRunning()

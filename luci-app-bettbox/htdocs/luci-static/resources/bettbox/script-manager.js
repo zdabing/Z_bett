@@ -178,7 +178,7 @@ return baseclass.extend({
 			var mode = 'url', name = E('input', { 'class': 'field', placeholder: '我的分流脚本', 'aria-label': '文件名' });
 			var url = E('input', { 'class': 'field', type: 'url', placeholder: 'https://…/script.js', 'aria-label': '脚本链接' });
 			var managed = UI.button('填入上游托管脚本', function() {
-				url.value = 'https://raw.githubusercontent.com/appshubcc/Bettbox/v1.19.8/assets/scripts/managed.js';
+				url.value = 'https://raw.githubusercontent.com/appshubcc/Bettbox/v1.19.10/assets/scripts/managed.js';
 				if (!name.value.trim()) name.value = 'Bettbox 托管分流';
 				error.textContent = '';
 			});
