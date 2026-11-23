@@ -5,6 +5,8 @@
 
 var hostHints=rpc.declare({object:'luci-rpc',method:'getHostHints',expect:{'':{}}}),sequence=0;
 
+function isLinkLocal6(ip){return /^fe[89ab][0-9a-f]:/i.test(ip);}
+
 function create(value,validate,matchMac,legacy){
 	function entries(values){
 		return Array.from(new Set(values.map(function(s){return matchMac?s.trim().toLowerCase():s.trim();}).filter(Boolean)));
@@ -106,7 +108,9 @@ function create(value,validate,matchMac,legacy){
 		Promise.resolve().then(hostHints).then(function(data){
 			var known=new Map();Object.keys(data||{}).forEach(function(key){
 				var h=data[key]||{},mac=key.toLowerCase(),name=String(h.name||'');
-				var ips=(h.ipaddrs||[]).concat(h.ip6addrs||[]).filter(function(ip){return typeof ip==='string';});
+				var ips=(h.ipaddrs||[]).concat(h.ip6addrs||[]).filter(function(ip){
+					return typeof ip==='string'&&ip.trim()&&!isLinkLocal6(ip.trim());
+				}).map(function(ip){return ip.trim();});
 				(matchMac?[mac]:ips).forEach(function(value){
 					try{validate([value]);}catch(e){return;}
 					if(!known.has(value)||(!known.get(value).name&&name))known.set(value,{value:value,name:name,mac:mac,ips:ips,addresses:matchMac?ips.join(' · '):value});
