@@ -1,5 +1,14 @@
 # 更新日志
 
+## v2026.11.23 · 2026-11-23
+
+面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r14` 和 `luci-app-bettbox 1.19.10-r1`。
+
+- **同步上游 `appshubcc/Bettbox v1.19.10` 核心与内置托管分流**：刷新 `100`–`130` 核心补丁并新增 `proxy_share`、`nodes`、`node_check`、`warp` 内置 Go 模块及 CLI 子命令；同步内置托管脚本 `managed-routing.js`（`@version 2026112201`）与规则目录（恢复 `FCM` / `ConnectCheck`），并在 `bettbox-forge 1.19.10` 中提取 `nodeRegions` 与支持 `bettboxNodeNames`。
+- **新增「节点库」、落地链式代理与一键 Cloudflare WARP**：在 `订阅 → 节点库`（`/etc/bettbox/nodes.json`）中支持批量导入分享链接/YAML、一键注册 Cloudflare WARP、设置落地节点与前置代理（`dialer-proxy`）、指定注入范围/目标策略组/伴随节点以及按当前链路实时延迟测速，并纳入备份与 sysupgrade 保留。
+- **全局共享规则、代理配置分享与订阅下载增强**：新增 `shared_managed_rules` 全局托管共享规则（目标组缺失时自动回退到「默认代理」）；代理页节点支持查看确定性 YAML、分享 URI 及内置离线 SVG 二维码并一键存入节点库；单订阅支持 `download_mode`（自动本地代理回退 / 仅直连 / 仅代理）、`skip_cert_verify` 与自定义 `user_agent`。
+- **设备名单显示优化**：在 `device-picker.js` 中过滤 `fe80::/10` IPv6 链路本地地址，无有效 IPv4/全局 IPv6 时直接回退显示设备 MAC 与「暂无 IP」标识。
+
 ## v2026.11.20 · 2026-11-20
 
 面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r13` 和 `luci-app-bettbox 1.19.8-r5`。
