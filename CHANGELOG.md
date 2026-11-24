@@ -1,5 +1,12 @@
 # 更新日志
 
+## v2026.11.24 · 2026-11-24
+
+面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r15` 和 `luci-app-bettbox 1.19.10-r2`。
+
+- **工具箱精简与交互重构**：保留 OpenWrt 核心刚需的 4 个排障工具（`网络健康`、`路由追踪`、`DNS 查询`、`流量统计`），收紧 `bettbox.uc` 与 `diagnostic.uc` 的后端允许列表；前端改为全宽 4 卡切换布局与分组分段控件，支持网络健康缓存首屏秒显、路由追踪视觉化出口链与可筛选规则明细表、DNS 应答表（含 `Fake-IP` 标记）以及流量统计按需加载与 KPI/进度条展示，并打通工具间一键带参数跳转。
+- **修复服务启动、选用订阅与运行模式切换失败未回退问题**：`diagnostic.uc` 在核心启动失败且进程未存活时自动将 `bettbox.config.enabled` 回滚为 `0`；`overview.js` 将服务开关绑定至真实运行态并在异常时立即回弹；`subscriptions.js` 在启用新订阅失败后自动将 `bettbox.config.profile` 回滚并提交为原订阅；`overview.js` 运行模式切换异常时同步回退核心与 UCI 状态。
+
 ## v2026.11.23 · 2026-11-23
 
 面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r14` 和 `luci-app-bettbox 1.19.10-r1`。
