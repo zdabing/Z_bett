@@ -269,7 +269,7 @@ function diagnostic_start(request) {
 	if(type(args)!='array'||length(args)>8) return {ok:false,error:'invalid diagnostic arguments'};
 	for(let arg in args) if(type(arg)!='string'||length(arg)>65536) return {ok:false,error:'invalid diagnostic argument'};
 	if(kind=='exit' && !(args[0] in ['direct','proxy'])) return {ok:false,error:'invalid exit mode'};
-	if(kind=='toolbox' && !(args[0] in ['dns','ip','ping','speedtest','media','trace','traffic-stats','mrs'])) return {ok:false,error:'invalid tool'};
+	if(kind=='toolbox' && !(args[0] in ['dns','trace','traffic-stats'])) return {ok:false,error:'invalid tool'};
 	if(kind=='health' && (length(args)!=1 || type(args[0])!='string' || length(args[0])>253 || !match(args[0],/^[A-Za-z0-9_][A-Za-z0-9._-]*$/)))return {ok:false,error:'invalid health target'};
 	return create_job(kind,args);
 }

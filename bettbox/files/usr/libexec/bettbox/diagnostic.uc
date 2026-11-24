@@ -20,16 +20,23 @@ if (request.kind == 'exit') {
 	command='/usr/libexec/bettbox/network-check.sh delay '+q(args[0])+' '+q(args[1]);
 } else if (request.kind == 'toolbox') {
 	let tool = args[0];
-	if (!(tool in ['dns','ip','ping','speedtest','media','trace','traffic-stats','mrs'])) die('bad diagnostic tool');
+	if (!(tool in ['dns','trace','traffic-stats'])) die('bad diagnostic tool');
 	command = '/usr/libexec/bettbox/toolbox.sh ' + q(tool);
 	for (let i = 1; i < length(args); i++) {
 		command += ' ' + q(args[i]);
 	}
 } else if (request.kind == 'service') {
 	if(length(args)!=1 || !(args[0] in ['start','stop','restart','apply']))die('bad service action');
-	command=args[0]=='apply'?'/usr/bin/bettbox apply-service':'/etc/init.d/bettbox '+args[0];
-	if(args[0]=='start'||args[0]=='stop')command='uci set bettbox.config.enabled='+q(args[0]=='start'?'1':'0')+' && uci commit bettbox && '+command;
-	if(args[0]=='start'||args[0]=='restart')command='/etc/init.d/bettbox enable && '+command;
+	if (args[0] == 'start') {
+		let check_running = "ubus -t 2 call service list '{\"name\":\"bettbox\"}' 2>/dev/null | ucode -e 'import { readfile } from \"fs\"; let s=null; try { s=json(readfile(\"/dev/stdin\")); } catch(e) {} exit(s?.bettbox?.instances?.core?.running == true ? 0 : 1);'";
+		command = '/etc/init.d/bettbox enable && uci set bettbox.config.enabled=1 && uci commit bettbox && { /etc/init.d/bettbox start; rc=$?; if [ "$rc" != 0 ] && ! (' + check_running + '); then uci set bettbox.config.enabled=0 && uci commit bettbox; fi; exit "$rc"; }';
+	} else if (args[0] == 'stop') {
+		command = 'uci set bettbox.config.enabled=0 && uci commit bettbox && /etc/init.d/bettbox stop';
+	} else if (args[0] == 'restart') {
+		command = '/etc/init.d/bettbox enable && /etc/init.d/bettbox restart';
+	} else {
+		command = '/usr/bin/bettbox apply-service';
+	}
 } else if(request.kind=='script') {
 	if(!(args[0] in ['import','check','update']) || length(args)!=(args[0]=='check'?2:3))die('bad script action');
 	command='ucode /usr/libexec/bettbox/script-update.uc';

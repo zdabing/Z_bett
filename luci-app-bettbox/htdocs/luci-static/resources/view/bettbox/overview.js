@@ -76,7 +76,8 @@ function traffic(upload,download,available){
 return view.extend({
 	load:function(){return Promise.all([callStatus(),callNetwork(),uci.load('bettbox'),callProfiles().catch(function(){return null;})]);},
 	render:function(data){
-		var st=data[0]||{},net=data[1]||{},profiles=(data[3]&&data[3].profiles)||[],last=null,busy=false,lastStatus=0,lastProxy=0,servicePending='',serviceGeneration=0,refreshSequence=0;
+		var st=data[0]||{},net=data[1]||{},profiles=(data[3]&&data[3].profiles)||[],last=null,busy=false,lastStatus=0,lastProxy=0,servicePending='',serviceTarget=null,serviceGeneration=0,refreshSequence=0;
+		function switchOn(){return serviceTarget!==null?serviceTarget:!!st.running;}
 		var note=E('div',{'class':'bb-update-note','role':'status',hidden:true}),stateTag=UI.tag(st.running?'运行中':'已停止',st.running?'':'neutral'),serviceTitle=E('span',{},st.running?'Bettbox 正在运行':'Bettbox 已停止');
 		function setNote(text){note.textContent=text;note.hidden=!text;}
 		function currentProfileName(){
@@ -92,21 +93,21 @@ return view.extend({
 			document.createTextNode(' · 出口：'),
 			serviceExitText
 		]);
-		var serviceSwitch=E('button',{type:'button','class':'switch'+((st.enabled||st.running)?'':' off'),role:'switch','aria-checked':String(!!(st.enabled||st.running)),'aria-label':'启动服务'});
+		var serviceSwitch=E('button',{type:'button','class':'switch'+(st.running?'':' off'),role:'switch','aria-checked':String(!!st.running),'aria-label':'启动服务'});
 		serviceSwitch.addEventListener('click',function(){
 			if(servicePending)return;
-			var on=!(st.enabled||st.running);
+			var on=!st.running;
 			serviceGeneration++;refreshSequence++;busy=false;resetTrend();proxyGeneration++;
-			serviceSwitch.disabled=true;servicePending=on?'正在启动…':'正在停止…';setNote('');paintService();
+			serviceSwitch.disabled=true;serviceTarget=on;servicePending=on?'正在启动…':'正在停止…';setNote('');paintService();
 			callService(on?'start':'stop').then(UI.operation).then(function(){return waitForService(on);}).catch(function(err){
-				UI.error(err);return refreshStatus().catch(UI.error);
+				serviceTarget=null;UI.error(err);return refreshStatus().catch(function(){paintService();});
 			}).finally(function(){
-				servicePending='';paintService();serviceSwitch.disabled=false;refresh();
+				serviceTarget=null;servicePending='';paintService();serviceSwitch.disabled=false;refresh();
 				if(st.running){proxyGeneration++;checkExit('proxy');}
 			});
 		});
 		var modes=E('div',{'class':'segmented','aria-label':'运行模式'});
-		[['rule','规则'],['global','全局'],['direct','直连']].forEach(function(m){var b=E('button',{type:'button','class':st.mode===m[0]?'active':'','aria-pressed':String(st.mode===m[0])},m[1]);b.addEventListener('click',function(){var old=st.mode;Array.from(modes.children).forEach(function(x){x.disabled=true;});(st.running?Core.patch('/configs',{mode:m[0]}):Promise.resolve()).then(function(){uci.set('bettbox','config','mode',m[0]);return uci.save();}).then(function(){return commit('bettbox');}).then(refreshStatus).catch(function(err){uci.set('bettbox','config','mode',old);if(st.running)Core.patch('/configs',{mode:old}).catch(function(){});UI.error(err);}).finally(function(){Array.from(modes.children).forEach(function(x){x.disabled=false;});});});b.dataset.mode=m[0];modes.appendChild(b);});
+		[['rule','规则'],['global','全局'],['direct','直连']].forEach(function(m){var b=E('button',{type:'button','class':st.mode===m[0]?'active':'','aria-pressed':String(st.mode===m[0])},m[1]);b.addEventListener('click',function(){if(m[0]===st.mode)return;var old=st.mode,coreChanged=false;Array.from(modes.children).forEach(function(x){x.disabled=true;});(st.running?Core.patch('/configs',{mode:m[0]}).then(function(){coreChanged=true;}):Promise.resolve()).then(function(){uci.set('bettbox','config','mode',m[0]);return uci.save();}).then(function(){return commit('bettbox');}).then(function(res){if(res&&res.error)throw new Error('模式保存失败');return refreshStatus();}).catch(function(err){if(coreChanged)Core.patch('/configs',{mode:old}).catch(function(){});uci.set('bettbox','config','mode',old);UI.error(err);return uci.save().catch(function(){}).then(function(){return refreshStatus().catch(function(){paintService();});});}).finally(function(){Array.from(modes.children).forEach(function(x){x.disabled=false;});paintService();});});b.dataset.mode=m[0];modes.appendChild(b);});
 		var stats = {}, lines = {}, samples = [];
 		var metrics = E('section', {'class':'panel metric-grid overview-metrics'}, [
 			['down','下行速度','blue'], ['up','上行速度','orange'], ['link','活动连接','purple'], ['chip','内核内存','green']
@@ -213,7 +214,8 @@ return view.extend({
 			serviceProfileText.textContent=currentProfileName();
 			if(!st.running)serviceExitText.textContent='未运行';
 			else if(st.mode==='direct')serviceExitText.textContent='直连 (Direct)';
-			serviceSwitch.classList.toggle('off',!(st.enabled||st.running));serviceSwitch.setAttribute('aria-checked',String(!!(st.enabled||st.running)));
+			var switchState=switchOn();
+			serviceSwitch.classList.toggle('off',!switchState);serviceSwitch.setAttribute('aria-checked',String(switchState));
 			Array.from(modes.children).forEach(function(b){b.classList.toggle('active',b.dataset.mode===st.mode);b.setAttribute('aria-pressed',String(b.dataset.mode===st.mode));});
 		}
 		function resolveProxyGroup(proxies){

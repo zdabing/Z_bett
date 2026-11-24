@@ -101,11 +101,32 @@ return baseclass.extend({
 			}).catch(function(err) { notice.textContent = '更新失败：' + err.message; }).finally(function() { busy = false; draw(); });
 		}
 		function choose(p) {
-			if (busy || p.id === active) return; busy = true; notice.textContent = '正在选用订阅…'; draw();
+			if (busy || p.id === active) return;
+			var previous = active, committed = false;
+			busy = true; notice.textContent = '正在选用订阅…'; draw();
 			uci.set('bettbox','config','profile',p.id);
 			return uci.save().then(function() { return commitRPC('bettbox'); }).then(function(res) {
-				if (res && res.error) throw new Error('配置提交失败'); return applyRPC().then(UI.operation);
-			}).then(refresh).then(function() { notice.textContent = '已选用“' + (p.label || p.id) + '”'; }).catch(function(err) { notice.textContent = '选用失败，请刷新确认当前状态：' + err.message; }).finally(function() { busy = false; draw(); });
+				if (res && res.error) throw new Error('配置提交失败');
+				committed = true;
+				return applyRPC().then(UI.operation);
+			}).then(refresh).then(function() {
+				notice.textContent = '已选用“' + (p.label || p.id) + '”';
+			}).catch(function(err) {
+				if (previous) uci.set('bettbox', 'config', 'profile', previous);
+				else uci.unset('bettbox', 'config', 'profile');
+				var revert = uci.save().then(function() {
+					return committed ? commitRPC('bettbox').then(function(res) {
+						if (res && res.error) throw new Error('配置回退提交失败');
+					}) : null;
+				});
+				return revert.then(function() {
+					notice.textContent = committed ? ('选用失败，已回退到原订阅：' + err.message) : ('选用失败：' + err.message);
+				}, function() {
+					notice.textContent = '选用失败且回退失败，请刷新确认当前状态：' + err.message;
+				}).then(function() {
+					return refresh().catch(function() {});
+				});
+			}).finally(function() { busy = false; draw(); });
 		}
 		function add() {
 			var name = E('input', { 'class': 'field', placeholder: '订阅名称（可选）', 'aria-label': '订阅名称' });
