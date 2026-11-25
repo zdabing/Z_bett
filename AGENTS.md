@@ -41,12 +41,13 @@
 1. **CSS 作用域硬隔离**：
    - 所有样式必须以 `.bb-app`、`body.bb-page` 或 `.modal:has(.bb-modal-content)` 为根作用域。
    - 不允许污染 LuCI 宿主的 `header`、`.main-left`、`.cbi-*`、`body` 通用排版。
-2. **三套外观模式与变量契约**：
-   - `ui.js` 维护 `meridian`（默认，`Meridian 橙彩玻璃`）、`apple`（`Apple 清爽卡片`）、`host`（`跟随宿主主题`）及 `system` / `light` / `dark` 明暗切换，键名固定为 `bettbox.appearance.v1`。
+2. **三套外观模式、五色主题与变量契约**：
+   - `ui.js` 维护 `meridian`（默认，`Meridian 默认`）、`apple`（`Apple 卡片`）、`host`（`跟随宿主主题`）、`system` / `light` / `dark` 明暗切换，以及 5 种可选主题色 `blue`（极光蓝，默认）/ `teal`（翡翠青）/ `indigo`（靛蓝紫）/ `ink`（极简墨）/ `amber`（暖琥珀，挂载于 `body[data-bb-accent]`），配置持久化于 `bettbox.appearance.v1`。
    - **宿主协同（与 `luci-theme-zen` 对齐）**：`host` 模式下，`ui.css` 顶层 `.bb-app` 通过 `--bg: var(--bg-base, ...)`、`--surface: var(--bg-panel, ...)`、`--subtle: var(--bg-input, ...)`、`--ink: var(--text, ...)`、`--secondary: var(--text-secondary, ...)`、`--muted: var(--text-muted, ...)`、`--bb-accent: var(--accent, ...)`、`--soft: var(--accent-soft, ...)`、`--bb-line: var(--line, ...)` 等变量自动继承 `luci-theme-zen` 雾岚或其它支持同名变量的主题。
-   - **严禁覆盖宿主配色**：仅 `body[data-bb-style="meridian"]` 与 `body[data-bb-style="apple"]` 可覆盖主题色板与模糊特效；`body[data-bb-scheme]` 公共块不得强写 `color-scheme: light` 或覆盖 `--bg`/`--surface`/`--bb-accent`。
-3. **毛玻璃与实色表面分离**：
-   - 任何全屏/半透明底层之上浮层——包括 `.modal:has(.bb-modal-content)`、`.hub-drawer`、`.device-picker-popup`、激活态分段按钮（`.segmented button.active` / `.bb-mode-btn.active`）、下拉菜单和 `.btn.danger`——**必须**使用 `var(--surface-solid, var(--surface))` 或 `var(--bg-solid, var(--bg))`，防止 Meridian 毛玻璃模式透底导致文字对比度下降。
+   - **严禁覆盖宿主配色**：仅 `body[data-bb-style="meridian"]` 与 `body[data-bb-style="apple"]` 可覆盖主题色板与 `data-bb-accent`；`body[data-bb-scheme]` 公共块不得强写 `color-scheme: light` 或覆盖 `--bg`/`--surface`/`--bb-accent`。
+3. **实色微卡片与浮层表面规范**：
+   - 内嵌微卡片、代理节点卡（`.v4-node`）与表单输入框（`.field`）统一采用干净实色 `var(--surface-solid, var(--surface))` + 细边框，不在普通面板内部填充灰底 `--subtle` 或大面积 `--soft`；`UI.modal` 自管 `padding: 0`、顶栏 `> h4`、`.bb-dialog-body` 与 `.bb-dialog-actions`；日志行使用 `3px` 左侧状态条 + 固定宽度 `68px` 居中描边级别胶囊。
+   - 任何全屏/半透明底层之上浮层——包括 `.modal:has(.bb-modal-content)`、`.hub-drawer`、`.device-picker-popup`、激活态分段按钮（`.segmented button.active` / `.bb-mode-btn.active`）、下拉菜单和 `.btn.danger`——**必须**使用 `var(--surface-solid, var(--surface))` 或 `var(--bg-solid, var(--bg))`，避免透底导致文字对比度下降。
 4. **缓存失效版本号**：
    - 每次修改 `ui.css`、`settings.css`、`subscriptions.css`、`scripts.css`、`connections.css`、`health.css`、`proxy-state.css`，必须同步递增所有引用该样式的 JS 文件中的 `?v=YYYYMMDD-N` 查询参数。
 5. **交互与布局一致性**：
@@ -68,7 +69,7 @@
    - 托管分流目录及规则（`managed-routing.js`、`managed-routing.json`、`managed-routing.uc`）独立存放，不直接散落写入 `render.uc` 或前端视图。
    - 更新 `bettbox/forge/` 后需在提交前通过 `bash .github/scripts/test-forge.sh`（`-Wall -Wextra -Werror` 编译与沙箱行为测试）。
 3. **LuCI Zen 主题联动升级（`luci-theme-zen` ↔ `luci-app-bettbox`）**：
-   - 当 `luci-theme-zen` 新增或调整 `:root` / `:root[data-theme="dark"]` 语义 CSS 变量时，同步核对 [ui.css](luci-app-bettbox/htdocs/luci-static/resources/bettbox/ui.css) 第 3 行回退映射以及第 853 行 `.modal:has(.bb-modal-content)` 变量映射。
+   - 当 `luci-theme-zen` 新增或调整 `:root` / `:root[data-theme="dark"]` 语义 CSS 变量时，同步核对 [ui.css](luci-app-bettbox/htdocs/luci-static/resources/bettbox/ui.css) 第 3 行回退映射以及第 845 行 `.modal:has(.bb-modal-content)` 变量映射。
    - `luci-app-bettbox` 与 `luci-theme-zen` 不共享写状态：`zen` 的主题设置存储于 `/etc/config/zen` 与 `luci-theme-zen` 本地键，`bettbox` 外观偏好存储于 `bettbox.appearance.v1`；当选择 `host` 模式时，Bettbox 自然跟随 `zen` 的亮/暗态变量切换。
 
 ---

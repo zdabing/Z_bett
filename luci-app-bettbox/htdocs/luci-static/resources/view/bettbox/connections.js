@@ -5,6 +5,7 @@
 'require bettbox.core as Core';
 'require bettbox.ui as UI';
 'require bettbox.subscription-controls as H';
+'require bettbox.connection-rule as RuleModal';
 
 var getStatus = rpc.declare({ object: 'bettbox', method: 'get_status' });
 
@@ -15,11 +16,12 @@ return view.extend({
 		var filter = '', protocol = '', scope = 'active', sort = 'traffic', pageNo = 0, pageSize = 30;
 		var totals = {}, detailRecord = null, detailBody = null, detailActions = null;
 		var list = E('div'), summary = E('div', { 'class': 'toolbar connection-summary' });
+		var ruleBanner = E('div', { 'class': 'bb-rule-banner', role: 'status', hidden: true });
 		var notice = E('div', { 'class': 'bb-update-note', role: 'status' }), pager = E('div', { 'class': 'button-row' });
 		var tabs = E('div', { 'class': 'chips bb-connection-tabs', 'aria-label': '连接状态' }), tabButtons = {};
 
 		if (!document.getElementById('bettbox-connections-css'))
-			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261118-1' }));
+			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261125-1' }));
 
 		function target(c) { var m = c.metadata || {}; return m.host || m.destinationIP || '—'; }
 		function endpoint(ip, port) {
@@ -50,15 +52,56 @@ return view.extend({
 			detailBody.replaceChildren(E('dl', { 'class': 'definition-list' }, rows.map(function(r) {
 				return E('div', { 'class': 'definition-row' }, [E('dt', {}, r[0]), E('dd', {}, String(r[1]))]);
 			})));
-			var actions = [];
+			var actions = [UI.button('添加分流规则', function() { openRule(c); }, 'soft', 'plus')];
 			if (current) actions.push(UI.button('关闭此连接', function() {
 				return Core.del('/connections/' + encodeURIComponent(c.id)).then(function() { closeDetail(); return updatedAfterAction(); });
 			}, 'danger', 'close'));
 			actions.push(UI.button('关闭', closeDetail)); detailActions.replaceChildren.apply(detailActions, actions);
 		}
+		function showRuleBanner(info) {
+			if (!info || !info.rule) return;
+			var scopeText = info.scope === 'shared' ? '全局共享规则' : ('订阅「' + (info.profileLabel || info.sid || '当前订阅') + '」');
+			var tailText = info.closed ? '，并已关闭旧连接' : '';
+			var btns = [];
+			if (info.sid) {
+				btns.push(UI.button('查看规则', function() {
+					var href = L.url('admin', 'services', 'bettbox', 'profiles') + '?edit=' + encodeURIComponent(info.sid) + '&tab=advanced' + (info.scope === 'shared' ? '&focus=shared' : '&focus=rules');
+					UI.navigate('profiles', href, false);
+				}, 'small', 'edit'));
+			}
+			var dismiss = UI.button('关闭提示', function() { ruleBanner.hidden = true; }, 'bb-icon-only', 'close');
+			dismiss.setAttribute('aria-label', '关闭规则提示');
+			btns.push(dismiss);
+			ruleBanner.replaceChildren(
+				E('div', { 'class': 'bb-rule-banner-copy' }, [
+					UI.tag('已添加规则'),
+					E('code', { 'class': 'mono' }, info.rule),
+					E('span', { 'class': 'small muted' }, '已置顶写入 ' + scopeText + tailText)
+				]),
+				E('div', { 'class': 'bb-rule-banner-actions' }, btns)
+			);
+			ruleBanner.hidden = false;
+		}
+		function openRule(c) {
+			var isActive = !!find(active, c.id);
+			if (detailRecord) closeDetail();
+			RuleModal.open(c, {
+				active: isActive,
+				onSaved: function(info) {
+					showRuleBanner(info);
+					updatedAfterAction();
+				}
+			});
+		}
 		function detail(c) {
 			detailRecord = c; detailBody = E('div'); detailActions = E('div', { 'class': 'button-row' });
 			UI.modal('连接详情', detailBody, [detailActions]); updateDetail();
+		}
+		function ruleButton(c) {
+			var b = UI.button('添加规则', function() { openRule(c); }, 'bb-icon-only', 'plus');
+			b.title = '添加分流规则';
+			b.setAttribute('aria-label', '为 ' + target(c) + ' 添加分流规则');
+			return b;
 		}
 		function detailButton(c) {
 			var b = UI.button('详情', function() { detail(c); }, 'bb-icon-only', 'chevron');
@@ -73,13 +116,15 @@ return view.extend({
 				E('td', { 'class': 'mono' }, m.sourceIP || '—'),
 				E('td', {}, [E('div', {}, chainText(c)), c.rule ? UI.tag(c.rule, 'neutral') : document.createTextNode('')]),
 				E('td', { 'class': 'mono' }, '↓ ' + UI.bytes(c.download) + ' / ↑ ' + UI.bytes(c.upload)),
-				E('td', {}, [status(c), E('div', { 'class': 'cell-meta mono' }, rate(c))]), E('td', {}, detailButton(c))]);
+				E('td', {}, [status(c), E('div', { 'class': 'cell-meta mono' }, rate(c))]),
+				E('td', {}, E('div', { 'class': 'bb-connection-row-actions' }, [ruleButton(c), detailButton(c)]))]);
 		}
 		function card(c) {
 			var m = c.metadata || {};
 			return E('article', { 'class': 'connection-card' + (isClosed(c) ? ' bb-connection-closed' : '') }, [
 				E('div', { 'class': 'connection-top' }, [E('div', {}, [E('div', { 'class': 'cell-title' }, target(c)),
-					E('div', { 'class': 'cell-meta' }, (m.network || '').toUpperCase() + ' · ' + (m.destinationPort || '') + ' · 来自 ' + (m.sourceIP || '—'))]), detailButton(c)]),
+					E('div', { 'class': 'cell-meta' }, (m.network || '').toUpperCase() + ' · ' + (m.destinationPort || '') + ' · 来自 ' + (m.sourceIP || '—'))]),
+					E('div', { 'class': 'bb-connection-row-actions' }, [ruleButton(c), detailButton(c)])]),
 				E('div', { 'class': 'connection-chain' }, chainText(c)),
 				E('div', { 'class': 'connection-bottom' }, [UI.tag(c.rule || '—', 'neutral'), status(c)]),
 				E('div', { 'class': 'bb-connection-traffic mono' }, [E('span', {}, '↓ ' + UI.bytes(c.download)), E('span', {}, '↑ ' + UI.bytes(c.upload))]),
@@ -181,7 +226,7 @@ return view.extend({
 		var root = UI.page('connections', '连接', [], [
 			E('div', { 'class': 'toolbar bb-connection-state' }, [stateLeft, stateActions]),
 			E('div', { 'class': 'toolbar bb-connection-filters' }, [UI.search('搜索目标、来源 IP 或规则…', function(value) { filter = value.toLowerCase(); pageNo = 0; draw(); }), sortSelect, chips]),
-			notice, list, pager]);
+			ruleBanner, notice, list, pager]);
 		draw(); UI.poll(root, refresh, 4); refresh(); return root;
 	},
 	handleSaveApply: null, handleSave: null, handleReset: null

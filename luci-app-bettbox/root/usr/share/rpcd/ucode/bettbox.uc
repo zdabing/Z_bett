@@ -399,18 +399,30 @@ return {
 			}
 		},
 		merge_profile: {
-			args: { action: '', sid: '', label: '', members: '[]' },
+			args: { action: '', sid: '', label: '', members: '[]', script: '' },
 			call: function(request) {
 				let action = request.args.action, sid = request.args.sid, label = request.args.label, members;
 				if (!(action in ['preview', 'create', 'edit']) || (sid && !valid_sid(sid)) || (action == 'edit' && !sid) ||
 				    length(label) > 256 || length(request.args.members) > 1024)
 					return { ok: false, error: '无效的合并请求' };
+				let script = request.args.script;
+				if (script != null) {
+					if (type(script) != 'string')
+						return { ok: false, error: '无效的脚本参数' };
+					if (length(script) > 0) {
+						if (!valid_script_name(script) || !access('/etc/bettbox/scripts/' + script + '.js'))
+							return { ok: false, error: '所选覆写脚本不存在' };
+					}
+				}
 				try { members = json(request.args.members); } catch(e) {}
 				if (type(members) != 'array' || length(members) < 2 || length(members) > 8)
 					return { ok: false, error: '请选择 2 至 8 份订阅' };
 				for (let sid in members)
 					if (!valid_sid(sid)) return { ok: false, error: '无效的成员订阅' };
-				return create_job('profile-merge', [action, action == 'create' ? 'new' : sid || 'new', label, ...members]);
+				let job_args = script != null
+					? ['--script', script, action, action == 'create' ? 'new' : sid || 'new', label, ...members]
+					: [action, action == 'create' ? 'new' : sid || 'new', label, ...members];
+				return create_job('profile-merge', job_args);
 			}
 		},
 		del_profile: {

@@ -10,10 +10,30 @@
 .bb-app[data-bb-page="connections"] .bb-connection-closed .cell-title{color:var(--secondary)}
 .bb-app[data-bb-page="connections"] .connection-card time{overflow-wrap:anywhere}
 .bb-app[data-bb-page="connections"] .connection-card .connection-chain{margin-top:8px}
+.bb-app[data-bb-page="connections"] .data-table th:last-child,.bb-app[data-bb-page="connections"] .data-table td:last-child{width:108px}
+.bb-app[data-bb-page="connections"] .bb-connection-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.bb-app[data-bb-page="connections"] .bb-connection-row-actions .btn{min-width:34px;width:34px;min-height:34px;padding:0;justify-content:center}
+.bb-app[data-bb-page="connections"] .bb-rule-banner{display:flex;align-items:center;justify-content:space-between;gap:10px 14px;flex-wrap:wrap;padding:10px 14px;margin-bottom:12px;border:1px solid color-mix(in srgb,var(--bb-accent) 34%,var(--bb-line));border-radius:var(--bb-control-radius,12px);background:var(--soft);color:var(--ink);font-size:13px}
+.bb-app[data-bb-page="connections"] .bb-rule-banner[hidden]{display:none!important}
+.bb-app[data-bb-page="connections"] .bb-rule-banner-copy{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;flex:1}
+.bb-app[data-bb-page="connections"] .bb-rule-banner-copy code{padding:2px 7px;border-radius:6px;background:var(--surface-solid,var(--surface));border:1px solid var(--bb-line);font-size:12px;overflow-wrap:anywhere}
+.bb-app[data-bb-page="connections"] .bb-rule-banner-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.bb-app.bb-rule-dialog .bb-rule-context{background:var(--subtle);border:1px solid var(--bb-line);border-radius:10px;padding:10px 12px;margin-bottom:16px;display:grid;gap:4px;font-size:12px;color:var(--secondary);overflow-wrap:anywhere}
+.bb-app.bb-rule-dialog .bb-rule-context strong{color:var(--ink);font-weight:600}
+.bb-app.bb-rule-dialog .bb-rule-hint{font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45}
+.bb-app.bb-rule-dialog .bb-rule-hint[hidden]{display:none!important}
+.bb-app.bb-rule-dialog .bb-rule-check{display:flex;align-items:center;gap:8px;min-height:36px;margin:0 0 14px;font-size:13px;color:var(--ink);cursor:pointer;user-select:none}
+.bb-app.bb-rule-dialog .bb-rule-check[hidden]{display:none!important}
+.bb-app.bb-rule-dialog .bb-rule-check input{margin:0;width:16px;height:16px;accent-color:var(--bb-accent);flex-shrink:0}
+.bb-app.bb-rule-dialog .bb-rule-preview-box{padding:10px 12px;border-radius:10px;border:1px solid var(--bb-line);background:var(--subtle);margin-top:4px}
+.bb-app.bb-rule-dialog .bb-rule-preview-box code{display:block;overflow-wrap:anywhere;font-size:12px;line-height:1.5;color:var(--accent-strong,var(--bb-accent))}
 @media(max-width:599px){
  .bb-app[data-bb-page="connections"] .bb-connection-filters .search{flex-basis:100%}
  .bb-app[data-bb-page="connections"] .bb-connection-state{align-items:stretch}
  .bb-app[data-bb-page="connections"] .bb-connection-state-left{width:100%;justify-content:space-between}
  .bb-app[data-bb-page="connections"] .bb-connection-tabs .chip{padding:7px 11px;min-height:38px}
  .bb-app[data-bb-page="connections"] .connection-summary{margin:0;min-height:28px}
+ .bb-app[data-bb-page="connections"] .bb-connection-row-actions .btn{min-width:40px;width:40px;min-height:40px}
+ .bb-app[data-bb-page="connections"] .bb-rule-banner .btn{min-height:40px}
+ .bb-app.bb-rule-dialog .bb-rule-check{min-height:40px}
 }

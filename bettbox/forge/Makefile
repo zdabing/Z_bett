@@ -2,7 +2,7 @@
 CC ?= cc
 VENDOR_DIR ?= vendor
 OUT ?= bettbox-forge
-VERSION ?= 1.19.10
+VERSION ?= 1.20.0
 
 BASE_CFLAGS := -O2 -std=c11 -D_GNU_SOURCE
 APP_CFLAGS := $(BASE_CFLAGS) $(CFLAGS) -Wall -Wextra -I$(VENDOR_DIR) -Isrc -DBETTBOX_FORGE_VERSION='"$(VERSION)"'

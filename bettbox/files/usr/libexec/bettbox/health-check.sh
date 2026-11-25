@@ -61,7 +61,13 @@ elif [ -s "$runtime" ]; then
 	listen=$(value '.dns.listen')
 	case "$listen" in 0.0.0.0:*|:*) listen="127.0.0.1:${listen##*:}" ;; '[::]':*) listen="[::1]:${listen##*:}" ;; esac
 	dns_probe core_dns "$listen" &
-	if [ -f "$BETTBOX_STATE/dnsmasq" ]; then dns_probe dnsmasq 127.0.0.1:53 & else mark dnsmasq 2 not_owned; fi
+	dns_target="${BETTBOX_DNS_TARGET:-/var/run/dnsmasq/bettbox/target.json}"
+	if [ -f "$BETTBOX_STATE/dnsmasq" ] ||
+		{ [ -f "$BETTBOX_STATE/dns-forward.json" ] && grep -Eq '"port"[[:space:]]*:[[:space:]]*[0-9]+' "$dns_target" 2>/dev/null; }; then
+		dns_probe dnsmasq 127.0.0.1:53 &
+	else
+		mark dnsmasq 2 not_owned
+	fi
 	upstream=$(value '.dns."direct-nameserver"[0] // .dns."default-nameserver"[0]')
 	if [ -n "$upstream" ]; then dns_probe upstream "$upstream" & else mark upstream 2 not_configured; fi
 	port=$(value '."mixed-port"'); case "$port" in ''|*[!0-9]*) port=0 ;; esac

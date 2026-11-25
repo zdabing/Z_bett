@@ -218,3 +218,115 @@ export function check_dns(config, forwards_dnsmasq) {
 	}
 	return warnings;
 };
+
+export function adapt_router_dns(config, forwards_dnsmasq, system_servers, local_domain, intercepts_dns) {
+	let dns = config?.dns;
+	if (type(dns) != 'object' || dns.enable === false) return;
+	let dom = lc(trim(local_domain ?? ''));
+	if (substr(dom, 0, 1) == '.') dom = substr(dom, 1);
+	if (length(dom) > 0 && substr(dom, length(dom) - 1) == '.') dom = substr(dom, 0, length(dom) - 1);
+	if (!length(dom) || !match(dom, /^[a-z0-9][a-z0-9.-]*$/)) dom = 'lan';
+
+	let is_loop_entry = (value) => {
+		if (type(value) != 'string') return false;
+		if (match(lc(trim(value)), /^system(:\/\/)?([#?].*)?$/)) return true;
+		let target = dns_endpoint(value);
+		return target != null && target.port == 53 && dns_local(target.host);
+	};
+
+	if (forwards_dnsmasq) {
+		let upstreams = [], seen_up = {};
+		let add_up = (v) => {
+			if (type(v) != 'string') return;
+			let s = trim(v);
+			if (!length(s) || is_loop_entry(s)) return;
+			if (!seen_up[s]) { seen_up[s] = true; push(upstreams, s); }
+		};
+		if (type(system_servers) == 'array')
+			for (let s in system_servers) add_up(s);
+		if (!length(upstreams)) {
+			for (let key in ['direct-nameserver', 'default-nameserver']) {
+				let list = dns[key];
+				if (type(list) == 'string') add_up(list);
+				else if (type(list) == 'array') for (let s in list) add_up(s);
+				if (length(upstreams)) break;
+			}
+		}
+		if (!length(upstreams)) upstreams = ['223.5.5.5', '119.29.29.29'];
+
+		let replace_loops = (val) => {
+			if (type(val) == 'string') {
+				if (!is_loop_entry(val)) return val;
+				return length(upstreams) == 1 ? upstreams[0] : map(upstreams, x => x);
+			}
+			if (type(val) != 'array') return val;
+			if (!length(val)) return val;
+			let out = [], seen = {}, changed = false;
+			for (let item in val) {
+				if (is_loop_entry(item)) {
+					changed = true;
+					for (let u in upstreams)
+						if (!seen[u]) { seen[u] = true; push(out, u); }
+				} else if (type(item) == 'string' && !seen[item]) {
+					seen[item] = true;
+					push(out, item);
+				} else if (type(item) != 'string') {
+					push(out, item);
+				}
+			}
+			return changed ? out : val;
+		};
+
+		for (let key in ['nameserver', 'fallback', 'default-nameserver', 'proxy-server-nameserver', 'direct-nameserver']) {
+			if (dns[key] != null) dns[key] = replace_loops(dns[key]);
+		}
+		for (let key in ['nameserver-policy', 'proxy-server-nameserver-policy']) {
+			if (type(dns[key]) != 'object') continue;
+			for (let k in keys(dns[key])) dns[key][k] = replace_loops(dns[key][k]);
+		}
+		return;
+	}
+
+	if (!intercepts_dns) return;
+	let listen = dns.listen ?? '0.0.0.0:1053';
+	if (type(listen) == 'string' && substr(listen, 0, 1) == ':') listen = '0.0.0.0' + listen;
+	let listener = type(listen) == 'string' ? dns_endpoint(listen) : null;
+	if (listener && listener.port == 53) return;
+
+	if (dns['enhanced-mode'] == 'fake-ip') {
+		let mode = dns['fake-ip-filter-mode'] ?? 'blacklist';
+		let filters = dns['fake-ip-filter'] ?? [];
+		if (type(filters) == 'array') {
+			let seen = {};
+			for (let entry in filters)
+				if (type(entry) == 'string') seen[entry] = true;
+			if (mode == 'blacklist') {
+				let out = map(filters, x => x);
+				for (let pat in ['*', '+.' + dom, '+.local', '+.home.arpa']) {
+					if (!seen[pat]) { seen[pat] = true; push(out, pat); }
+				}
+				dns['fake-ip-filter'] = out;
+			} else if (mode == 'rule') {
+				let extras = [];
+				for (let d in [dom, 'local', 'home.arpa']) {
+					let rule = 'DOMAIN-SUFFIX,' + d + ',real-ip';
+					if (!seen[rule]) { seen[rule] = true; push(extras, rule); }
+				}
+				if (length(extras)) {
+					for (let entry in filters) push(extras, entry);
+					dns['fake-ip-filter'] = extras;
+				}
+			}
+		}
+	}
+
+	if (type(dns['nameserver-policy']) != 'object') dns['nameserver-policy'] = {};
+	let pol = dns['nameserver-policy'];
+	if (pol['rule-set:private'] == null && pol['geosite:private'] == null &&
+		pol['+.' + dom] == null && pol['*.' + dom] == null && pol['.' + dom] == null) {
+		pol['+.' + dom] = '127.0.0.1';
+	}
+	if (pol['*'] == null) {
+		pol['*'] = '127.0.0.1';
+	}
+};

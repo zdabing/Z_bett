@@ -7,8 +7,8 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=bettbox
 PKG_VERSION:=1.19.34
-PKG_RELEASE:=15
-BETTBOX_UPSTREAM_VERSION:=1.19.10
+PKG_RELEASE:=16
+BETTBOX_UPSTREAM_VERSION:=1.20.0
 
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0
@@ -19,7 +19,7 @@ PKG_LICENSE:=GPL-3.0
 # download.pl appends PKG_SOURCE to PKG_SOURCE_URL.
 PKG_SOURCE:=v$(BETTBOX_UPSTREAM_VERSION).tar.gz
 PKG_SOURCE_URL:=https://github.com/appshubcc/Bettbox/archive/refs/tags/
-PKG_HASH:=e987727c52939a11d20e0dd5d033b17468c0ba4ba940b829a5ed4015689fedf8
+PKG_HASH:=90350d5562fdb1d0bfc03e5be55e10a12888ed5e73c568ea23ded5256115cc20
 PKG_BUILD_DIR:=$(BUILD_DIR)/Bettbox-$(BETTBOX_UPSTREAM_VERSION)
 
 PKG_BUILD_DEPENDS:=golang/host
@@ -156,6 +156,7 @@ define Package/bettbox/prerm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || [ "$$PKG_UPGRADE" = 1 ] || [ "$$BETTBOX_SELF_UPDATE" = 1 ] || {
 	/usr/libexec/bettbox/dnsmasq.sh unregister || exit 1
+	/usr/libexec/bettbox/firewall.sh flush 2>/dev/null || true
 }
 exit 0
 endef

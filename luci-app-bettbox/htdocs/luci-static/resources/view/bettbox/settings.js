@@ -4,80 +4,67 @@
 'require uci';
 'require bettbox.ui as UI';
 'require bettbox.device-picker as DevicePicker';
-var callApply=rpc.declare({object:'bettbox',method:'apply'}),callProfiles=rpc.declare({object:'bettbox',method:'get_profiles'}),commit=rpc.declare({object:'uci',method:'commit',params:['config']});
+'require bettbox.resources-panel as ResourcesPanel';
+var callApply=rpc.declare({object:'bettbox',method:'apply'}),commit=rpc.declare({object:'uci',method:'commit',params:['config']});
 var callProxyGroups=rpc.declare({object:'bettbox',method:'api_proxy',params:['method','path','body']});
 var SCHEMA = [
-	{ section: 'config', title: _('常规'), opts: [
-		{ opt: 'enabled', kind: 'flag', icon: 'power', label: _('启动服务') },
-		{ opt: 'profile', kind: 'value', icon: 'list', label: _('当前订阅') },
-		{ opt: 'mode', kind: 'list', icon: 'tune', label: _('运行模式'), list: [ ['rule', '规则 (Rule)'], ['global', '全局 (Global)'], ['direct', '直连 (Direct)'] ] },
-		{ opt: 'log_level', kind: 'list', icon: 'doc', label: _('日志级别'), list: [ ['silent'], ['error'], ['warning'], ['info'], ['debug'] ] },
-		{ opt: 'ipv6', kind: 'flag', icon: 'globe', label: _('IPv6') }
+	{ category: 'general', section: 'config', icon: 'settings', title: _('基础与守护'), opts: [
+		{ opt: 'log_level', kind: 'list', label: _('日志级别'), list: [ ['silent'], ['error'], ['warning'], ['info'], ['debug'] ] },
+		{ opt: 'watchdog_interval', kind: 'value', label: _('看门狗间隔 (秒)') },
+		{ opt: 'health_interval', kind: 'value', label: _('网络检测间隔 (秒)'), ph: '300；0 关闭定期检测' },
+		{ opt: 'traffic_retention', kind: 'list', label: _('流量记录保留'), list: [ ['7', _('7 天')], ['14', _('14 天')], ['30', _('30 天')] ], ph: '7' },
+		{ opt: 'ipv6', kind: 'flag', label: _('IPv6') },
+		{ opt: 'watchdog', kind: 'flag', label: _('看门狗'), sub: _('健康检查失败自动重启内核') },
+		{ opt: 'traffic_history', kind: 'flag', label: _('记录历史流量') }
 	] },
-	{ section: 'config', title: _('网络与端口'), opts: [
-		{ opt: 'mixed_port', kind: 'value', icon: 'port', label: _('Mixed 端口 (HTTP+SOCKS)') },
-		{ opt: 'tproxy_port', kind: 'value', icon: 'port', label: _('TPROXY 端口') },
-		{ opt: 'redir_port', kind: 'value', icon: 'port', label: _('REDIR 端口 (0=关)') },
-		{ opt: 'allow_lan', kind: 'flag', icon: 'lan', label: _('允许局域网') },
-		{ opt: 'transparent_mode', kind: 'list', icon: 'shield', label: _('透明代理'), sub: _('TUN 内核自管路由；TPROXY/REDIR 走 nftables'), list: [ ['tun', 'TUN (推荐)'], ['tproxy', 'TPROXY (TCP+UDP)'], ['redir', 'REDIR (仅 TCP)'], ['off', '关闭'] ] },
-		{ opt: 'hijack_dnsmasq', kind: 'flag', icon: 'shield', label: _('dnsmasq 转发内核 DNS'), sub: _('LAN 客户端 DNS 经 dnsmasq 进入分流') }
+	{ category: 'network', section: 'config', icon: 'shield', title: _('透明代理与端口'), opts: [
+		{ opt: 'transparent_mode', kind: 'list', label: _('透明代理'), sub: _('TUN 内核自管路由；TPROXY/REDIR 走 nftables'), list: [ ['tun', 'TUN (推荐)'], ['tproxy', 'TPROXY (TCP+UDP)'], ['redir', 'REDIR (仅 TCP)'], ['off', '关闭'] ] },
+		{ opt: 'mixed_port', kind: 'value', label: _('Mixed 端口'), sub: _('HTTP + SOCKS 混合端口') },
+		{ opt: 'tproxy_port', kind: 'value', label: _('TPROXY 端口') },
+		{ opt: 'redir_port', kind: 'value', label: _('REDIR 端口 (0=关)') },
+		{ opt: 'allow_lan', kind: 'flag', label: _('允许局域网') },
+		{ opt: 'hijack_dnsmasq', kind: 'flag', label: _('dnsmasq 转发内核 DNS'), sub: _('LAN 客户端 DNS 经 dnsmasq 进入分流') }
 	] },
-	{ section: 'config', title: _('控制面板'), opts: [
-		{ opt: 'external_controller', kind: 'value', icon: 'term', label: _('控制 API 监听'), ph: '127.0.0.1:9097' },
-		{ opt: 'secret', kind: 'value', icon: 'lock', label: _('控制 API 密钥'), pass: true },
-		{ opt: 'external_ui', kind: 'flag', icon: 'cloud', label: _('内置面板 (zashboard)'), sub: _('在「资源」页安装') },
-		{ opt: 'test_url', kind: 'value', icon: 'gauge', label: _('测延迟 URL'), ph: 'https://www.gstatic.com/generate_204' }
+	{ category: 'network', section: 'dns', icon: 'globe', title: _('DNS 与分流增强'), opts: [
+		{ opt: 'listen', section: 'dns', kind: 'value', label: _('DNS 监听地址'), ph: '0.0.0.0:1053' },
+		{ opt: 'block', section: 'quic', kind: 'flag', label: _('禁用 QUIC'), sub: _('非托管订阅下注入 UDP:443 REJECT 前置规则') },
+		{ opt: 'enabled', section: 'sniffer', kind: 'flag', label: _('启用流量嗅探') },
+		{ opt: 'override_destination', section: 'sniffer', kind: 'flag', label: 'override-destination', sub: _('用嗅探结果覆盖目标地址') },
+		{ opt: 'real_ip_domains', section: 'dns', kind: 'list-multi', label: _('真实 IP 域名（每行一个）'), ph: 'nas.example.com\n+.example.com', wide: true }
 	] },
-	{ section: 'config', title: _('设备 MAC 控制'), opts: [
+	{ category: 'network', section: 'tun', icon: 'route', tunOnly: true, title: _('TUN 虚拟网卡'), opts: [
+		{ opt: 'stack', kind: 'list', label: 'TUN 栈', sub: _('上游默认 mips'), list: [ ['mips'], ['mixed'], ['gvisor'], ['system'] ] },
+		{ opt: 'device', kind: 'value', label: _('设备名'), ph: 'bettbox' },
+		{ opt: 'mtu', kind: 'value', label: 'MTU', ph: '9000' },
+		{ opt: 'dns_hijack', kind: 'value', label: 'dns-hijack', ph: 'any:53' },
+		{ opt: 'auto_route', kind: 'flag', label: 'auto-route' },
+		{ opt: 'auto_redirect', kind: 'flag', label: 'auto-redirect' },
+		{ opt: 'strict_route', kind: 'flag', label: 'strict-route' },
+		{ opt: 'endpoint_independent_nat', kind: 'flag', label: 'endpoint-independent-nat', sub: _('改善 UDP / 游戏联机 NAT 类型') }
+	] },
+	{ category: 'network', section: 'config', icon: 'grid', fold: true, title: _('高级与接口参数'), opts: [
+		{ opt: 'external_controller', kind: 'value', label: _('控制 API 监听'), ph: '127.0.0.1:9097' },
+		{ opt: 'secret', kind: 'value', label: _('控制 API 密钥'), pass: true },
+		{ opt: 'test_url', kind: 'value', label: _('测延迟 URL'), ph: 'https://www.gstatic.com/generate_204' },
+		{ opt: 'geo_update_interval', kind: 'value', label: _('Geo 更新间隔 (小时)') },
+		{ opt: 'external_ui', kind: 'flag', label: _('内置面板 (zashboard)'), sub: _('在「设置 → 资源与维护」中安装') },
+		{ opt: 'geo_auto_update', kind: 'flag', label: _('自动更新 Geo'), sub: _('直连 GitHub 较慢或小内存路由建议关闭，改在「设置 → 资源与维护」手动更新') },
+		{ opt: 'quic_gso', section: 'experimental', kind: 'flag', label: 'quic-go-disable-gso' },
+		{ opt: 'quic_ecn', section: 'experimental', kind: 'flag', label: 'quic-go-disable-ecn' },
+		{ opt: 'geox_mmdb', kind: 'value', label: 'geox-url · mmdb', ph: 'https://…/geoip.metadb', wide: true },
+		{ opt: 'geox_geosite', kind: 'value', label: 'geox-url · geosite', ph: 'https://…/geosite.dat', wide: true },
+		{ opt: 'geox_asn', kind: 'value', label: 'geox-url · asn', ph: 'https://…/GeoLite2-ASN.mmdb', wide: true }
+	] },
+	{ category: 'devices', section: 'config', icon: 'lan', title: _('设备 MAC 控制'), opts: [
 		{ opt: 'device_mode', kind: 'list', label: _('设备控制模式'), list: [ ['off',_('关闭')], ['include',_('白名单')], ['exclude',_('黑名单')] ] },
 		{ opt: 'device_macs', kind: 'list-multi', label: _('设备名单') }
-	] },
-	{ section: 'tun', title: _('TUN 虚拟网卡'), opts: [
-		{ opt: 'stack', kind: 'list', icon: 'tunnel', label: 'TUN 栈', sub: _('上游默认 mips'), list: [ ['mips'], ['mixed'], ['gvisor'], ['system'] ] },
-		{ opt: 'device', kind: 'value', icon: 'tunnel', label: _('设备名'), ph: 'bettbox' },
-		{ opt: 'auto_route', kind: 'flag', icon: 'map', label: 'auto-route' },
-		{ opt: 'auto_redirect', kind: 'flag', icon: 'map', label: 'auto-redirect' },
-		{ opt: 'strict_route', kind: 'flag', icon: 'shield', label: 'strict-route' },
-		{ opt: 'endpoint_independent_nat', kind: 'flag', icon: 'globe', label: 'endpoint-independent-nat', sub: _('改善 UDP / 游戏联机 NAT 类型') },
-		{ opt: 'mtu', kind: 'value', icon: 'tune', label: 'MTU', ph: '9000' },
-		{ opt: 'dns_hijack', kind: 'value', icon: 'server', label: 'dns-hijack', ph: 'any:53' }
-	] },
-	{ section: 'dns', title: _('DNS'), opts: [
-		{ opt: 'listen', kind: 'value', icon: 'server', label: _('监听地址'), ph: '0.0.0.0:1053' },
-		{ opt: 'real_ip_domains', kind: 'list-multi', icon: 'globe', label: _('真实 IP 域名（每行一个）'), ph: 'nas.example.com\n+.example.com', wide: true }
-	] },
-	{ section: 'quic', title: _('QUIC'), opts: [
-		{ opt: 'block', kind: 'flag', icon: 'bolt', label: _('禁用 QUIC'), sub: _('非托管订阅下注入 UDP:443 REJECT 前置规则') }
-	] },
-	{ section: 'sniffer', title: _('嗅探 Sniffer'), opts: [
-		{ opt: 'enabled', kind: 'flag', icon: 'eye', label: _('启用流量嗅探') },
-		{ opt: 'override_destination', kind: 'flag', icon: 'eye', label: 'override-destination', sub: _('用嗅探结果覆盖目标地址') }
-	] },
-	{ section: 'config', title: _('Geo 资源'), opts: [
-		{ opt: 'geo_auto_update', kind: 'flag', icon: 'map', label: _('自动更新 Geo'), sub: _('直连 GitHub 较慢或小内存路由建议关闭，改在「资源」页手动更新') },
-		{ opt: 'geo_update_interval', kind: 'value', icon: 'clock', label: _('更新间隔 (小时)') },
-		{ opt: 'geox_mmdb', kind: 'value', icon: 'globe', label: 'geox-url · mmdb', ph: 'https://…/geoip.metadb', wide: true },
-		{ opt: 'geox_geosite', kind: 'value', icon: 'globe', label: 'geox-url · geosite', ph: 'https://…/geosite.dat', wide: true },
-		{ opt: 'geox_asn', kind: 'value', icon: 'globe', label: 'geox-url · asn', ph: 'https://…/GeoLite2-ASN.mmdb', wide: true }
-	] },
-	{ section: 'config', title: _('守护'), opts: [
-		{ opt: 'watchdog', kind: 'flag', icon: 'pulse', label: _('看门狗'), sub: _('健康检查失败自动重启内核') },
-		{ opt: 'watchdog_interval', kind: 'value', icon: 'clock', label: _('检查间隔 (秒)') },
-		{ opt: 'health_interval', kind: 'value', icon: 'activity', label: _('网络检测间隔 (秒)'), ph: '300；0 关闭定期检测' },
-		{ opt: 'traffic_history', kind: 'flag', icon: 'activity', label: _('记录历史流量') },
-		{ opt: 'traffic_retention', kind: 'list', label: _('流量记录保留'), list: [ ['7', _('7 天')], ['14', _('14 天')], ['30', _('30 天')] ], ph: '7' }
-	] },
-	{ section: 'experimental', title: _('实验选项'), opts: [
-		{ opt: 'quic_gso', kind: 'flag', icon: 'bolt', label: 'quic-go-disable-gso' },
-		{ opt: 'quic_ecn', kind: 'flag', icon: 'bolt', label: 'quic-go-disable-ecn' }
 	] }
 ];
 
-function fieldFor(cfg,o,profiles){
+function fieldFor(cfg,o){
 	var value=cfg[o.opt],control;
 	if(o.opt==='device_macs')return DevicePicker.create(value,validateMacs,true,cfg.device_ips||[]);
 	if(o.kind==='flag'){control=E('button',{type:'button','class':'switch'+(value==='1'?'':' off'),role:'switch','aria-checked':String(value==='1'),'aria-label':o.label});control.checked=value==='1';control.addEventListener('click',function(){control.checked=!control.checked;control.classList.toggle('off',!control.checked);control.setAttribute('aria-checked',String(control.checked));control.dispatchEvent(new Event('change',{bubbles:true}));});return control;}
-	if(o.opt==='profile'){control=E('select',{'class':'field','aria-label':o.label},profiles.map(function(p){return E('option',{value:p.id},p.label||p.id);}));if(value&&!profiles.some(function(p){return p.id===value;}))control.appendChild(E('option',{value:value},value));control.value=value||'';return control;}
 	if(o.kind==='list'){control=E('select',{'class':'field','aria-label':o.label},(o.list||[]).map(function(item){return E('option',{value:item[0]},item[1]||item[0]);}));control.value=value||o.list[0][0];return control;}
 	if(o.kind==='list-multi'){control=E('textarea',{'class':'field',rows:2,'aria-label':o.label,autocomplete:'off'});control.value=Array.isArray(value)?value.join('\n'):value||'';if(o.ph)control.placeholder=o.ph;return control;}
 	var numeric=/(?:port$|interval$|mtu$)/.test(o.opt);control=E('input',{'class':'field',type:o.pass?'password':numeric?'number':'text','aria-label':o.label,autocomplete:o.pass?'new-password':'off'});control.value=value==null?'':value;if(o.ph)control.placeholder=o.ph;if(numeric)control.min='0';return control;
@@ -110,7 +97,6 @@ function watchField(control,o,changed){
 	});
 	return function(){restore();return readField(control,o);};
 }
-function category(sec){if(sec.opts.some(function(o){return o.opt==='device_mode';}))return 'devices';if(sec.section==='tun')return 'tun';if(sec.section==='dns')return 'dns';if(sec.opts.some(function(o){return o.opt==='mixed_port';}))return 'network';if(sec.opts.some(function(o){return o.opt==='enabled'||o.opt==='watchdog';}))return 'general';return 'other';}
 function validateMacs(values){
 	if(values.length>256)throw new Error('设备 MAC 列表最多 256 项');
 	values.forEach(function(text){
@@ -128,10 +114,11 @@ function validateDevices(values){
 	});
 }
 return view.extend({
-	load:function(){return Promise.all([uci.load('bettbox'),callProfiles(),callProxyGroups('GET','/proxies','').catch(function(){return null;})]);},
-	render:function(data){var profiles=data[1]&&data[1].profiles||[],inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络','lan'],['devices','设备控制','lan'],['tun','TUN','route'],['dns','DNS','globe'],['other','高级','grid']];
-		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261119-1'}));
-		var requested=new URLSearchParams(window.location.search).get('category');
+	load:function(){return Promise.all([uci.load('bettbox'),callProxyGroups('GET','/proxies','').catch(function(){return null;})]);},
+	render:function(data){var inputs=[],selected='general',content=E('div',{'class':'settings-content','role':'region','aria-label':'常规设置'}),sections=[],categories=[['general','常规','settings'],['network','网络与代理','lan'],['devices','设备控制','lan'],['resources','资源与维护','layers']],tunPanel=null;
+		if(!document.getElementById('bettbox-settings-css'))document.head.appendChild(E('link',{id:'bettbox-settings-css',rel:'stylesheet',href:L.resource('bettbox/settings.css')+'?v=20261125-8'}));
+		var rawCat=new URLSearchParams(window.location.search).get('category'),openFold=rawCat==='other';
+		var requested=(rawCat==='tun'||rawCat==='dns'||rawCat==='other')?'network':rawCat;
 		if(categories.some(function(c){return c[0]===requested;}))selected=requested;
 		content.setAttribute('aria-label',categories.find(function(c){return c[0]===selected;})[1]+'设置');
 		var state=E('strong',{},'当前配置');
@@ -146,9 +133,15 @@ return view.extend({
 		function syncDeviceControls(){
 			var mode=inputs.find(function(it){return it.option.opt==='device_mode';}),transport=inputs.find(function(it){return it.option.opt==='transparent_mode';});
 			if(!mode||!transport)return;
+			var tmode=transport.control.value;
+			if(tunPanel)tunPanel.hidden=selected!=='network'||tmode!=='tun';
+			inputs.forEach(function(it){
+				if(it.rowEl&&(it.option.opt==='tproxy_port'||it.option.opt==='redir_port'))
+					it.rowEl.hidden=it.option.opt==='tproxy_port'?tmode!=='tproxy':tmode!=='redir';
+			});
 			modeHelp.textContent=modeDescriptions[mode.control.value]||'';
-			var devicesEnabled=mode.control.value!=='off'&&transport.control.value!=='off';
-			var tunManaged=devicesEnabled&&transport.control.value==='tun';
+			var devicesEnabled=mode.control.value!=='off'&&tmode!=='off';
+			var tunManaged=devicesEnabled&&tmode==='tun';
 			tunRoutingHelp.hidden=!tunManaged;
 			inputs.forEach(function(it){
 				var dnsManagedOption=it.option.opt==='hijack_dnsmasq';
@@ -177,16 +170,18 @@ return view.extend({
 			state.textContent=count?'有 '+count+' 项修改':'当前配置';syncDeviceControls();}
 		var devicePicker;
 		SCHEMA.forEach(function(sec,index){
-			var cat=category(sec),headingId='bettbox-settings-section-'+index;
-			var cfg=uci.get('bettbox',sec.section)||{},form=E('div',{'class':cat==='devices'?'device-settings-form':'settings-form'});
-			if(cat==='tun')form.appendChild(tunRoutingHelp);
+			var cat=sec.category,headingId='bettbox-settings-section-'+index;
+			var form=E('div',{'class':cat==='devices'?'device-settings-form':'settings-form'});
+			if(sec.tunOnly)form.appendChild(tunRoutingHelp);
 			sec.opts.forEach(function(o){
-				var control=fieldFor(cfg,o,profiles),read=watchField(control,o,changed),id='bettbox-setting-'+sec.section+'-'+o.opt;
-				control.id=id;inputs.push({section:sec.section,option:o,control:control,read:read,original:JSON.stringify(read())});
+				var secName=o.section||sec.section,cfg=uci.get('bettbox',secName)||{};
+				var control=fieldFor(cfg,o),read=watchField(control,o,changed),id='bettbox-setting-'+secName+'-'+o.opt;
+				control.id=id;
 				if(control.input)control.input.id=id+'-input';
 				var label=E('label',{'class':'setting-label',for:control.input?id+'-input':id},o.label);
 				var field=E('div',{'class':'setting-control'},control);
 				if(cat==='devices'){
+					inputs.push({section:secName,option:o,control:control,read:read,original:JSON.stringify(read())});
 					var children=[label,field];
 					if(o.opt==='device_mode'){
 						control.setAttribute('aria-describedby',modeHelp.id);
@@ -196,20 +191,30 @@ return view.extend({
 						var helpId=id+'-help';
 						control.input.setAttribute('aria-describedby',helpId);
 						children.push(E('p',{'class':'device-setting-help',id:helpId},_('按名称或 IP 选择设备，保存时按 MAC 匹配。')));
-						inputs.push({section:sec.section,option:{opt:'device_ips',kind:'list-multi'},control:control,
+						inputs.push({section:secName,option:{opt:'device_ips',kind:'list-multi'},control:control,
 							read:control.legacyAddresses,original:JSON.stringify(control.legacyAddresses())});
 					}
 					form.appendChild(E('div',{'class':'device-setting'},children));
 					return;
 				}
-				form.appendChild(E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(o.wide?' wide':'')+(o.kind==='list-multi'?' multiline':'')},[label,field]));
+				var rowEl=E('div',{'class':'setting-row'+(o.kind==='flag'?' flag':'')+(o.wide?' wide':'')+(o.kind==='list-multi'?' multiline':'')},[label,field]);
+				inputs.push({section:secName,option:o,control:control,read:read,original:JSON.stringify(read()),rowEl:rowEl});
+				form.appendChild(rowEl);
 			});
-			var panel=E('section',{'class':'panel settings-panel'+(cat==='devices'?' device-settings':''),'aria-labelledby':headingId},[
-				E('div',{'class':'panel-head'},E('h2',{id:headingId},[UI.badge(cat==='general'?'settings':cat==='network'||cat==='devices'?'lan':cat==='tun'?'route':cat==='dns'?'globe':'grid','bb-section-icon'),document.createTextNode(sec.title)])),form]);
+			var heading=E('h2',{id:headingId},[UI.badge(sec.icon||'settings','bb-section-icon'),document.createTextNode(sec.title)]);
+			var panel=sec.fold
+				? E('details',{'class':'panel settings-panel settings-fold',open:openFold,'aria-labelledby':headingId},[
+					E('summary',{'class':'panel-head'},[heading,E('span',{'class':'settings-fold-hint'},[E('span',{},_('展开 / 收起')),UI.icon('chevron')])]),
+					form
+				])
+				: E('section',{'class':'panel settings-panel'+(cat==='devices'?' device-settings':''),'aria-labelledby':headingId},[
+					E('div',{'class':'panel-head'},heading),form
+				]);
+			if(sec.tunOnly)tunPanel=panel;
 			panel.hidden=cat!==selected;sections.push({panel:panel,category:cat});content.appendChild(panel);
 		});
 		var fallbackList=E('div',{'class':'device-fallback-list'});
-		var groupData=data[2]&&data[2].data&&data[2].data.proxies||{};
+		var groupData=data[1]&&data[1].data&&data[1].data.proxies||{};
 		var groupNames=Object.keys(groupData).filter(function(name){return name!=='GLOBAL'&&Array.isArray(groupData[name].all);}).sort();
 		function addFallback(value){
 			var picker=DevicePicker.create(value.addresses||[],validateDevices);
@@ -246,14 +251,21 @@ return view.extend({
 		}else{
 			sections.push({panel:appearancePanel,category:'general'});content.appendChild(appearancePanel);
 		}
+		var resourcesPanel=ResourcesPanel.create();
+		resourcesPanel.element.hidden=selected!=='resources';
+		sections.push({panel:resourcesPanel.element,category:'resources'});content.appendChild(resourcesPanel.element);
 		if(selected==='devices')devicePicker.loadDevices();
+		if(selected==='resources')resourcesPanel.activate();
 		syncDeviceControls();
 		var nav=E('nav',{'class':'settings-categories','aria-label':'设置类别'},categories.map(function(c){
 			var b=E('button',{type:'button','class':'category-button'+(selected===c[0]?' active':''),'aria-pressed':String(selected===c[0])},[UI.badge(c[2],'bb-nav-icon'),E('span',{},c[1])]);
 			b.addEventListener('click',function(){
 				selected=c[0];Array.from(nav.children).forEach(function(x){x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});
 				sections.forEach(function(s){s.panel.hidden=s.category!==selected;});content.setAttribute('aria-label',c[1]+'设置');
+				bar.hidden=selected==='resources';
 				if(selected==='devices')devicePicker.loadDevices();
+				if(selected==='resources')resourcesPanel.activate();
+				syncDeviceControls();
 				inputs.forEach(function(it){it.read();});
 				var url=new URL(window.location.href);url.searchParams.set('category',selected);window.history.replaceState({},'',url.href);
 			});return b;
@@ -292,6 +304,7 @@ return view.extend({
 			}).finally(function(){fallbackControls.disabled=false;inputs.forEach(function(it){it.control.disabled=false;});syncDeviceControls();});
 		}
 		var bar=E('div',{'class':'save-bar settings-save-bar'},[E('div',{'role':'status','aria-live':'polite'},[state]),E('div',{'class':'button-row'},[UI.button('撤销',function(){window.location.reload();}),UI.button('保存并应用',save,'primary','save')])]);
+		bar.hidden=selected==='resources';
 		var root=UI.page('settings','设置',[],[E('div',{'class':'settings-layout'},[nav,content]),bar]);root.classList.add('bb-settings');return root;
 	},handleSaveApply:null,handleSave:null,handleReset:null
 });

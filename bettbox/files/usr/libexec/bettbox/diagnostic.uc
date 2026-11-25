@@ -42,7 +42,14 @@ if (request.kind == 'exit') {
 	command='ucode /usr/libexec/bettbox/script-update.uc';
 	for(let arg in args)command+=' '+q(arg);
 } else if (request.kind == 'profile-merge') {
-	if (!(args[0] in ['preview', 'create', 'edit']) || length(args) < 5 || length(args) > 11)
+	let m_args = args;
+	if (args[0] == '--script') {
+		if (length(args) < 2 || type(args[1]) != 'string' || length(args[1]) > 192 || match(args[1], /[\/\r\n]/))
+			die('bad profile merge script');
+		m_args = [];
+		for (let i = 2; i < length(args); i++) push(m_args, args[i]);
+	}
+	if (!(m_args[0] in ['preview', 'create', 'edit']) || length(m_args) < 5 || length(m_args) > 11)
 		die('bad profile merge action');
 	command = 'sh /usr/libexec/bettbox/profile-merge.sh ' + join(' ', map(args, q));
 } else if (request.kind == 'profile-update') {

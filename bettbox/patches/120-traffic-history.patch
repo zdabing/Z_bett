@@ -16,17 +16,23 @@
  	"github.com/metacubex/mihomo/common/cmd"
  	"github.com/metacubex/mihomo/component/age"
  	"github.com/metacubex/mihomo/component/generator"
-@@ -78,6 +80,53 @@
+@@ -78,6 +80,59 @@
  }
  
  func main() {
 +	args := flag.Args()
 +	if len(args) > 0 && args[0] == "bettbox-merge" {
-+		if len(args) < 4 {
-+			fmt.Fprintln(os.Stderr, "usage: mihomo bettbox-merge OUTPUT PREFIXES MEMBER...")
++		nodesOnly := false
++		rest := args[1:]
++		if len(rest) > 0 && rest[0] == "--nodes-only" {
++			nodesOnly = true
++			rest = rest[1:]
++		}
++		if len(rest) < 3 {
++			fmt.Fprintln(os.Stderr, "usage: mihomo bettbox-merge [--nodes-only] OUTPUT PREFIXES MEMBER...")
 +			os.Exit(2)
 +		}
-+		report, err := bettbox.MergeFiles(args[1], args[2], args[3:])
++		report, err := bettbox.MergeFilesWithOptions(rest[0], rest[1], rest[2:], nodesOnly)
 +		if err != nil {
 +			fmt.Fprintln(os.Stderr, err)
 +			os.Exit(1)

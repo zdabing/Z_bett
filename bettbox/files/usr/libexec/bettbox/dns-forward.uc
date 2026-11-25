@@ -8,6 +8,7 @@ const STATE='/etc/bettbox/state/dns-forward.json';
 const ROOT='/var/run/dnsmasq/bettbox';
 const SERVERS=ROOT+'/servers';
 const TARGET=ROOT+'/target.json';
+const DOWN=ROOT+'/core-down';
 const INCLUDE='servers-file='+SERVERS;
 let ctx=cursor();
 
@@ -142,7 +143,17 @@ function unregister(meta) {
 	let extra=same(now.extraconftext,meta.managed.extraconftext)?meta.original.extraconftext:clean_extra(now.extraconftext);
 	set('extraconftext',length(extra??'')?extra:null,meta.section);
 	if(!ctx.commit('dhcp'))die('cannot restore system DNS settings');
-	unlink(STATE);unlink(TARGET);
+	unlink(STATE);unlink(TARGET);unlink(DOWN);
+}
+function core_abandoned() {
+	if(stat('/var/run/bettbox-service.lock')){unlink(DOWN);return false;}
+	let res=command("ubus -t 2 call service list '{\"name\":\"bettbox\"}'"),data;
+	try{data=json(res.text);}catch(e){return false;}
+	if(type(data)!='object'||data.error!=null)return false;
+	if(data?.bettbox?.instances?.core?.running===true){unlink(DOWN);return false;}
+	let now=time(),since=int(trim(readfile(DOWN)??''));
+	if(since==null||since<=0||now<since){writefile(DOWN,''+now+'\n');return false;}
+	return (now-since)>=15;
 }
 
 ensure();
@@ -157,12 +168,16 @@ else if(action=='prepare') {
 else if(action=='core') {
 	if(!meta)die('DNS integration is not registered');
 	if(!match(ARGV[1]??'',/^[0-9]+$/))die('invalid core DNS port');
+	unlink(DOWN);
 	publish(meta,{port:int(ARGV[1])},true);
 }
-else if(action=='system') { if(meta)publish(meta,{},true); }
+else if(action=='system') { unlink(DOWN);if(meta)publish(meta,{},true); }
 else if(action=='attached') { if(!meta)die('DNS integration is not registered'); process(meta,true); }
 else if(action=='sync') {
-	if(meta && metadata(TARGET)?.port==null)publish(meta,{},true);
+	if(meta) {
+		if(metadata(TARGET)?.port==null)publish(meta,{},true);
+		else if(core_abandoned()){unlink(DOWN);publish(meta,{},true);}
+	}
 }
 else if(action=='unregister')unregister(meta);
 else die('usage: dns-forward.uc stage|prepare|core PORT|system|sync|attached|unregister');

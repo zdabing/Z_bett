@@ -68,7 +68,8 @@ var SKIP_LABELS = {
 };
 
 function isFakeIP(addr) {
-	return /^198\.1[89]\./.test(String(addr || '').trim());
+	var s = String(addr || '').trim();
+	return /^198\.1[89]\./.test(s) || /^2001:0*2:/i.test(s);
 }
 
 function validHost(value) {
@@ -181,7 +182,7 @@ return view.extend({
 			document.head.appendChild(E('link', {
 				id: 'bettbox-health-css',
 				rel: 'stylesheet',
-				href: L.resource('bettbox/health.css') + '?v=20261124-1'
+				href: L.resource('bettbox/health.css') + '?v=20261125-2'
 			}));
 		}
 
@@ -756,17 +757,15 @@ return view.extend({
 				draw();
 			}, 'DNS 查询路径');
 
-			var optionsRow = [modeSeg];
-			if (st.mode === 'follow') {
-				optionsRow.push(makeSegmented([
-					['A', 'A'], ['AAAA', 'AAAA'], ['CNAME', 'CNAME'],
-					['TXT', 'TXT'], ['MX', 'MX'], ['NS', 'NS']
-				], st.type, function(val) {
-					st.type = val;
-					if (st.domain.trim()) runDns();
-					else draw();
-				}, '记录类型'));
-			} else if (st.mode === 'custom') {
+			var optionsRow = [modeSeg, makeSegmented([
+				['A', 'A'], ['AAAA', 'AAAA'], ['CNAME', 'CNAME'],
+				['TXT', 'TXT'], ['MX', 'MX'], ['NS', 'NS']
+			], st.type, function(val) {
+				st.type = val;
+				if (st.domain.trim()) runDns();
+				else draw();
+			}, '记录类型')];
+			if (st.mode === 'custom') {
 				var srvInput = E('input', {
 					'class': 'field bb-tb-server mono',
 					type: 'text',

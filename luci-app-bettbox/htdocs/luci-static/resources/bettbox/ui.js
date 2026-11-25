@@ -7,7 +7,7 @@
 
 var startJob = rpc.declare({ object: 'bettbox', method: 'diagnostic_start', params: ['kind', 'args_json'] });
 var getJob = rpc.declare({ object: 'bettbox', method: 'diagnostic_status', params: ['id'] });
-var PAGES = [ ['overview','概览','grid','blue'], ['proxies','代理','route','green'], ['connections','连接','link','purple'], ['profiles','订阅','file','orange'], ['resources','资源','layers','teal'], ['toolbox','工具箱','terminal','blue'], ['logs','日志','list','orange'], ['settings','设置','settings','teal'] ];
+var PAGES = [ ['overview','概览','grid','blue'], ['proxies','代理','route','green'], ['connections','连接','link','purple'], ['profiles','订阅','file','orange'], ['toolbox','工具箱','terminal','blue'], ['logs','日志','list','orange'], ['settings','设置','settings','teal'] ];
 var TINTS = {
 	grid:'blue', activity:'blue', globe:'blue', down:'blue', terminal:'blue', search:'blue',
 	route:'green', chip:'green', shield:'green', power:'green', check:'green',
@@ -71,9 +71,10 @@ function button(label,fn,kind,ico){
 		if(result && typeof result.then==='function'){el.disabled=true;return Promise.resolve(result).catch(error).finally(function(){el.disabled=false;});}});
 	return el;
 }
-var styles = { meridian:'Meridian 橙彩', apple:'Apple 卡片', host:'跟随宿主主题' };
+var styles = { meridian:'Meridian 默认', apple:'Apple 卡片', host:'跟随宿主主题' };
 var styleLabels = { meridian:'Meridian', apple:'Apple', host:'跟随宿主' };
 var styleOrder = ['meridian', 'apple', 'host'];
+var accents = { blue:['极光蓝','#2563eb'], teal:['翡翠青','#0d9488'], indigo:['靛蓝紫','#4f46e5'], ink:['极简墨','#18181b'], amber:['暖琥珀','#ea580c'] };
 var modes = { system:'跟随系统', light:'浅色', dark:'深色' };
 var appearanceKey = 'bettbox.appearance.v1';
 var appearance, systemScheme, appearanceListeners = [];
@@ -82,7 +83,8 @@ function readAppearance(){
 	try { saved = JSON.parse(localStorage.getItem(appearanceKey)); } catch (_) {}
 	var style = saved && Object.hasOwn(styles, saved.style) ? saved.style : 'meridian';
 	var mode = saved && Object.hasOwn(modes, saved.mode) ? saved.mode : 'system';
-	return { style: style, mode: mode };
+	var accent = saved && Object.hasOwn(accents, saved.accent) ? saved.accent : 'blue';
+	return { style: style, mode: mode, accent: accent };
 }
 function notifyAppearance(){
 	appearanceListeners = appearanceListeners.filter(function(fn){ return fn() !== false; });
@@ -90,12 +92,17 @@ function notifyAppearance(){
 function paintAppearance(){
 	document.body.dataset.bbStyle = appearance.style;
 	document.body.dataset.bbScheme = appearance.mode === 'system' ? (systemScheme.matches ? 'dark' : 'light') : appearance.mode;
+	document.body.dataset.bbAccent = appearance.accent;
 	notifyAppearance();
 }
 function setAppearance(patch){
 	if (!appearance) mountAppearance();
 	if (patch.style && Object.hasOwn(styles, patch.style)) appearance.style = patch.style;
 	if (patch.mode && Object.hasOwn(modes, patch.mode)) appearance.mode = patch.mode;
+	if (patch.accent && Object.hasOwn(accents, patch.accent)) {
+		appearance.accent = patch.accent;
+		if (!patch.style && appearance.style === 'host') appearance.style = 'meridian';
+	}
 	paintAppearance();
 	try { localStorage.setItem(appearanceKey, JSON.stringify(appearance)); } catch (_) {}
 }
@@ -129,6 +136,15 @@ function appearanceControls(compact){
 		b.addEventListener('click', function(){ setAppearance({mode:key}); });
 		return b;
 	}));
+	var accentRow = E('div', {'class':'bb-accent-grid', role:'radiogroup', 'aria-label':'强调色'}, Object.keys(accents).map(function(key){
+		var on = appearance.style !== 'host' && appearance.accent === key;
+		var b = E('button', {type:'button', 'class':'bb-accent-btn'+(on?' active':''), 'data-accent':key, 'aria-pressed':String(on)}, [
+			E('span', {'class':'bb-accent-dot', style:'background:'+accents[key][1], 'aria-hidden':'true'}),
+			E('span', {}, accents[key][0])
+		]);
+		b.addEventListener('click', function(){ setAppearance({accent:key}); });
+		return b;
+	}));
 	function sync(){
 		if (!wrap.isConnected && wrap._mounted) return false;
 		if (wrap.isConnected) wrap._mounted = true;
@@ -142,10 +158,16 @@ function appearanceControls(compact){
 			b.classList.toggle('active', on);
 			b.setAttribute('aria-pressed', String(on));
 		});
+		Array.from(accentRow.children).forEach(function(b){
+			var on = appearance.style !== 'host' && b.dataset.accent === appearance.accent;
+			b.classList.toggle('active', on);
+			b.setAttribute('aria-pressed', String(on));
+		});
 	}
 	appearanceListeners.push(sync);
 	wrap.appendChild(E('div', {'class':'bb-appearance-group'}, [E('div', {'class':'bb-appearance-label'}, '界面风格'), styleRow]));
 	wrap.appendChild(E('div', {'class':'bb-appearance-group'}, [E('div', {'class':'bb-appearance-label'}, '明暗模式'), modeRow]));
+	wrap.appendChild(E('div', {'class':'bb-appearance-group wide'}, [E('div', {'class':'bb-appearance-label'}, '强调色'), accentRow]));
 	return wrap;
 }
 function themePicker(){
@@ -158,7 +180,7 @@ function mount(){
 	if(!link){
 		var guard=E('style',{id:'bettbox-fouc-guard'},'.bb-app{visibility:hidden}');
 		var reveal=function(){if(guard.parentNode)guard.remove();};
-		link=E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261118-3'});
+		link=E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261125-6'});
 		link.addEventListener('load',reveal,{once:true});
 		link.addEventListener('error',reveal,{once:true});
 		document.head.appendChild(guard);
@@ -281,11 +303,11 @@ function bytes(n){if(n==null||!isFinite(n))return '—';var a=['B','KB','MB','GB
 function speed(n){if(n==null||!isFinite(n))return '—';var a=['B/s','KB/s','MB/s','GB/s'],i=0;while(n>=1000&&i<a.length-1){n/=1000;i++;}return n.toFixed(i?1:0)+' '+a[i];}
 function empty(title,text,action){return E('div',{'class':'empty-state'},[E('div',{'class':'empty-icon bb-icon-badge bb-tint-blue'},icon('info')),E('h2',{},title),E('p',{},text||''),action||document.createTextNode('')]);}
 function modal(title,body,actions){mount();return ui.showModal(title,[E('div',{'class':'bb-app bb-modal-content'},[E('div',{'class':'bb-dialog-body'},body),E('div',{'class':'button-row bb-dialog-actions'},actions||[button('关闭',ui.hideModal)])])]);}
-function field(label,control){return E('label',{'class':'bb-form-field'},[E('span',{'class':'input-label'},label),control]);}
+function field(label,control,help){var children=[E('span',{'class':'input-label'},label),control];if(help)children.push(E('span',{'class':'setting-help'},help));return E('label',{'class':'bb-form-field'},children);}
 function search(placeholder,fn){var input=E('input',{type:'search','class':'field',placeholder:placeholder,'aria-label':placeholder});input.addEventListener('input',function(){fn(input.value);});return E('label',{'class':'search'},[icon('search'),input]);}
 function copy(text){if(navigator.clipboard && window.isSecureContext)return navigator.clipboard.writeText(text).then(function(){ui.addNotification(null,E('p',{},'已复制'),'info');});modal('复制地址',[E('input',{'class':'field',value:text,readonly:true})]);}
 function waitJob(id,budget,onProgress,reconnect){var until=Date.now()+budget,failedSince=null;return new Promise(function(resolve,reject){function check(){getJob(id).then(function(res){failedSince=null;if(res.error){reject(new Error(res.error));return;}if(onProgress)onProgress(res);if(res.done){if(res.ok)resolve(res);else reject(new Error(res.text||'后台任务失败'));}else if(Date.now()>until)reject(new Error('任务仍未完成，请刷新服务状态后确认结果'));else window.setTimeout(check,650);}).catch(function(err){if(!reconnect){reject(err);return;}if(failedSince===null)failedSince=Date.now();if(Date.now()>until||Date.now()-failedSince>=90000){var pending=new Error('连接中断，请刷新页面或重新登录后确认安装结果');pending.unconfirmed=true;reject(pending);}else window.setTimeout(check,1000);});}check();});}
 function job(kind,args,onProgress){return startJob(kind,JSON.stringify(args||[])).then(checked).then(function(start){return waitJob(start.id,185000,onProgress);});}
 function operation(result){checked(result);var budget=Number(result.timeout_ms)||630000;budget=Math.max(1000,Math.min(result.reconnect?2430000:1230000,budget));return result.id?waitJob(result.id,budget,null,result.reconnect===true):result;}
 if (typeof document !== 'undefined' && document.head && document.body) mount();
-return baseclass.extend({icon:icon,badge:badge,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,poll:trackPoll,mount:mount,themePicker:themePicker,appearanceControls:appearanceControls,pages:PAGES});
+return baseclass.extend({icon:icon,badge:badge,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,poll:trackPoll,mount:mount,navigate:navigateTo,themePicker:themePicker,appearanceControls:appearanceControls,pages:PAGES});

@@ -15,7 +15,7 @@
 import { readfile, writefile } from 'fs';
 import { cursor } from 'uci';
 import { device_access, device_fallback_rules } from '/usr/libexec/bettbox/device-access.uc';
-import { preserve_node_dns, check_dns, protect_real_ip, real_ip_domain } from '/usr/libexec/bettbox/dns-policy.uc';
+import { preserve_node_dns, check_dns, protect_real_ip, real_ip_domain, adapt_router_dns } from '/usr/libexec/bettbox/dns-policy.uc';
 
 const BETT_RULES = 'https://github.com/appshubcc/bett-rules/releases/latest/download';
 
@@ -273,19 +273,26 @@ for (let k in ['mmdb', 'geosite', 'asn']) {
 patch['geox-url'] = geox;
 
 // Keep subscription or script DNS by default and set the router's listener.
-if (devices.enabled && mode != 'off' && !match(uci('dns', 'listen') ?? '0.0.0.0:1053', /^(0\.0\.0\.0|\[::\]):[0-9]+$/))
+let ipv6_enabled = (uci('config', 'ipv6') == '1');
+let raw_dns_listen = uci('dns', 'listen') ?? '0.0.0.0:1053';
+let dns_listen = (ipv6_enabled && substr(raw_dns_listen, 0, 8) == '0.0.0.0:')
+	? ('[::]:' + substr(raw_dns_listen, 8))
+	: raw_dns_listen;
+if (devices.enabled && mode != 'off' && !match(dns_listen, /^(0\.0\.0\.0|\[::\]):[0-9]+$/))
 	die('设备控制需要 DNS 监听 0.0.0.0:端口 或 [::]:端口\n');
 if (type(base?.dns) == 'object' && base.dns.enable !== false) {
-	// keep the profile DNS; only ensure it serves on the loopback listener
+	// keep the profile DNS; only ensure it serves on the router listener
 	patch.dns = {
 		enable: true,
-		listen: uci('dns', 'listen') ?? '0.0.0.0:1053'
+		ipv6: ipv6_enabled,
+		listen: dns_listen
 	};
 } else {
 	// profile has no usable DNS: keep name resolution alive like upstream
 	patch.dns = {
 		enable: true,
-		listen: uci('dns', 'listen') ?? '0.0.0.0:1053',
+		ipv6: ipv6_enabled,
+		listen: dns_listen,
 		'enhanced-mode': 'redir-host',
 		// dnsmasq may forward to us; using system:// here would form a loop.
 		nameserver: [ '223.5.5.5', '119.29.29.29' ]
@@ -306,7 +313,6 @@ if (mode == 'tun') {
 		'auto-redirect': !devices.enabled && (uci('tun', 'auto_redirect') != '0'),
 		'strict-route': (uci('tun', 'strict_route') == '1'),
 		'auto-detect-interface': true,
-		'dns-mode': length(dns_hijack) > 0 ? 'hijack' : 'disabled',
 		'dns-hijack': length(dns_hijack) > 0 ? [ dns_hijack ] : [],
 		'endpoint-independent-nat': (uci('tun', 'endpoint_independent_nat') == '1'),
 		mtu: num(uci('tun', 'mtu'), 9000),
@@ -360,10 +366,8 @@ for (let p in enabled_ports) {
 
 // QUIC block (exact upstream strings, lib/state.dart buildPatchParams)
 let merge_members = sid != null ? uci(sid, 'merge_members') : null;
-let is_managed = sid != null && (
-	uci(sid, 'use_managed') == '1' ||
-	(type(merge_members) == 'array' ? length(merge_members) > 0 : length(merge_members ?? '') > 0)
-);
+let is_merged = type(merge_members) == 'array' ? length(merge_members) > 0 : length(merge_members ?? '') > 0;
+let is_managed = sid != null && (uci(sid, 'use_managed') == '1' || (is_merged && uci(sid, 'use_script') != '1'));
 if (uci('quic', 'block') == '1' && !is_managed)
 	push(prepend, 'AND,((NETWORK,UDP),(DST-PORT,443)),REJECT');
 
@@ -620,6 +624,24 @@ ctx.foreach('ddns','service',s=>{
 });
 protect_real_ip(final,real_domains);
 preserve_node_dns(final);
-let dns_warnings = check_dns(final, uci('config', 'hijack_dnsmasq') == '1' && !devices.enabled);
+let forwards_dnsmasq = (uci('config', 'hijack_dnsmasq') == '1') && !devices.enabled && mode != 'off';
+let local_domain = 'lan', resolv_path = '/tmp/resolv.conf.d/resolv.conf.auto';
+ctx.foreach('dhcp', 'dnsmasq', s => {
+	if (s.disabled == '1') return;
+	if (type(s.domain) == 'string' && length(trim(s.domain))) local_domain = trim(s.domain);
+	if (type(s.resolvfile) == 'string' && substr(s.resolvfile, 0, 1) == '/') resolv_path = s.resolvfile;
+});
+let system_servers = [];
+for (let line in split(readfile(resolv_path) ?? '', '\n')) {
+	let m = match(line, /^[ \t]*nameserver[ \t]+([^ \t#\r\n]+)/);
+	if (m && !(m[1] in system_servers)) push(system_servers, m[1]);
+}
+adapt_router_dns(final, forwards_dnsmasq, system_servers, local_domain, mode != 'off');
+let dns_warnings = check_dns(final, forwards_dnsmasq);
 for (let message in dns_warnings) warn('DNS 配置检查: ' + message + '\n');
 writefile(argv[1], dump_yaml(final));
+writefile(argv[1] + '.sig', sprintf('%J\n', [
+	final.dns?.['enhanced-mode'] ?? '',
+	final.dns?.['fake-ip-filter-mode'] ?? 'blacklist',
+	final.dns?.['fake-ip-filter'] ?? []
+]));

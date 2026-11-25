@@ -139,7 +139,7 @@ bettbox_release_network() {
 
 bettbox_network_settings() {
 	local key value
-	for key in transparent_mode hijack_dnsmasq device_mode device_ips external_controller secret mixed_port tproxy_port redir_port port socks_port; do
+	for key in ipv6 transparent_mode hijack_dnsmasq device_mode device_ips external_controller secret mixed_port tproxy_port redir_port port socks_port; do
 		value=$(uci -q get "bettbox.config.$key")
 		printf '%s=%s\n' "$key" "$value"
 	done
@@ -162,6 +162,10 @@ service_started() {
 		/usr/libexec/bettbox/dnsmasq.sh apply; then
 		(umask 077; bettbox_network_settings > "$RUN_DIR/network-settings")
 		touch "$RUN_DIR/ready"
+		if [ -f "$RUN_DIR/flush-fakeip" ]; then
+			api_call POST /cache/fakeip/flush '' >/dev/null 2>&1 || true
+			rm -f "$RUN_DIR/flush-fakeip"
+		fi
 		/usr/libexec/bettbox/cron.sh ensure || logger -t "$NAME" "subscription scheduler setup failed"
 		return 0
 	fi

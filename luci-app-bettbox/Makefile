@@ -6,8 +6,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-bettbox
-PKG_VERSION:=1.19.10
-PKG_RELEASE:=2
+PKG_VERSION:=1.20.0
+PKG_RELEASE:=1
 
 PKG_MAINTAINER:=Bettbox for OpenWrt contributors
 PKG_LICENSE:=GPL-3.0

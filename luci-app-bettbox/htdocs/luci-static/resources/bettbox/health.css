@@ -39,15 +39,16 @@
 .bb-app .bb-tb-inline-err{padding:10px 12px;border-radius:8px;background:color-mix(in srgb,var(--bb-danger) 10%,var(--surface-solid,var(--surface)));color:var(--bb-danger);font-size:12px}
 
 /* Health */
-.bb-app .bb-health-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.bb-app .bb-health-layer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:12px 14px;border:1px solid var(--bb-line);border-radius:10px;background:var(--subtle);min-width:0}
+.bb-app .bb-health-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.bb-app .bb-health-layer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:12px 14px;border:1px solid var(--bb-line);border-radius:10px;background:var(--surface-solid,var(--surface));min-width:0}
 .bb-app .bb-health-layer.is-ok{border-left:3px solid var(--bb-good)}
 .bb-app .bb-health-layer.is-fail{border-left:3px solid var(--bb-danger);background:color-mix(in srgb,var(--bb-danger) 6%,var(--subtle))}
 .bb-app .bb-health-layer>strong{font-size:13px}
 .bb-app .bb-health-layer>span:last-child{grid-column:1/-1;overflow-wrap:anywhere}
-.bb-app .bb-health-memory{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0 0;padding-top:14px;border-top:1px solid var(--bb-line)}
+.bb-app .bb-health-memory{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0 0;padding-top:12px;border-top:1px solid var(--bb-line)}
+.bb-app .bb-health-memory>div{padding:10px 12px;border:1px solid var(--bb-line);border-radius:10px;background:var(--surface-solid,var(--surface));min-width:0}
 .bb-app .bb-health-memory dt{font-size:12px;color:var(--muted)}
-.bb-app .bb-health-memory dd{margin:6px 0 0;font-weight:600;overflow-wrap:anywhere}
+.bb-app .bb-health-memory dd{margin:4px 0 0;font-size:15px;font-weight:650;overflow-wrap:anywhere}
 
 /* Route Trace */
 .bb-app .bb-trace-hero{padding:14px 16px;border-radius:12px;border:1px solid var(--bb-line);background:var(--subtle);margin:14px 0}
@@ -113,6 +114,9 @@
 .bb-app .bb-series-label{font-size:12px;color:var(--secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bb-app .bb-series-val{font-size:12px;white-space:nowrap}
 
+@media(max-width:1199px){
+	.bb-app .bb-health-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 @media(max-width:767px){
 	.bb-app .bb-tb-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
 	.bb-app .bb-trace-cards{grid-template-columns:minmax(0,1fr)}

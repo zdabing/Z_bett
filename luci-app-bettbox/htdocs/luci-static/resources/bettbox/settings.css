@@ -9,38 +9,53 @@
 .bb-app.bb-settings .device-fallback-row>.btn{margin-top:25px}
 @media(max-width:599px){.bb-app.bb-settings .device-fallback-row{grid-template-columns:minmax(0,1fr) auto}.bb-app.bb-settings .device-fallback-row>div{grid-column:1/-1}.bb-app.bb-settings .device-fallback-row>.btn{margin-top:25px}.bb-app.bb-settings .device-fallback-controls{padding:15px}}
 .bb-app.bb-settings .settings-layout{display:block;min-width:0}
-.bb-app.bb-settings .settings-categories{position:static;display:flex;align-items:center;gap:18px;width:100%;max-width:100%;padding:0 4px;margin:0 0 18px;border:0;border-bottom:1px solid var(--bb-line);border-radius:0;background:transparent;overflow-x:auto}
-.bb-app.bb-settings .category-button{position:relative;display:flex;justify-content:center;align-items:center;gap:7px;width:auto;min-height:42px;padding:8px 4px 10px;margin:0;border-radius:0;font-size:13px;line-height:1.4;color:var(--secondary);background:transparent}
+.bb-app.bb-settings .settings-categories{position:static;display:flex;align-items:center;gap:14px;width:100%;max-width:100%;padding:0 2px;margin:0 0 12px;border:0;border-bottom:1px solid var(--bb-line);border-radius:0;background:transparent;overflow-x:auto}
+.bb-app.bb-settings .category-button{position:relative;display:flex;justify-content:center;align-items:center;gap:6px;width:auto;min-height:36px;padding:6px 4px 8px;margin:0;border-radius:0;font-size:13px;line-height:1.4;color:var(--secondary);background:transparent;white-space:nowrap}
 .bb-app.bb-settings .category-button:hover{background:transparent;color:var(--ink)}
 .bb-app.bb-settings .category-button.active{background:transparent;color:var(--accent-strong,var(--bb-accent));font-weight:600}
 .bb-app.bb-settings .category-button.active::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px;background:var(--bb-accent)}
-.bb-app.bb-settings .category-button>.ico{width:16px;height:16px}
-.bb-app.bb-settings .bb-appearance-panel>.panel-body{padding:16px 20px 20px}
-.bb-app.bb-settings .settings-content{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;padding:0;min-width:0}
+.bb-app.bb-settings .category-button>.ico{width:15px;height:15px}
+.bb-app.bb-settings .bb-appearance-panel>.panel-body{padding:12px 18px 14px}
+.bb-app.bb-settings .bb-appearance-panel .bb-appearance-controls{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px 24px;align-items:start}
+.bb-app.bb-settings .bb-appearance-panel .bb-appearance-group.wide{grid-column:1/-1}
+.bb-app.bb-settings .bb-appearance-panel .bb-style-grid{margin-top:6px;gap:8px}
+.bb-app.bb-settings .bb-appearance-panel .bb-style-card{min-height:42px;padding:8px 10px;font-size:12px}
+.bb-app.bb-settings .bb-appearance-panel .bb-mode-segmented{margin-top:6px}
+.bb-app.bb-settings .bb-appearance-panel .bb-mode-btn{min-height:34px}
+.bb-app.bb-settings .settings-content{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:0;min-width:0}
 .bb-app.bb-settings .settings-panel{grid-column:1/-1;min-width:0;padding:0;margin:0;overflow:hidden}
+.bb-app.bb-settings .settings-panel[hidden]{display:none!important}
 .bb-app.bb-settings .settings-panel+.settings-panel{margin-top:0}
-.bb-app.bb-settings .settings-panel>.panel-head{align-items:center;padding:15px 20px 11px;min-height:48px}
-.bb-app.bb-settings .settings-panel>.panel-head h2{display:flex;align-items:center;gap:9px;margin:0;font-size:15px;font-weight:600;line-height:1.5}
-.bb-app.bb-settings .settings-panel>.panel-head h2>.ico{width:17px;height:17px;color:var(--bb-accent)}
+.bb-app.bb-settings .settings-panel>.panel-head{align-items:center;padding:11px 18px 8px;min-height:42px}
+.bb-app.bb-settings .settings-panel>.panel-head h2{display:flex;align-items:center;gap:8px;margin:0;font-size:14px;font-weight:600;line-height:1.4}
+.bb-app.bb-settings .settings-panel>.panel-head h2>.ico{width:16px;height:16px;color:var(--bb-accent)}
 .bb-app.bb-settings .settings-panel>.panel-head .bb-icon-badge>.ico{color:inherit}
-.bb-app.bb-settings .settings-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px;padding:0 20px 14px;min-width:0}
-.bb-app.bb-settings .settings-form>.settings-form-help{grid-column:1/-1;margin-bottom:6px}
-.bb-app.bb-settings .setting-row{display:grid;grid-template-columns:160px minmax(0,1fr);align-items:center;gap:16px;min-height:60px;padding:8px 0;border:0}
-.bb-app.bb-settings .setting-row.wide{grid-column:1/-1}
-.bb-app.bb-settings .setting-label{display:block;margin:0;padding:0;line-height:1.5;font-size:12px;font-weight:500;overflow-wrap:anywhere}
+.bb-app.bb-settings .settings-fold>summary.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer;list-style:none;user-select:none}
+.bb-app.bb-settings .settings-fold>summary.panel-head::-webkit-details-marker{display:none}
+.bb-app.bb-settings .settings-fold-hint{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;color:var(--muted)}
+.bb-app.bb-settings .settings-fold-hint .ico{width:14px;height:14px;transition:transform .16s ease}
+.bb-app.bb-settings .settings-fold[open] .settings-fold-hint .ico{transform:rotate(180deg)}
+.bb-app.bb-settings .settings-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:2px 18px 14px;min-width:0}
+.bb-app.bb-settings .settings-form>.settings-form-help{grid-column:1/-1;margin-bottom:2px}
+.bb-app.bb-settings .setting-row{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px;min-height:44px;padding:5px 10px 5px 12px;border:1px solid var(--bb-line);border-radius:10px;background:var(--surface-solid,var(--surface));transition:border-color .15s}
+.bb-app.bb-settings .setting-row:focus-within{border-color:color-mix(in srgb,var(--bb-accent) 45%,var(--bb-line))}
+.bb-app.bb-settings .setting-row[hidden]{display:none!important}
+.bb-app.bb-settings .setting-row.wide{grid-column:1/-1;grid-template-columns:136px minmax(0,1fr);gap:12px}
+.bb-app.bb-settings .setting-row.wide.multiline{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:9px 12px 10px}
+.bb-app.bb-settings .setting-label{display:block;margin:0;padding:0;line-height:1.4;font-size:12px;font-weight:500;color:var(--secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bb-app.bb-settings .setting-control{display:flex;align-items:center;justify-content:flex-end;min-width:0;width:100%;margin:0}
-.bb-app.bb-settings .setting-control>.field{width:100%;max-width:none;min-height:40px;height:40px;margin:0;padding:8px 11px;font-size:13px;line-height:1.5}
-.bb-app.bb-settings .setting-control>textarea.field{min-height:72px;height:72px;resize:vertical}
-.bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto;gap:16px}
-.bb-app.bb-settings .setting-row.flag>.setting-control{width:44px;flex:none}
-.bb-app.bb-settings .setting-row.flag .switch{width:44px;height:44px;min-height:44px;padding:0;border:0;background:transparent;border-radius:10px}
+.bb-app.bb-settings .setting-control>.field{width:100%;max-width:none;min-height:32px;height:32px;margin:0;padding:4px 9px;border:1px solid var(--bb-line);border-radius:8px;background:var(--surface-solid,var(--surface));font-size:13px;line-height:1.4}
+.bb-app.bb-settings .setting-control>textarea.field{min-height:66px;height:66px;padding:7px 10px;resize:vertical}
+.bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto;gap:10px}
+.bb-app.bb-settings .setting-row.flag>.setting-control{width:42px;flex:none}
+.bb-app.bb-settings .setting-row.flag .switch{width:42px;height:32px;min-height:32px;padding:0;border:0;background:transparent;border-radius:10px}
 .bb-app.bb-settings .setting-row.flag .switch.is-managed:disabled{cursor:not-allowed}
-.bb-app.bb-settings .setting-row.flag .switch::before{content:'';position:absolute;left:2px;top:10px;width:40px;height:24px;border-radius:14px;background:var(--bb-accent)}
+.bb-app.bb-settings .setting-row.flag .switch::before{content:'';position:absolute;left:1px;top:4px;width:40px;height:24px;border-radius:14px;background:var(--bb-accent)}
 .bb-app.bb-settings .setting-row.flag .switch.off::before{background:var(--switch-off,#bdc7c0)}
-.bb-app.bb-settings .setting-row.flag .switch::after{width:18px;height:18px;top:13px;right:5px;left:auto}
-.bb-app.bb-settings .setting-row.flag .switch.off::after{left:5px;right:auto}
-.bb-app.bb-settings .settings-save-bar{position:sticky;left:auto;right:auto;bottom:12px;z-index:16;width:100%;max-width:none;margin:16px 0 0;padding:10px 16px;border:1px solid var(--bb-line);border-radius:12px;background:var(--surface);box-shadow:var(--bb-shadow,0 3px 14px #233c3310);backdrop-filter:var(--bb-blur);-webkit-backdrop-filter:var(--bb-blur);min-height:66px}
-.bb-app.bb-settings .settings-save-bar .btn{min-height:44px;padding:9px 13px;font-size:12px}
+.bb-app.bb-settings .setting-row.flag .switch::after{width:18px;height:18px;top:7px;right:4px;left:auto}
+.bb-app.bb-settings .setting-row.flag .switch.off::after{left:4px;right:auto}
+.bb-app.bb-settings .settings-save-bar{position:sticky;left:auto;right:auto;bottom:10px;z-index:16;width:100%;max-width:none;margin:12px 0 0;padding:8px 14px;border:1px solid var(--bb-line);border-radius:12px;background:var(--surface);box-shadow:var(--bb-shadow,0 3px 14px #233c3310);backdrop-filter:var(--bb-blur);-webkit-backdrop-filter:var(--bb-blur);min-height:52px}
+.bb-app.bb-settings .settings-save-bar .btn{min-height:36px;padding:7px 12px;font-size:12px}
 .bb-app.bb-settings .settings-save-bar strong{font-size:12px;font-weight:500}
 .bb-app.bb-settings .device-settings{overflow:visible}
 .bb-app.bb-settings .device-settings-form{display:grid;grid-template-columns:minmax(11rem,.36fr) minmax(0,1fr);align-items:start;gap:16px 22px;padding:4px 20px 20px}
@@ -77,10 +92,11 @@
 .bb-app.bb-settings .device-picker-error{color:var(--bb-danger,#bc4949)}
 .bb-app.bb-settings .device-picker:disabled{opacity:.65}
 .bb-app.bb-settings .device-picker [hidden]{display:none!important}
-@media(max-width:1199px){
- .bb-app.bb-settings .settings-form{grid-template-columns:minmax(0,1fr)}
- .bb-app.bb-settings .setting-row,.bb-app.bb-settings .setting-row.wide{grid-template-columns:minmax(160px,.7fr) minmax(0,1.3fr);gap:20px}
- .bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto}
+@media(max-width:1279px){
+ .bb-app.bb-settings .settings-form{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:959px){
+ .bb-app.bb-settings .settings-form{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:719px){
  .bb-app.bb-settings .device-settings-form{grid-template-columns:minmax(0,1fr);gap:14px;padding:4px 16px 16px}
@@ -89,16 +105,35 @@
  .bb-app.bb-settings .category-button>.ico{width:16px;height:16px}
  .bb-app.bb-settings .settings-content{grid-template-columns:minmax(0,1fr);gap:12px}
  .bb-app.bb-settings .settings-panel>.panel-head{padding:14px 16px 6px;min-height:44px}
- .bb-app.bb-settings .settings-form{padding:0 16px 12px}
- .bb-app.bb-settings .setting-row,.bb-app.bb-settings .setting-row.wide{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;padding:8px 0;min-height:60px}
- .bb-app.bb-settings .setting-label{font-size:13px}
+ .bb-app.bb-settings .bb-appearance-panel .bb-appearance-controls{grid-template-columns:minmax(0,1fr);gap:12px}
+ .bb-app.bb-settings .settings-form{grid-template-columns:minmax(0,1fr);gap:8px;padding:2px 14px 12px}
+ .bb-app.bb-settings .setting-row,.bb-app.bb-settings .setting-row.wide{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;padding:9px 12px;min-height:0}
+ .bb-app.bb-settings .setting-row.wide.multiline{display:flex;padding:9px 12px}
+ .bb-app.bb-settings .setting-label{font-size:13px;white-space:normal}
  .bb-app.bb-settings .setting-control>.field{height:44px;min-height:44px;font-size:16px}
  .bb-app.bb-settings .device-picker-search{height:44px;min-height:44px;font-size:16px}
  .bb-app.bb-settings .device-picker-remove,.bb-app.bb-settings .device-picker-toggle{width:44px;height:44px;min-height:44px}
- .bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto;gap:14px;padding:5px 0;min-height:54px}
+ .bb-app.bb-settings .setting-row.flag{grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:5px 12px;min-height:54px}
+ .bb-app.bb-settings .setting-row.flag .switch{height:44px;min-height:44px}
+ .bb-app.bb-settings .setting-row.flag .switch::before{top:10px}
+ .bb-app.bb-settings .setting-row.flag .switch::after{top:13px}
  .bb-app.bb-settings .setting-row.flag>div{flex:none}
  .bb-app.bb-settings .settings-save-bar{bottom:0;margin-top:12px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-radius:12px;gap:8px}
  .bb-app.bb-settings .settings-save-bar strong{font-size:11px}
  .bb-app.bb-settings .settings-save-bar .button-row{gap:6px}
  .bb-app.bb-settings .settings-save-bar .btn{padding:9px 10px;min-height:44px}
+ .bb-app.bb-settings .settings-resources-host .grid-two{grid-template-columns:minmax(0,1fr)}
 }
+.bb-app.bb-settings .settings-resources-host{grid-column:1/-1;min-width:0}
+.bb-app.bb-settings .settings-resources-host[hidden]{display:none!important}
+.bb-app.bb-settings .settings-resources-host .stack,.bb-app.bb-settings .settings-resources-host .grid-two{gap:10px;align-items:stretch}
+.bb-app.bb-settings .settings-resources-host .panel>.panel-head{padding:11px 18px 8px;min-height:42px;align-items:center}
+.bb-app.bb-settings .settings-resources-host .panel>.panel-head h2{font-size:14px;gap:8px}
+.bb-app.bb-settings .settings-resources-host .panel>.panel-body{padding:12px 18px 14px}
+.bb-app.bb-settings .bb-geo-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.bb-app.bb-settings .bb-geo-grid .resource-row.bb-geo-card{display:flex;flex-direction:column;justify-content:space-between;align-items:stretch;gap:10px;padding:11px 12px;border:1px solid var(--bb-line);border-radius:10px;background:var(--surface-solid,var(--surface));min-width:0}
+.bb-app.bb-settings .bb-geo-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0}
+.bb-app.bb-settings .bb-geo-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;border-top:1px solid var(--bb-line);font-size:11px;color:var(--secondary)}
+.bb-app.bb-settings .bb-geo-foot>small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:1279px){.bb-app.bb-settings .bb-geo-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:599px){.bb-app.bb-settings .bb-geo-grid{grid-template-columns:minmax(0,1fr)}}

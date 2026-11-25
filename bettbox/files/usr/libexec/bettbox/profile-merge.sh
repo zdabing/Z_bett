@@ -3,6 +3,15 @@
 . /usr/libexec/bettbox/common.sh
 umask 077
 
+script_explicit=0
+override_script=''
+if [ "$1" = '--script' ]; then
+	[ "$#" -ge 2 ] || die '缺少覆写脚本参数'
+	script_explicit=1
+	override_script=$2
+	shift 2
+fi
+
 action=$1
 sid=$2
 label=$3
@@ -28,24 +37,40 @@ if [ "$action" = refresh ] || [ "$action" = edit ]; then
 fi
 [ "$#" -ge 2 ] && [ "$#" -le 8 ] || die '请选择 2 至 8 份订阅'
 
+nodes_only=0
+target_script=''
+if [ "$script_explicit" = 1 ]; then
+	if [ -n "$override_script" ]; then
+		[ -f "$BETTBOX_SCRIPTS/$override_script.js" ] || die '所选覆写脚本不存在'
+		nodes_only=1
+		target_script="$override_script"
+	fi
+elif [ "$sid" != new ] && [ "$(uci_get "bettbox.$sid.use_script")" = "1" ] && [ -n "$(uci_get "bettbox.$sid.script")" ]; then
+	nodes_only=1
+	target_script=$(uci_get "bettbox.$sid.script")
+	[ -f "$BETTBOX_SCRIPTS/$target_script.js" ] || die '所选覆写脚本不存在'
+fi
+
 members=''
 n=0
 total=0
 failed=0
 : > "$work/prefixes"
-# Bettbox merges the outputs of the managed script, one for each member.
-if [ "$sid" = new ]; then
-	printf '{}\n' > "$work/managed.json"
-else
-	uci -q get "bettbox.$sid.managed_routing" > "$work/managed.json" || printf '{}\n' > "$work/managed.json"
+if [ "$nodes_only" = 0 ]; then
+	# Bettbox merges the outputs of the managed script, one for each member.
+	if [ "$sid" = new ]; then
+		printf '{}\n' > "$work/managed.json"
+	else
+		uci -q get "bettbox.$sid.managed_routing" > "$work/managed.json" || printf '{}\n' > "$work/managed.json"
+	fi
+	node_names=''
+	if [ -s /etc/bettbox/nodes.json ]; then
+		node_names="$work/active-node-names.json"
+		ucode /usr/libexec/bettbox/node-store.uc active-names "$sid" 1 > "$node_names" || node_names=''
+	fi
+	ucode /usr/libexec/bettbox/managed-routing.uc "$work/managed.json" "$work/managed.js" ${node_names:+"$node_names"} || exit 1
+	opts=$(uci_get "bettbox.$sid.managed_options")
 fi
-node_names=''
-if [ -s /etc/bettbox/nodes.json ]; then
-	node_names="$work/active-node-names.json"
-	ucode /usr/libexec/bettbox/node-store.uc active-names "$sid" 1 > "$node_names" || node_names=''
-fi
-ucode /usr/libexec/bettbox/managed-routing.uc "$work/managed.json" "$work/managed.js" ${node_names:+"$node_names"} || exit 1
-opts=$(uci_get "bettbox.$sid.managed_options")
 for member in "$@"; do
 	case "$member" in ''|*[!A-Za-z0-9_-]*) die '无效的成员订阅 ID' ;; esac
 	case " $members " in *" $member "*) die '成员订阅不能重复' ;; esac
@@ -59,13 +84,22 @@ for member in "$@"; do
 	total=$((total + size))
 	[ "$total" -le 8388608 ] || die '成员订阅合计超过 8 MiB'
 	next=$((n + 1))
-	if ! timeout 5 yq -o=json -I=0 '.' "$src" > "$work/input.json" ||
-		! timeout 30 bettbox-forge run --script "$work/managed.js" --config "$work/input.json" \
-			${opts:+--options "$opts"} --out "$work/$next.json" 2> "$work/forge.log"; then
-		rm -f "$work/$next.json"
-		failed=$((failed + 1))
-		log "merge member $member could not be prepared"
-		continue
+	if [ "$nodes_only" = 1 ]; then
+		if ! timeout 5 yq -o=json -I=0 '.' "$src" > "$work/$next.json"; then
+			rm -f "$work/$next.json"
+			failed=$((failed + 1))
+			log "merge member $member could not be prepared"
+			continue
+		fi
+	else
+		if ! timeout 5 yq -o=json -I=0 '.' "$src" > "$work/input.json" ||
+			! timeout 30 bettbox-forge run --script "$work/managed.js" --config "$work/input.json" \
+				${opts:+--options "$opts"} --out "$work/$next.json" 2> "$work/forge.log"; then
+			rm -f "$work/$next.json"
+			failed=$((failed + 1))
+			log "merge member $member could not be prepared"
+			continue
+		fi
 	fi
 	n=$next
 	prefix=$(uci_get "bettbox.$member.merge_prefix")
@@ -79,8 +113,13 @@ done
 [ "$n" -gt 0 ] || die '没有可以合并的成员配置'
 
 # Merge with the packaged Bettbox code even when a standalone Mihomo is active.
-report=$(timeout 15 /usr/bin/mihomo bettbox-merge "$work/result.yaml" "$work/prefixes" "$work"/[1-8].json) ||
-	die '无法合并订阅'
+if [ "$nodes_only" = 1 ]; then
+	report=$(timeout 15 /usr/bin/mihomo bettbox-merge --nodes-only "$work/result.yaml" "$work/prefixes" "$work"/[1-8].json) ||
+		die '无法合并订阅'
+else
+	report=$(timeout 15 /usr/bin/mihomo bettbox-merge "$work/result.yaml" "$work/prefixes" "$work"/[1-8].json) ||
+		die '无法合并订阅'
+fi
 report=$(ucode -e 'let report=json(ARGV[0]); report.failed=int(ARGV[1]); print(sprintf("%J", report));' "$report" "$failed") || exit 1
 
 core=$(core_binary)
@@ -108,7 +147,17 @@ fi
 
 active=0
 if [ "$(uci_get bettbox.config.profile)" = "$sid" ] && [ "$(uci_get bettbox.config.enabled)" = 1 ]; then active=1; fi
+prev_saved=0
+prev_use_script=''
+prev_script=''
+prev_use_managed=''
 restore() {
+	if [ "$prev_saved" = 1 ]; then
+		if [ -n "$prev_use_script" ]; then uci set "bettbox.$sid.use_script=$prev_use_script"; else uci -q delete "bettbox.$sid.use_script" || :; fi
+		if [ -n "$prev_script" ]; then uci set "bettbox.$sid.script=$prev_script"; else uci -q delete "bettbox.$sid.script" || :; fi
+		if [ -n "$prev_use_managed" ]; then uci set "bettbox.$sid.use_managed=$prev_use_managed"; else uci -q delete "bettbox.$sid.use_managed" || :; fi
+		uci commit bettbox || :
+	fi
 	if [ -f "$work/previous.yaml" ]; then
 		mv -f "$work/previous.yaml" "$target" || die '恢复合并订阅失败'
 	else
@@ -118,6 +167,18 @@ restore() {
 		/usr/libexec/bettbox/apply.sh live >&2 || log '恢复旧合并订阅后，运行配置应用失败'
 	fi
 }
+
+if [ "$active" = 1 ] && [ "$script_explicit" = 1 ]; then
+	prev_saved=1
+	prev_use_script=$(uci_get "bettbox.$sid.use_script")
+	prev_script=$(uci_get "bettbox.$sid.script")
+	prev_use_managed=$(uci_get "bettbox.$sid.use_managed")
+	if [ "$nodes_only" = 1 ]; then
+		uci set "bettbox.$sid.use_script=1" && uci set "bettbox.$sid.script=$target_script" && uci set "bettbox.$sid.use_managed=0" && uci commit bettbox || exit 1
+	else
+		uci set "bettbox.$sid.use_script=0" && uci commit bettbox || exit 1
+	fi
+fi
 
 mv -f "$work/result.yaml" "$target" || exit 1
 if [ "$active" = 1 ] && ! /usr/libexec/bettbox/apply.sh live > "$work/apply.log" 2>&1; then
@@ -135,6 +196,13 @@ save() {
 	if [ "$action" != refresh ]; then
 		uci set "bettbox.$sid.label=${label:-合并订阅}" &&
 			uci set "bettbox.$sid.merge_members=$members" || return 1
+		if [ "$script_explicit" = 1 ]; then
+			if [ "$nodes_only" = 1 ]; then
+				uci set "bettbox.$sid.use_script=1" && uci set "bettbox.$sid.script=$target_script" && uci set "bettbox.$sid.use_managed=0" || return 1
+			else
+				uci set "bettbox.$sid.use_script=0" || return 1
+			fi
+		fi
 	fi
 	uci set "bettbox.$sid.merge_proxies=$proxies" &&
 		uci set "bettbox.$sid.merge_groups=$groups" &&

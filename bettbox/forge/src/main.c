@@ -7,7 +7,7 @@
 #include <string.h>
 
 #ifndef BETTBOX_FORGE_VERSION
-#define BETTBOX_FORGE_VERSION "1.19.10"
+#define BETTBOX_FORGE_VERSION "1.20.0"
 #endif
 
 typedef enum {

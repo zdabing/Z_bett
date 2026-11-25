@@ -16,15 +16,34 @@ proxy_arg() {
 
 dns_query() {
 	# dns_query <name> [type] [mode] [server]   mode: follow|system|custom
-	local name="$1" type="${2:-A}" mode="${3:-follow}" server="$4"
+	local name="$1" type="${2:-A}" mode="${3:-follow}" server="$4" out rc hp secret
+	case "$type" in A|AAAA|CNAME|TXT|MX|NS|SOA|PTR|SRV|SVCB|HTTPS) ;; *) die "invalid record type" ;; esac
 	if [ "$mode" = "follow" ]; then
-		api_call GET "/dns/query?name=$(printf %s "$name" | sed 's/ /%20/g')&type=$type"
+		hp=$(api_host_port)
+		secret=$(api_secret)
+		curl -fsS --connect-timeout 3 -m 8 -G -H "Authorization: Bearer $secret" \
+			--data-urlencode "name=$name" --data-urlencode "type=$type" \
+			"http://${hp}/dns/query"
 		echo
 	elif [ "$mode" = "system" ]; then
-		nslookup "$name" 2>&1
+		out=$(nslookup -type="$type" "$name" 2>&1)
+		rc=$?
+		if printf '%s' "$out" | grep -Eiq 'usage:|unrecognized option|invalid option'; then
+			nslookup "$name" 2>&1
+		else
+			printf '%s\n' "$out"
+			return "$rc"
+		fi
 	else
 		[ -n "$server" ] || die "custom mode needs a server"
-		nslookup "$name" "$server" 2>&1
+		out=$(nslookup -type="$type" "$name" "$server" 2>&1)
+		rc=$?
+		if printf '%s' "$out" | grep -Eiq 'usage:|unrecognized option|invalid option'; then
+			nslookup "$name" "$server" 2>&1
+		else
+			printf '%s\n' "$out"
+			return "$rc"
+		fi
 	fi
 }
 

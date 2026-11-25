@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-// Bettbox v1.19.8 (88b9597), core/profile_merge.go.
+// Bettbox v1.20.0 (86e94e3), core/profile_merge.go.
 package bettbox
 
 import (
@@ -50,12 +50,21 @@ var mergeRebuiltKeys = map[string]bool{
 	"hosts":          true,
 }
 
+var mergeNodesKeys = []string{"proxies", "dns", "hosts"}
+
+const mergeNodesGroup = "Proxy"
+
 var proxyNameBlank = regexp.MustCompile(`[\r\n\t]+`)
 
 var yamlLeadingKeys = []string{"name", "type", "server", "port"}
 
 // MergeFiles merges JSON members in order. The caller validates the resulting YAML before publishing it.
 func MergeFiles(output, prefixFile string, paths []string) (MergeReport, error) {
+	return MergeFilesWithOptions(output, prefixFile, paths, false)
+}
+
+// MergeFilesWithOptions merges JSON members in order, optionally stripping rules/groups for external scripts.
+func MergeFilesWithOptions(output, prefixFile string, paths []string, nodesOnly bool) (MergeReport, error) {
 	if len(paths) == 0 || len(paths) > 8 {
 		return MergeReport{}, errors.New("expected 1 to 8 profiles")
 	}
@@ -82,6 +91,10 @@ func MergeFiles(output, prefixFile string, paths []string) (MergeReport, error) 
 		if index == 0 {
 			order = jsonObjectKeys(data)
 		}
+		if nodesOnly {
+			cfg = pickKeys(cfg, mergeNodesKeys)
+			dropUnresolvedDialers(cfg)
+		}
 		prefix := prefixes[index]
 		if strings.HasPrefix(prefix, "auto:") {
 			prefix = bundlePrefix(strings.TrimPrefix(prefix, "auto:"))
@@ -91,7 +104,12 @@ func MergeFiles(output, prefixFile string, paths []string) (MergeReport, error) 
 		inputs = append(inputs, mergeInput{config: cfg, prefix: prefix})
 	}
 	merged, report := mergeProfileConfigs(inputs)
-	data, err := yamlv3.Marshal(orderedYamlNode(merged, order))
+	if nodesOnly {
+		dropRuleSetReferences(mapValue(merged["dns"]))
+		addNodesGroup(merged)
+		report.Groups = 1
+	}
+	data, err := marshalYamlNode(orderedYamlNode(merged, order))
 	if err != nil {
 		return MergeReport{}, err
 	}
@@ -136,8 +154,12 @@ func mergeProfileConfigs(inputs []mergeInput) (map[string]any, MergeReport) {
 	hosts := map[string]any{}
 	var dns map[string]any
 	policy := map[string]any{}
-	var fakeIPFilter []any
-	fakeIPSeen := map[string]bool{}
+	var proxyServers []any
+	type memberFilter struct {
+		mode  string
+		items []any
+	}
+	var filters []memberFilter
 	conflicts := 0
 
 	for _, input := range inputs {
@@ -214,8 +236,11 @@ func mergeProfileConfigs(inputs []mergeInput) (map[string]any, MergeReport) {
 		}
 
 		if memberDNS := mapValue(input.config["dns"]); memberDNS != nil {
-			if dns == nil {
+			if dns == nil || (memberDNS["enable"] == true && dns["enable"] != true) {
 				dns = copyMap(memberDNS)
+			}
+			if servers := listValue(memberDNS["proxy-server-nameserver"]); len(servers) > 0 && proxyServers == nil {
+				proxyServers = servers
 			}
 			expanded := expandNameserverPolicy(mapValue(memberDNS["proxy-server-nameserver-policy"]), domains)
 			for _, key := range sortedKeys(expanded) {
@@ -228,13 +253,10 @@ func mergeProfileConfigs(inputs []mergeInput) (map[string]any, MergeReport) {
 				}
 				policy[key] = value
 			}
-			for _, pattern := range listValue(memberDNS["fake-ip-filter"]) {
-				text := fmt.Sprint(pattern)
-				if !fakeIPSeen[text] {
-					fakeIPSeen[text] = true
-					fakeIPFilter = append(fakeIPFilter, pattern)
-				}
-			}
+			filters = append(filters, memberFilter{
+				mode:  fakeIPFilterMode(memberDNS["fake-ip-filter-mode"]),
+				items: listValue(memberDNS["fake-ip-filter"]),
+			})
 		}
 
 		for _, key := range sortedKeys(mapValue(input.config["hosts"])) {
@@ -274,8 +296,26 @@ func mergeProfileConfigs(inputs []mergeInput) (map[string]any, MergeReport) {
 	if dns != nil {
 		if len(policy) > 0 {
 			dns["proxy-server-nameserver-policy"] = simplifyDomainPolicy(policy)
+			if len(listValue(dns["proxy-server-nameserver"])) == 0 && proxyServers != nil {
+				dns["proxy-server-nameserver"] = proxyServers
+			}
 		} else {
 			delete(dns, "proxy-server-nameserver-policy")
+		}
+		mode := fakeIPFilterMode(dns["fake-ip-filter-mode"])
+		fakeIPFilter := []any{}
+		fakeIPSeen := map[string]bool{}
+		for _, filter := range filters {
+			if filter.mode != mode {
+				continue
+			}
+			for _, pattern := range filter.items {
+				text := fmt.Sprint(pattern)
+				if !fakeIPSeen[text] {
+					fakeIPSeen[text] = true
+					fakeIPFilter = append(fakeIPFilter, pattern)
+				}
+			}
 		}
 		if len(fakeIPFilter) > 0 {
 			dns["fake-ip-filter"] = fakeIPFilter
@@ -287,6 +327,104 @@ func mergeProfileConfigs(inputs []mergeInput) (map[string]any, MergeReport) {
 	}
 	report.Groups = len(order)
 	return merged, report
+}
+
+func fakeIPFilterMode(value any) string {
+	if mode := strings.ToLower(stringValue(value)); mode != "" {
+		return mode
+	}
+	return "blacklist"
+}
+
+func hasRuleSetReference(entry string) bool {
+	entry = strings.TrimSpace(entry)
+	if len(entry) >= 9 && strings.EqualFold(entry[:9], "rule-set:") {
+		return true
+	}
+	kind, _, found := strings.Cut(entry, ",")
+	return found && strings.EqualFold(strings.TrimSpace(kind), "RULE-SET")
+}
+
+func dropRuleSetReferences(dns map[string]any) {
+	if dns == nil {
+		return
+	}
+	for _, key := range []string{"nameserver-policy", "proxy-server-nameserver-policy"} {
+		policy := mapValue(dns[key])
+		for name := range policy {
+			if hasRuleSetReference(name) {
+				delete(policy, name)
+			}
+		}
+		if policy != nil && len(policy) == 0 {
+			delete(dns, key)
+		}
+	}
+	if filter := listValue(dns["fake-ip-filter"]); filter != nil {
+		kept := make([]any, 0, len(filter))
+		for _, pattern := range filter {
+			if !hasRuleSetReference(fmt.Sprint(pattern)) {
+				kept = append(kept, pattern)
+			}
+		}
+		dns["fake-ip-filter"] = kept
+	}
+}
+
+func pickKeys(value map[string]any, keys []string) map[string]any {
+	result := make(map[string]any, len(keys))
+	for _, key := range keys {
+		if item, ok := value[key]; ok {
+			result[key] = item
+		}
+	}
+	return result
+}
+
+func dropUnresolvedDialers(cfg map[string]any) {
+	proxies := mapItems(cfg["proxies"])
+	total := len(proxies)
+	for count := -1; count != len(proxies); {
+		count = len(proxies)
+		names := make(map[string]bool, count)
+		for _, proxy := range proxies {
+			names[strings.TrimSpace(stringValue(proxy["name"]))] = true
+		}
+		next := make([]map[string]any, 0, count)
+		for _, proxy := range proxies {
+			dialer := stringValue(proxy["dialer-proxy"])
+			if dialer != "" && !names[dialer] && !reservedProxyNames[dialer] {
+				continue
+			}
+			next = append(next, proxy)
+		}
+		proxies = next
+	}
+	if len(proxies) == total {
+		return
+	}
+	kept := make([]any, 0, len(proxies))
+	for _, proxy := range proxies {
+		kept = append(kept, proxy)
+	}
+	cfg["proxies"] = kept
+}
+
+func addNodesGroup(merged map[string]any) {
+	proxies := mapItems(merged["proxies"])
+	used := make(map[string]bool, len(proxies))
+	members := make([]any, 0, len(proxies))
+	for _, proxy := range proxies {
+		name := stringValue(proxy["name"])
+		used[name] = true
+		members = append(members, name)
+	}
+	if len(members) == 0 {
+		members = append(members, "DIRECT")
+	}
+	name := allocateProxyName(mergeNodesGroup, used)
+	merged["proxy-groups"] = []any{map[string]any{"name": name, "type": "select", "proxies": members}}
+	merged["rules"] = []any{"MATCH," + name}
 }
 
 func restoreGroupOrder(memberOrders [][]string) []string {

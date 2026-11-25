@@ -14,7 +14,7 @@ var nodesRPC = rpc.declare({ object: 'bettbox', method: 'get_nodes' });
 var updateRPC = rpc.declare({ object: 'bettbox', method: 'update_profile', params: ['sid','all','background'] });
 var addRPC = rpc.declare({ object: 'bettbox', method: 'add_profile', params: ['url','label'] });
 var importRPC = rpc.declare({ object: 'bettbox', method: 'import_profile', params: ['content','label'] });
-var mergeRPC = rpc.declare({ object: 'bettbox', method: 'merge_profile', params: ['action','sid','label','members'] });
+var mergeRPC = rpc.declare({ object: 'bettbox', method: 'merge_profile', params: ['action','sid','label','members','script'] });
 var commitRPC = rpc.declare({ object: 'uci', method: 'commit', params: ['config'] });
 var applyRPC = rpc.declare({ object: 'bettbox', method: 'apply' });
 
@@ -27,7 +27,7 @@ function load(fresh) {
 	});
 }
 function mount() {
-	[['bettbox-subscriptions-css','subscriptions.css','20261123-1'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
+	[['bettbox-subscriptions-css','subscriptions.css','20261125-2'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
 		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=' + item[2] }));
 	});
 }
@@ -67,13 +67,15 @@ return baseclass.extend({
 	render: function(data) {
 		mount();
 		var profiles = data[0].profiles, scripts = data[1].scripts, nodes = (data[2] && Array.isArray(data[2].nodes)) ? data[2].nodes : [], active = uci.get('bettbox','config','profile') || '';
-		var urlSection = new URLSearchParams(window.location.search).get('section');
+		var searchParams = new URLSearchParams(window.location.search);
+		var urlSection = searchParams.get('section');
 		var section = urlSection === 'scripts' ? 'scripts' : (urlSection === 'nodes' ? 'nodes' : 'profiles');
+		var urlEdit = searchParams.get('edit') || '', urlTab = searchParams.get('tab') || '', urlFocus = searchParams.get('focus') || '';
 		var panel = E('div', { id: 'bettbox-subscription-panel', role: 'tabpanel' }), tabs = E('div', { 'class': 'hub-tabs', role: 'tablist', 'aria-label': '订阅管理分区' });
 		var summary = E('span', { 'class': 'hub-section-summary' }), notice = E('div', { 'class': 'hub-live-note', role: 'status' });
 		var buttons = {}, manager = null, nodeManager = null, refreshing = null, busy = false, root, actions;
-		function edit(p, script, tab) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: tab || (script ? 'script' : 'basic'), script: script, onSaved: refresh }); }
-		function scriptSettings(p) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: (p.use_managed || (p.merge_members || []).length > 0) ? 'managed' : 'script', onSaved: refresh }); }
+		function edit(p, script, tab, focus) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: tab || (script ? 'routing' : 'basic'), script: script, focus: focus, onSaved: refresh }); }
+		function scriptSettings(p) { return Editor.open({ profile: p, scripts: scripts, active: p.id === active, tab: 'routing', onSaved: refresh }); }
 		function createManager() {
 			if (manager) manager.dispose();
 			manager = Scripts.create({ scripts: scripts, profiles: profiles, notice: notice, onChanged: refresh, onConfigure: function(p, script) { if (script) edit(p, script); else scriptSettings(p); } });
@@ -195,7 +197,7 @@ return baseclass.extend({
 				sublineText = modeText + ' · ' + updatedLabel;
 			}
 
-			var overrideLabel = (merged || p.use_managed) ? '托管分流' : (p.use_script ? ('脚本: ' + (p.script || '未选择')) : '覆写: 未启用');
+			var overrideLabel = p.use_script ? ('脚本: ' + (p.script || '未选择')) : ((merged || p.use_managed) ? '托管分流' : '覆写: 未启用');
 			var scriptPill = E('button', {
 				type: 'button',
 				'class': 'hub-script-pill' + (merged || p.use_managed || p.use_script ? ' active' : ''),
@@ -244,6 +246,16 @@ return baseclass.extend({
 			var eligible = profiles.filter(function(p) { return p.file && !(p.merge_members || []).some(Boolean); });
 			var label = E('input', { 'class': 'field', placeholder: '合并订阅', 'aria-label': '合并订阅名称' });
 			if (profile) label.value = profile.label || '';
+			var currentScript = profile && profile.use_script ? (profile.script || '') : '';
+			var scriptSelect = E('select', { 'class': 'field', 'aria-label': '分流与覆写方式' }, [
+				E('option', { value: '' }, '内置托管分流（默认）')
+			].concat(scripts.map(function(s) {
+				return E('option', { value: s.name }, '自定义脚本 · ' + s.name);
+			})));
+			if (currentScript && !scripts.some(function(s) { return s.name === currentScript; })) {
+				scriptSelect.appendChild(E('option', { value: currentScript }, '自定义脚本 · ' + currentScript + '（缺失）'));
+			}
+			scriptSelect.value = currentScript;
 			var list = E('div', { 'class': 'hub-merge-list' }), status = E('p', { 'class': 'hub-merge-preview', role: 'status' }), countHint = E('span', { 'class': 'hub-merge-count' }), rows = [], box;
 			var addButton = UI.button('添加成员', function() { addMember(); }, '', 'plus');
 			function syncRows() {
@@ -299,7 +311,7 @@ return baseclass.extend({
 				}
 				box.setBusy(true);
 				status.textContent = action === 'preview' ? '正在生成预览…' : '正在校验并保存…';
-				return mergeRPC(action, profile ? profile.id : '', label.value.trim(), JSON.stringify(ids)).then(UI.operation).then(UI.checked).then(function(job) {
+				return mergeRPC(action, profile ? profile.id : '', label.value.trim(), JSON.stringify(ids), scriptSelect.value).then(UI.operation).then(UI.checked).then(function(job) {
 					if (action !== 'preview') return refresh().then(function() { box.setBusy(false); return box.close(true); });
 					var result = JSON.parse(job.text);
 					status.textContent = '节点 ' + result.proxies + ' 个，策略组 ' + result.groups + ' 个';
@@ -310,8 +322,9 @@ return baseclass.extend({
 			}
 			(profile ? profile.merge_members : ['', '']).forEach(addMember);
 			box = H.dialog('合并订阅', [
-				E('p', { 'class': 'hub-merge-intro' }, '按顺序选择成员：#1 主规则提供路由规则与 DNS，其余成员补充节点和策略组。'),
+				E('p', { 'class': 'hub-merge-intro' }, '默认使用内置托管分流合并；若选择「自定义脚本」，则仅合并各成员节点与 DNS 并交给该外部脚本处理。'),
 				H.field('名称', label),
+				H.field('分流与覆写方式', scriptSelect),
 				list,
 				E('div', { 'class': 'hub-merge-add-bar' }, [addButton, countHint]),
 				status
@@ -371,6 +384,20 @@ return baseclass.extend({
 		createManager();
 		actions = E('div', { 'class': 'button-row hub-section-actions' });
 		root = UI.page('profiles', '订阅', [], [E('div', { 'class': 'subscription-hub' }, [E('div', { 'class': 'hub-section-bar' }, [E('div', { 'class': 'hub-section-left' }, [tabs, summary]), actions]), notice, panel])]);
-		draw(); return root;
+		draw();
+		if (urlEdit && section === 'profiles') {
+			var editTarget = profiles.find(function(p) { return p.id === urlEdit; });
+			var cleanUrl = new URL(window.location.href);
+			cleanUrl.searchParams.delete('edit');
+			cleanUrl.searchParams.delete('tab');
+			cleanUrl.searchParams.delete('focus');
+			window.history.replaceState({}, '', cleanUrl.href);
+			if (editTarget) {
+				window.requestAnimationFrame(function() {
+					edit(editTarget, '', urlTab || 'basic', urlFocus);
+				});
+			}
+		}
+		return root;
 	}
 });

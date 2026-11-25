@@ -1,5 +1,14 @@
 # 更新日志
 
+## v2026.11.25 · 2026-11-25
+
+面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r16` 和 `luci-app-bettbox 1.20.0-r1`。
+
+- **同步上游 `appshubcc/Bettbox v1.20.0` 核心与托管分流**：更新核心源码与 `bettbox-forge 1.20.0`，同步内置托管脚本 `managed-routing.js`（`@version 2026112401`，新增 `games_cn`/`games_download_cn` 直连规则与 UDP 协议选项适配）；`bettbox-merge` 新增 `--nodes-only` 模式，支持为合并订阅指定自定义覆写脚本。
+- **修复关闭服务后客户端卡顿并加固 IPv6 边界**：在 `firewall.sh` 接管期间为代理连接打标 `ct mark 0x162`，服务停止或设备绕过时保留轻量化 `reset_input` / `reset_forward` 规则，对残留旧代理连接与 Fake-IP 网段（`198.18.0.0/15`、`2001:2::/48`）立即回复 TCP RST / ICMP Unreachable，避免僵尸连接与 30 秒黑洞超时（卸载时由 `prerm` 彻底清理）；同步修复 `ipv6='0'` 时的 IPv6 流量隔离、未监听协议族 DNS 拒绝，以及开启 IPv6 时由 `device-access.uc` 自动豁免 `br-lan` 本地公网 IPv6 前缀。
+- **加固 OpenWrt 路由器层 DNS 与诊断能力**：在 `dns-policy.uc` 新增 `adapt_router_dns()`，自动消除 `dnsmasq ↔ Mihomo(system)` 回环，并在核心直拦 DNS 模式下为 `.lan` 及单标签局域网主机名自动路由至 `127.0.0.1` 与豁免 Fake-IP；`render.uc` 同步 `dns.ipv6` 与 `[::]:port` 双栈监听并生成 Fake-IP 策略签名，变更时由 `apply.sh` / `init.d/bettbox` 自动调用 `/cache/fakeip/flush`；`dnsmasq.sh` 支持 DHCP 变更后自愈与空闲巡检降耗，`dns-forward.uc` 在核心异常退出后自动回退系统 DNS；修复 `health-check.sh` 热转发探测与工具箱 DNS 记录类型及 IPv6 Fake-IP（`2001:2::/48`）识别。
+- **LuCI 外观体系与交互重构**：新增 5 色强调色方案（极光蓝/翡翠青/靛蓝紫/极简墨/暖琥珀）并调整 Meridian 默认视觉规范；将独立「资源」导航收口至「设置 → 资源与更新」（拆分 `resources-panel.js`）；连接页新增一键生成自定义分流规则弹窗（`connection-rule.js`）。
+
 ## v2026.11.24 · 2026-11-24
 
 面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r15` 和 `luci-app-bettbox 1.19.10-r2`。

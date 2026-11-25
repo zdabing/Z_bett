@@ -25,10 +25,13 @@ apply() (
 	local base="$work/base.json"
 	yq -o=json -I=0 '.' "$src" > "$base" || die "profile is not valid YAML"
 
-	local managed is_managed=0 active_nodes="$work/active-nodes.json" active_names="$work/active-node-names.json" has_nodes=0 names_arg=""
+	local managed is_managed=0 use_script active_nodes="$work/active-nodes.json" active_names="$work/active-node-names.json" has_nodes=0 names_arg=""
 	managed=$(uci_get "bettbox.$sid.use_managed")
-	[ -z "$(uci_get "bettbox.$sid.merge_members")" ] || managed=0
-	if [ "$managed" = "1" ] || [ -n "$(uci_get "bettbox.$sid.merge_members")" ]; then
+	use_script=$(uci_get "bettbox.$sid.use_script")
+	if [ -n "$(uci_get "bettbox.$sid.merge_members")" ]; then
+		managed=0
+		[ "$use_script" = "1" ] || is_managed=1
+	elif [ "$managed" = "1" ]; then
 		is_managed=1
 	fi
 	if [ -s /etc/bettbox/nodes.json ]; then
@@ -95,6 +98,13 @@ apply() (
 		die "config validation failed"
 	fi
 
+	if [ -f "$out.sig" ]; then
+		if [ -f "$BETTBOX_RUN/fakeip.sig" ] && ! cmp -s "$out.sig" "$BETTBOX_RUN/fakeip.sig"; then
+			touch "$BETTBOX_RUN/flush-fakeip"
+		fi
+		mv -f "$out.sig" "$BETTBOX_RUN/fakeip.sig"
+	fi
+
 	mv -f "$out" "$BETTBOX_RUN/config.yaml"
 )
 
@@ -119,6 +129,10 @@ apply_live() {
 		api_call PUT '/configs?force=true' "@$body" >/dev/null
 		rc=$?
 		rm -f "$body"
+		if [ "$rc" = 0 ] && [ -f "$BETTBOX_RUN/flush-fakeip" ]; then
+			api_call POST /cache/fakeip/flush '' >/dev/null 2>&1 || true
+			rm -f "$BETTBOX_RUN/flush-fakeip"
+		fi
 		return "$rc"
 	fi
 	/etc/init.d/bettbox restart

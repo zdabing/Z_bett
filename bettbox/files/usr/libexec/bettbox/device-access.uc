@@ -134,6 +134,25 @@ export function device_nft(access) {
 	return join('\n', lines);
 };
 
+export function lan_ipv6_prefixes(text) {
+	let reserved = map(['::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8', '2001:2::/48'], prefix);
+	let extras = [];
+	for (let line in split(text ?? '', '\n')) {
+		let m = match(line, /(^|[ \t])inet6[ \t]+([^ \t\r\n]+)/);
+		let raw = m ? m[2] : trim(line);
+		if (!length(raw) || index(raw, ':') < 0) continue;
+		let item = prefix(raw);
+		if (item == null || item.family != 6 || item.size < 16) continue;
+		if (length(filter(reserved, r => contains(r, item) || contains(item, r))) > 0) continue;
+		if (length(filter(extras, old => contains(old, item))) > 0) continue;
+		extras = filter(extras, old => !contains(item, old));
+		push(extras, item);
+	}
+	let out = ['::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8'];
+	for (let item in extras) push(out, item.address);
+	return join(', ', out);
+};
+
 // Saved independently of subscriptions, and applied only after business rules.
 export function device_fallback_rules(ctx, allowed) {
 	let saved = ctx.get('bettbox', 'config', 'device_fallbacks');

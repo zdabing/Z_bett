@@ -56,11 +56,11 @@
 
 | 子模块 | 关键文件 | 对外契约 / 接口 | 说明 |
 |---|---|---|---|
-| **菜单与权限** | `root/usr/share/luci/menu.d/luci-app-bettbox.json`、`root/usr/share/rpcd/acl.d/luci-app-bettbox.json` | 挂点 `admin/services/bettbox/*`；ACL 分 `luci-app-bettbox`（常规读写）与 `luci-app-bettbox-local-update`（本地 APK 上传） | `scripts` 路由保留无标题跳转页兼容旧书签 |
+| **菜单与权限** | `root/usr/share/luci/menu.d/luci-app-bettbox.json`、`root/usr/share/rpcd/acl.d/luci-app-bettbox.json` | 挂点 `admin/services/bettbox/*`；ACL 分 `luci-app-bettbox`（常规读写）与 `luci-app-bettbox-local-update`（本地 APK 上传） | `scripts` 与 `resources` 路由保留无标题跳转页兼容旧书签 |
 | **RPC ucode 网关** | `root/usr/share/rpcd/ucode/bettbox.uc` | ubus 对象 `bettbox`（共 33 个方法：`get_status`、`api_proxy`、`diagnostic_start/status`、`get_profiles`/`add_profile`/`import_profile`/`merge_profile`/`del_profile`、`get_scripts`/`save_script`/`script_options`/`script_check`/`script_update`、`managed_catalog`、`package_*`、`core_*`、`apply`、`service_action`、`geo_update`、`get_logs`、`backup_*` 等） | 受限超时与锁保护；拒绝通过 `api_proxy` 请求 `/traffic`、`/memory`、`/logs` 长连接流 |
 | **基础通信与 UI 壳层** | `resources/bettbox/core.js`、`ui.js`、`ui.css` | `core.{init,get,put,patch,del,stream}`、`UI.{page,panel,button,tag,modal,themePicker,appearanceControls,job,operation,...}` | `core.js` 在 HTTPS 或 loopback-only 控制器下自动切换 `api_proxy` 与 `/connections` 轮询 |
-| **可复用业务组件** | `subscription-controls.js`、`subscription-editor.js`、`subscriptions.js`、`script-manager.js`、`device-picker.js`、`resources/request.js` | 以 `baseclass` / 独立模块导出供父页面复用 | 避免业务逻辑全部堆砌在 `view/bettbox/*.js` |
-| **8 个核心视图页** | `view/bettbox/{overview,proxies,connections,profiles,scripts,resources,toolbox,logs,settings}.js` | 对应 `PAGES` 导航的 8 大业务入口（`profiles` 页内聚合订阅与脚本） | 所有视图统一通过 `UI.page` 渲染外壳与导航 |
+| **可复用业务组件** | `subscription-controls.js`、`subscription-editor.js`、`subscriptions.js`、`script-manager.js`、`connection-rule.js`、`resources-panel.js`、`device-picker.js`、`resources/request.js` | 以 `baseclass` / 独立模块导出供父页面复用 | 避免业务逻辑全部堆砌在 `view/bettbox/*.js` |
+| **7 个核心视图页** | `view/bettbox/{overview,proxies,connections,profiles,scripts,resources,toolbox,logs,settings}.js` | 对应 `PAGES` 导航的 7 大业务入口（`profiles` 内聚合订阅/脚本/节点库，`settings` 内聚合资源与维护） | 所有视图统一通过 `UI.page` 渲染外壳与导航 |
 | **静态图标资产** | `resources/icons/bettbox.svg`、`resources/bettbox/flags/*.svg`、`resources/bettbox/qure/*.svg` | 由 `UI.artwork()` 与代理页按策略名/地区匹配加载 | 缺失时自动回退内置 SVG `icon()` |
 
 ---

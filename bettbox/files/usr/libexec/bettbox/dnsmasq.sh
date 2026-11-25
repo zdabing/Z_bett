@@ -71,7 +71,14 @@ apply() {
 	[ -z "$(uci -q changes dhcp)" ] || die "save or discard pending DHCP edits before DNS integration"
 	restore_legacy || return 1
 	local result
-	result=$(hot stage) || return 1
+	if ! result=$(hot stage 2>/dev/null); then
+		if [ -f "$BETTBOX_STATE/dns-forward.json" ]; then
+			hot unregister || return 1
+			result=$(hot stage) || return 1
+		else
+			hot stage || return 1
+		fi
+	fi
 	if [ "$result" = setup ]; then
 		if ! /etc/init.d/dnsmasq restart >/dev/null 2>&1; then
 			hot unregister && /etc/init.d/dnsmasq restart >/dev/null 2>&1
@@ -96,7 +103,10 @@ restore() {
 }
 
 if [ "$1" = watch ]; then
-	while sleep 5; do "$0" sync >/dev/null 2>&1; done
+	while sleep 15; do
+		[ -f "$BETTBOX_STATE/dns-forward.json" ] || [ -f "$MARKER" ] || continue
+		"$0" sync >/dev/null 2>&1
+	done
 	exit 0
 fi
 
