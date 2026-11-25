@@ -22,6 +22,7 @@ make -C "$WORK" CC="${CC:-gcc}" CFLAGS="-Werror" OUT="$WORK/bettbox-forge"
 
 python3 - "$WORK/bettbox-forge" "$ROOT" <<'PY'
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -56,8 +57,10 @@ def extract_options(script_text):
         return invoke(['options', '--script', str(sp)])
 
 # 1. version
+forge_makefile = (root / 'bettbox/forge/Makefile').read_text(encoding='utf-8')
+expected_version = re.search(r'^VERSION\s*\?=\s*(\S+)', forge_makefile, re.M).group(1)
 r = invoke(['version'])
-assert r.returncode == 0 and r.stdout.strip() == '1.19.10', r
+assert r.returncode == 0 and r.stdout.strip() == expected_version, r
 
 # 2. basic object mutation & arrow entry
 r = run_script("function main(c) { c.mode = 'global'; return c }", {"mode": "rule"})
