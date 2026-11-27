@@ -35,6 +35,7 @@ jobs:
       - name: Check JavaScript, JSON, Python and YAML syntax
         run: |
           find bettbox luci-app-bettbox -type f -name '*.js' -print0 | xargs -0 -r -n1 node --check
+          node .github/scripts/check-luci-jsmin.js
           python3 - <<'PY'
           import ast, json
           from pathlib import Path

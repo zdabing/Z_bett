@@ -14,7 +14,7 @@
 
 import { readfile, writefile } from 'fs';
 import { cursor } from 'uci';
-import { device_access, device_fallback_rules } from '/usr/libexec/bettbox/device-access.uc';
+import { device_access, device_fallback_rules, device_redir_spec } from '/usr/libexec/bettbox/device-access.uc';
 import { preserve_node_dns, check_dns, protect_real_ip, real_ip_domain, adapt_router_dns } from '/usr/libexec/bettbox/dns-policy.uc';
 
 const BETT_RULES = 'https://github.com/appshubcc/bett-rules/releases/latest/download';
@@ -183,7 +183,8 @@ let num = (v, d) => {
 
 let mode = uci('config', 'transparent_mode') ?? 'tun';
 let tproxy_port = (mode == 'tproxy') ? num(uci('config', 'tproxy_port'), 0) : 0;
-let redir_port = (mode == 'redir') ? num(uci('config', 'redir_port'), 0) : 0;
+let device_redir = device_redir_spec(ctx);
+let redir_port = (mode == 'redir') ? num(uci('config', 'redir_port'), 0) : device_redir.port;
 
 let enabled_ports = [];
 let add_port = (p) => {
@@ -593,7 +594,7 @@ let final = merge(base, clean(patch));
 let fallback_targets = { DIRECT: true, REJECT: true };
 for (let group in (final['proxy-groups'] ?? [])) fallback_targets[group.name] = true;
 for (let proxy in (final.proxies ?? [])) fallback_targets[proxy.name] = true;
-let device_rules = device_fallback_rules(ctx, fallback_targets);
+let device_rules = (uci('config', 'device_control_enabled') == '0') ? [] : device_fallback_rules(ctx, fallback_targets);
 if (length(device_rules)) {
 	let ordered = [], inserted = false;
 	for (let rule in (final.rules ?? [])) {

@@ -1,4 +1,4 @@
-.bb-app .bb-script-version{border:1px solid var(--bb-line);background:var(--subtle);border-radius:var(--bb-control-radius);padding:16px 18px;min-width:0}
+.bb-app .bb-script-version{border:1px solid var(--bb-line);background:var(--surface-solid,var(--surface));border-radius:var(--radius-micro,14px);padding:16px 18px;min-width:0}
 .bb-app .bb-script-version-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;font-size:12px}
 .bb-app .bb-script-version-id{color:var(--bb-accent);min-width:0;max-width:100%;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bb-app .bb-script-version-message{margin:8px 0 12px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--secondary)}

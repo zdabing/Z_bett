@@ -21,7 +21,7 @@ return view.extend({
 		var tabs = E('div', { 'class': 'chips bb-connection-tabs', 'aria-label': '连接状态' }), tabButtons = {};
 
 		if (!document.getElementById('bettbox-connections-css'))
-			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261125-1' }));
+			document.head.appendChild(E('link', { id: 'bettbox-connections-css', rel: 'stylesheet', href: L.resource('bettbox/connections.css') + '?v=20261127-3' }));
 
 		function target(c) { var m = c.metadata || {}; return m.host || m.destinationIP || '—'; }
 		function endpoint(ip, port) {

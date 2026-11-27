@@ -26,8 +26,10 @@ function saveCleared(anchor) {
 	} catch (_) {}
 }
 
+var ROUTINE_CRON_RE = /\bcrond(?:\[\d+\])?:\s+USER\b.*\bcmd \/usr\/bin\/bettbox (?:subscription )?cron\b/i;
+
 function isRoutineCron(line) {
-	return /\bcrond(?:\[\d+\])?:\s+USER\b.*\bcmd \/usr\/bin\/bettbox (?:subscription )?cron\b/i.test(line);
+	return ROUTINE_CRON_RE.test(line);
 }
 
 function sliceAfterCleared(clean, anchor) {

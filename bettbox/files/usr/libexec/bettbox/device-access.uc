@@ -114,6 +114,48 @@ export function device_access(ctx) {
 	return result;
 };
 
+function parse_port(value) {
+	if (value == null) return 0;
+	let text = trim('' + value);
+	if (index(text, ':') >= 0) text = substr(text, rindex(text, ':') + 1);
+	if (!match(text, /^[0-9]+$/)) return 0;
+	let port = int(text);
+	return (port > 0 && port <= 65535) ? port : 0;
+}
+
+// Device-managed TUN keeps TCP on the kernel stack via redir-port (mirroring
+// Mihomo's auto-redirect) while sending UDP to the TUN interface.
+export function device_redir_spec(ctx) {
+	let mode = ctx.get('bettbox', 'config', 'transparent_mode') ?? 'tun';
+	let dmode = ctx.get('bettbox', 'config', 'device_mode') ?? 'off';
+	if (mode != 'tun' || dmode == 'off') return { port: 0, ipv6: false };
+	if (ctx.get('bettbox', 'config', 'allow_lan') != '1') return { port: 0, ipv6: false };
+	let bind = trim(ctx.get('bettbox', 'config', 'bind_address') ?? '*');
+	if (bind == '') bind = '*';
+	let supports_v4 = (bind == '*' || bind == '0.0.0.0' || bind == '::' || bind == '[::]');
+	let supports_v6 = (bind == '*' || bind == '::' || bind == '[::]');
+	if (!supports_v4) return { port: 0, ipv6: false };
+
+	let used = [];
+	for (let opt in ['mixed_port', 'tproxy_port', 'socks_port', 'port']) {
+		let p = parse_port(ctx.get('bettbox', 'config', opt));
+		if (p > 0 && !(p in used)) push(used, p);
+	}
+	let dns_p = parse_port(ctx.get('bettbox', 'dns', 'listen') ?? '0.0.0.0:1053');
+	if (dns_p > 0 && !(dns_p in used)) push(used, dns_p);
+	let ctrl_p = parse_port(ctx.get('bettbox', 'config', 'external_controller') ?? '127.0.0.1:9097');
+	if (ctrl_p > 0 && !(ctrl_p in used)) push(used, ctrl_p);
+
+	let configured = parse_port(ctx.get('bettbox', 'config', 'redir_port'));
+	let candidates = configured > 0
+		? [configured, 7892, 7895, 7896, 7898, 7899, 17892, 17893, 17894]
+		: [7892, 7895, 7896, 7898, 7899, 17892, 17893, 17894];
+	for (let port in candidates) {
+		if (!(port in used)) return { port: port, ipv6: supports_v6 && (ctx.get('bettbox', 'config', 'ipv6') == '1') };
+	}
+	return { port: 0, ipv6: false };
+};
+
 export function device_nft(access) {
 	let lines = [];
 	if (!access.enabled) return '';

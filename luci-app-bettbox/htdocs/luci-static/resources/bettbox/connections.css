@@ -18,7 +18,7 @@
 .bb-app[data-bb-page="connections"] .bb-rule-banner-copy{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;flex:1}
 .bb-app[data-bb-page="connections"] .bb-rule-banner-copy code{padding:2px 7px;border-radius:6px;background:var(--surface-solid,var(--surface));border:1px solid var(--bb-line);font-size:12px;overflow-wrap:anywhere}
 .bb-app[data-bb-page="connections"] .bb-rule-banner-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
-.bb-app.bb-rule-dialog .bb-rule-context{background:var(--subtle);border:1px solid var(--bb-line);border-radius:10px;padding:10px 12px;margin-bottom:16px;display:grid;gap:4px;font-size:12px;color:var(--secondary);overflow-wrap:anywhere}
+.bb-app.bb-rule-dialog .bb-rule-context{background:var(--surface-solid,var(--surface));border:1px solid var(--bb-line);border-radius:10px;padding:10px 12px;margin-bottom:16px;display:grid;gap:4px;font-size:12px;color:var(--secondary);overflow-wrap:anywhere}
 .bb-app.bb-rule-dialog .bb-rule-context strong{color:var(--ink);font-weight:600}
 .bb-app.bb-rule-dialog .bb-rule-hint{font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45}
 .bb-app.bb-rule-dialog .bb-rule-hint[hidden]{display:none!important}

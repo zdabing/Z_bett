@@ -72,7 +72,7 @@ var regionDefinitions = [
 ];
 var regions = regionDefinitions.map(function(definition){
 	var aliases = definition[2].split('|').map(function(alias){
-		return /[a-z]/i.test(alias) ? '(?:^|[^a-z])(?:' + alias + ')(?![a-z])' : alias;
+		return (/[a-z]/i).test(alias) ? '(?:^|[^a-z])(?:' + alias + ')(?![a-z])' : alias;
 	}).join('|');
 	return {
 		code:definition[0], name:definition[1],

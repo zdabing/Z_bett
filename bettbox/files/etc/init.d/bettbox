@@ -139,7 +139,7 @@ bettbox_release_network() {
 
 bettbox_network_settings() {
 	local key value
-	for key in ipv6 transparent_mode hijack_dnsmasq device_mode device_ips external_controller secret mixed_port tproxy_port redir_port port socks_port; do
+	for key in ipv6 allow_lan bind_address transparent_mode hijack_dnsmasq device_control_enabled device_mode device_ips external_controller secret mixed_port tproxy_port redir_port port socks_port; do
 		value=$(uci -q get "bettbox.config.$key")
 		printf '%s=%s\n' "$key" "$value"
 	done

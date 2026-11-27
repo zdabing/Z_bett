@@ -69,7 +69,7 @@ var SKIP_LABELS = {
 
 function isFakeIP(addr) {
 	var s = String(addr || '').trim();
-	return /^198\.1[89]\./.test(s) || /^2001:0*2:/i.test(s);
+	return (/^198\.1[89]\./).test(s) || (/^2001:0*2:/i).test(s);
 }
 
 function validHost(value) {
@@ -182,7 +182,7 @@ return view.extend({
 			document.head.appendChild(E('link', {
 				id: 'bettbox-health-css',
 				rel: 'stylesheet',
-				href: L.resource('bettbox/health.css') + '?v=20261125-2'
+				href: L.resource('bettbox/health.css') + '?v=20261127-3'
 			}));
 		}
 

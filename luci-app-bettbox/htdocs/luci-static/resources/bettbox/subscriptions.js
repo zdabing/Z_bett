@@ -27,7 +27,7 @@ function load(fresh) {
 	});
 }
 function mount() {
-	[['bettbox-subscriptions-css','subscriptions.css','20261125-2'],['bettbox-scripts-css','scripts.css','20261114-3']].forEach(function(item) {
+	[['bettbox-subscriptions-css','subscriptions.css','20261127-3'],['bettbox-scripts-css','scripts.css','20261127-3']].forEach(function(item) {
 		if (!document.getElementById(item[0])) document.head.appendChild(E('link', { id: item[0], rel: 'stylesheet', href: L.resource('bettbox/' + item[1]) + '?v=' + item[2] }));
 	});
 }

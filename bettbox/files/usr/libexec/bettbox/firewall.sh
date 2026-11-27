@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0
 # nftables transparent proxy: TPROXY (tcp+udp) / REDIR (tcp) / DNS hijack.
 # With device access disabled, mihomo manages TUN routing. Device access
-# instead uses source-filtered TUN policy routing owned by this service.
+# instead uses source-filtered kernel TCP redirect + UDP TUN policy routing.
 
 . /usr/libexec/bettbox/common.sh
 
@@ -13,6 +13,10 @@ DEVICE_GUARD=''
 device_guard() {
 	case "$(uci_get bettbox.config.device_mode)" in ''|off) return 0 ;; esac
 	ucode -e 'import { device_access, device_nft } from "/usr/libexec/bettbox/device-access.uc"; import { cursor } from "uci"; print(device_nft(device_access(cursor())));'
+}
+
+device_redir_spec() {
+	ucode -e 'import { device_redir_spec } from "/usr/libexec/bettbox/device-access.uc"; import { cursor } from "uci"; let s = device_redir_spec(cursor()); printf("%d %d\n", s.port, s.ipv6 ? 1 : 0);'
 }
 
 mode() {
@@ -124,9 +128,16 @@ remove_device_forward() {
 }
 
 ensure_device_forward() {
-	[ -n "$(device_forward_handles)" ] && return 0
+	local handles count
+	handles=$(device_forward_handles)
+	count=$(printf '%s\n' "$handles" | awk 'NF { n++ } END { print n + 0 }')
+	[ "$count" -eq 2 ] && return 0
+	[ "$count" -eq 0 ] || remove_device_forward || return 1
 	# A verdict in a separate base chain cannot override fw4's forward reject.
-	# Permit only our selected, marked LAN requests going into our TUN.
+	# Insert both directions ahead of fw4's flow offload rule so TUN packets
+	# neither hit forward reject nor trigger failed flowtable offloads.
+	nft insert rule inet fw4 forward iifname "$1" oifname "$2" \
+		ct mark "$MARK" ct direction reply accept comment '"bettbox:device-tun"' || return 1
 	nft insert rule inet fw4 forward iifname "$2" oifname "$1" \
 		meta mark "$MARK" ct direction original accept comment '"bettbox:device-tun"'
 }
@@ -231,6 +242,8 @@ $(dns_chains "$lan" "$dp")
 		type filter hook prerouting priority -90; policy accept;
 		iifname != "$lan" return
 		ct direction reply return
+		ct status dnat return
+		ct mark $MARK meta l4proto { tcp, udp } tproxy to :$tp meta mark set $MARK accept
 		$payload_v6_guard
 		$DEVICE_GUARD
 		fib daddr type local return
@@ -289,7 +302,8 @@ NFT
 }
 
 start_device_tun() {
-	local dp lan tun payload_v6_guard='' v6_bypass v6_return=''
+	local dp lan tun redir_spec rp=0 rp_v6=0 payload_v6_guard='' tcp_v6_guard='' tcp_v6_return='' v6_bypass v6_return=''
+	local tcp_redirect_chain='' tun_proto_guard='' tun_mark_rule=''
 	dp=$(dns_port) || return 1
 	lan=$(lan_device) || return 1
 	tun=$(uci_get bettbox.tun.device)
@@ -302,20 +316,62 @@ start_device_tun() {
 		v6_bypass=$(lan_ipv6_bypass "$lan") || return 1
 		v6_return="ip6 daddr { $v6_bypass } return"
 	fi
+	redir_spec=$(device_redir_spec) || return 1
+	rp="${redir_spec%% *}"
+	rp_v6="${redir_spec#* }"
+	case "$rp" in ''|*[!0-9]*) rp=0 ;; esac
+	case "$rp_v6" in 1) ;; *) rp_v6=0 ;; esac
+	if [ "$rp" -gt 0 ] && [ "$rp" -le 65535 ]; then
+		if ! ipv6_enabled || [ "$rp_v6" != 1 ]; then
+			tcp_v6_guard="meta nfproto != ipv4 return"
+		else
+			tcp_v6_return="$v6_return"
+		fi
+		tcp_redirect_chain=$(cat <<NFT
+	chain device_tcp_redirect {
+		type nat hook prerouting priority -90; policy accept;
+		iifname != "$lan" return
+		meta l4proto != tcp return
+		tcp dport 53 return
+		$tcp_v6_guard
+		$DEVICE_GUARD
+		fib daddr type local return
+		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255/32 } return
+		$tcp_v6_return
+		meta l4proto tcp ct mark set $MARK redirect to :$rp
+	}
+NFT
+)
+		if ! ipv6_enabled || [ "$rp_v6" = 1 ]; then
+			tun_proto_guard="meta l4proto != udp return"
+			tun_mark_rule="udp dport != 53 meta mark set $MARK ct mark set $MARK"
+		else
+			tun_proto_guard="meta l4proto != tcp meta l4proto != udp return
+		meta nfproto ipv4 meta l4proto tcp return"
+			tun_mark_rule="meta l4proto { tcp, udp } th dport != 53 meta mark set $MARK ct mark set $MARK"
+		fi
+	else
+		tun_proto_guard="meta l4proto != tcp meta l4proto != udp return"
+		tun_mark_rule="meta l4proto { tcp, udp } th dport != 53 meta mark set $MARK ct mark set $MARK"
+	fi
 	cleanup || return 1
 	nft -f - <<NFT
 table inet $TABLE {
 $(dns_chains "$lan" "$dp")
+$tcp_redirect_chain
 	chain device_prerouting {
 		type filter hook prerouting priority -90; policy accept;
 		iifname != "$lan" return
+		$tun_proto_guard
 		ct direction reply return
+		ct status dnat return
+		ct mark $MARK meta mark set $MARK return
 		$payload_v6_guard
 		$DEVICE_GUARD
 		fib daddr type local return
 		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4, 255.255.255.255/32 } return
 		$v6_return
-		meta l4proto { tcp, udp } th dport != 53 meta mark set $MARK ct mark set $MARK
+		$tun_mark_rule
 	}
 $(reset_forward_chain "$lan" "$tun")
 }

@@ -173,14 +173,311 @@ function appearanceControls(compact){
 function themePicker(){
 	modal('主题与风格', [appearanceControls(true)]);
 }
+var selectSeq = 0, activeSelect = null, selectObserver = null;
+var nativeValDesc = typeof HTMLSelectElement !== 'undefined' ? Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value') : null;
+var nativeIdxDesc = typeof HTMLSelectElement !== 'undefined' ? Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex') : null;
+var nativeDisDesc = typeof HTMLSelectElement !== 'undefined' ? Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'disabled') : null;
+
+function closeActiveSelect(refocus) {
+	if (!activeSelect) return;
+	var cur = activeSelect;
+	activeSelect = null;
+	cur.close(refocus);
+}
+
+function enhanceSelect(sel) {
+	if (!sel || sel.nodeName !== 'SELECT' || sel.dataset.bbSelect === 'ready') return sel;
+	if (sel.multiple || (sel.size && sel.size > 1) || sel.dataset.bbNative === '1') return sel;
+	if (!sel.parentNode) return sel;
+	sel.dataset.bbSelect = 'ready';
+
+	var id = 'bb-select-menu-' + (++selectSeq);
+	var wrap = E('div', { 'class': 'bb-select' });
+	var label = E('span', { 'class': 'bb-select-label' });
+	var arrow = E('span', { 'class': 'bb-select-arrow', 'aria-hidden': 'true' }, icon('chevron'));
+	var trigger = E('button', {
+		type: 'button',
+		'class': 'bb-select-trigger',
+		role: 'combobox',
+		'aria-haspopup': 'listbox',
+		'aria-expanded': 'false',
+		'aria-controls': id
+	}, [label, arrow]);
+
+	sel.parentNode.insertBefore(wrap, sel);
+	wrap.appendChild(sel);
+	wrap.appendChild(trigger);
+	sel.classList.add('bb-select-native');
+	sel.tabIndex = -1;
+	sel.setAttribute('aria-hidden', 'true');
+
+	var menu = null, optionEls = [], activeIdx = -1, onDocDown = null, onDocKey = null, onReposition = null;
+
+	function syncState() {
+		var opt = sel.options[sel.selectedIndex] || sel.options[0];
+		label.textContent = opt ? opt.textContent : '';
+		var dis = !!sel.disabled;
+		trigger.disabled = dis;
+		wrap.classList.toggle('is-disabled', dis);
+		wrap.hidden = !!sel.hidden;
+		if (sel.getAttribute('aria-label')) trigger.setAttribute('aria-label', sel.getAttribute('aria-label'));
+		if (sel.getAttribute('title')) trigger.setAttribute('title', sel.getAttribute('title'));
+		else trigger.removeAttribute('title');
+		wrap.classList.toggle('is-compact', sel.classList.contains('bb-select-compact'));
+		if (dis && activeSelect && activeSelect.sel === sel) closeActiveSelect(false);
+	}
+
+	function positionMenu() {
+		if (!menu) return;
+		var rect = trigger.getBoundingClientRect();
+		if (rect.width === 0 && rect.height === 0) { closeActiveSelect(false); return; }
+		var vw = window.innerWidth || document.documentElement.clientWidth;
+		var vh = window.innerHeight || document.documentElement.clientHeight;
+		var minW = Math.max(rect.width, 140);
+		var maxW = Math.min(Math.max(rect.width, 320), vw - 16);
+		menu.style.minWidth = minW + 'px';
+		menu.style.maxWidth = maxW + 'px';
+		var mRect = menu.getBoundingClientRect();
+		var mw = mRect.width || minW;
+		var mh = mRect.height || 180;
+		var left = rect.left;
+		if (left + mw > vw - 8) left = Math.max(8, vw - 8 - mw);
+		var spaceBelow = vh - rect.bottom - 10;
+		var spaceAbove = rect.top - 10;
+		var flipUp = spaceBelow < Math.min(mh, 220) && spaceAbove > spaceBelow;
+		var avail = Math.max(120, flipUp ? spaceAbove : spaceBelow);
+		menu.style.maxHeight = Math.min(280, avail) + 'px';
+		mRect = menu.getBoundingClientRect();
+		mh = mRect.height || mh;
+		var top = flipUp ? Math.max(8, rect.top - 6 - mh) : Math.min(vh - mh - 8, rect.bottom + 6);
+		menu.style.left = Math.round(left) + 'px';
+		menu.style.top = Math.round(top) + 'px';
+		menu.classList.toggle('is-up', flipUp);
+	}
+
+	function setHighlight(idx) {
+		if (!optionEls.length) { activeIdx = -1; return; }
+		activeIdx = idx;
+		for (var i = 0; i < optionEls.length; i++) {
+			optionEls[i].classList.toggle('is-highlighted', i === activeIdx);
+		}
+		if (activeIdx >= 0 && optionEls[activeIdx]) {
+			trigger.setAttribute('aria-activedescendant', optionEls[activeIdx].id);
+			if (typeof optionEls[activeIdx].scrollIntoView === 'function') {
+				optionEls[activeIdx].scrollIntoView({ block: 'nearest' });
+			}
+		} else {
+			trigger.removeAttribute('aria-activedescendant');
+		}
+	}
+
+	function moveHighlight(delta) {
+		var len = optionEls.length;
+		if (!len) return;
+		var start = activeIdx < 0 ? (delta > 0 ? -1 : 0) : activeIdx;
+		for (var step = 1; step <= len; step++) {
+			var next = (start + delta * step + len * len) % len;
+			if (!optionEls[next].disabled) { setHighlight(next); return; }
+		}
+	}
+
+	function selectIndex(idx) {
+		var opt = sel.options[idx];
+		if (!opt || opt.disabled) return;
+		var changed = sel.selectedIndex !== idx;
+		if (nativeIdxDesc && nativeIdxDesc.set) nativeIdxDesc.set.call(sel, idx);
+		else sel.selectedIndex = idx;
+		syncState();
+		closeActiveSelect(true);
+		if (changed) {
+			sel.dispatchEvent(new Event('input', { bubbles: true }));
+			sel.dispatchEvent(new Event('change', { bubbles: true }));
+		}
+	}
+
+	function close(refocus) {
+		if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
+		menu = null;
+		optionEls = [];
+		activeIdx = -1;
+		wrap.classList.remove('is-open');
+		trigger.setAttribute('aria-expanded', 'false');
+		trigger.removeAttribute('aria-activedescendant');
+		if (onDocDown) { document.removeEventListener('pointerdown', onDocDown, true); onDocDown = null; }
+		if (onDocKey) { document.removeEventListener('keydown', onDocKey, true); onDocKey = null; }
+		if (onReposition) {
+			window.removeEventListener('resize', onReposition, true);
+			window.removeEventListener('scroll', onReposition, true);
+			onReposition = null;
+		}
+		if (refocus && trigger.isConnected) trigger.focus();
+	}
+
+	function open() {
+		if (sel.disabled) return;
+		if (activeSelect && activeSelect.sel === sel) { closeActiveSelect(true); return; }
+		closeActiveSelect(false);
+		menu = E('div', { 'class': 'bb-select-menu', id: id, role: 'listbox', 'aria-label': sel.getAttribute('aria-label') || '选项列表' });
+		optionEls = [];
+		var selectedIdx = sel.selectedIndex;
+		for (var i = 0; i < sel.options.length; i++) {
+			(function(index, opt) {
+				var isSel = index === selectedIdx;
+				var item = E('button', {
+					type: 'button',
+					id: id + '-opt-' + index,
+					'class': 'bb-select-option' + (isSel ? ' is-selected' : ''),
+					role: 'option',
+					tabindex: '-1',
+					'aria-selected': String(isSel),
+					disabled: opt.disabled ? true : null
+				}, [
+					E('span', { 'class': 'bb-select-option-text' }, opt.textContent),
+					E('span', { 'class': 'bb-select-check', 'aria-hidden': 'true' }, icon('check'))
+				]);
+				item.addEventListener('pointerenter', function() { if (!item.disabled) setHighlight(index); });
+				item.addEventListener('click', function(ev) { ev.preventDefault(); ev.stopPropagation(); selectIndex(index); });
+				menu.appendChild(item);
+				optionEls.push(item);
+			})(i, sel.options[i]);
+		}
+		var host = (typeof trigger.closest === 'function' && trigger.closest('dialog[open]')) || document.body;
+		host.appendChild(menu);
+		wrap.classList.add('is-open');
+		trigger.setAttribute('aria-expanded', 'true');
+		activeSelect = { sel: sel, close: close };
+		positionMenu();
+		setHighlight(selectedIdx >= 0 ? selectedIdx : 0);
+
+		onDocDown = function(ev) {
+			if (wrap.contains(ev.target) || (menu && menu.contains(ev.target))) return;
+			closeActiveSelect(false);
+		};
+		onDocKey = function(ev) {
+			if (!activeSelect || activeSelect.sel !== sel) return;
+			if (ev.key === 'Escape') {
+				ev.preventDefault();
+				ev.stopPropagation();
+				if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+				closeActiveSelect(true);
+			} else if (ev.key === 'ArrowDown') {
+				ev.preventDefault(); moveHighlight(1);
+			} else if (ev.key === 'ArrowUp') {
+				ev.preventDefault(); moveHighlight(-1);
+			} else if (ev.key === 'Home') {
+				ev.preventDefault();
+				for (var k = 0; k < optionEls.length; k++) { if (!optionEls[k].disabled) { setHighlight(k); break; } }
+			} else if (ev.key === 'End') {
+				ev.preventDefault();
+				for (var j = optionEls.length - 1; j >= 0; j--) { if (!optionEls[j].disabled) { setHighlight(j); break; } }
+			} else if (ev.key === 'Enter' || ev.key === ' ') {
+				ev.preventDefault();
+				if (activeIdx >= 0) selectIndex(activeIdx);
+			} else if (ev.key === 'Tab') {
+				closeActiveSelect(false);
+			}
+		};
+		onReposition = function(ev) {
+			if (menu && ev && ev.target && menu.contains(ev.target)) return;
+			positionMenu();
+		};
+		document.addEventListener('pointerdown', onDocDown, true);
+		document.addEventListener('keydown', onDocKey, true);
+		window.addEventListener('resize', onReposition, true);
+		window.addEventListener('scroll', onReposition, true);
+	}
+
+	trigger.addEventListener('click', function(ev) {
+		ev.preventDefault();
+		ev.stopPropagation();
+		open();
+	});
+	trigger.addEventListener('keydown', function(ev) {
+		if (activeSelect && activeSelect.sel === sel) return;
+		if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp' || ev.key === 'Enter' || ev.key === ' ') {
+			ev.preventDefault();
+			open();
+		}
+	});
+	sel.addEventListener('focus', function() { if (trigger.isConnected && !trigger.disabled) trigger.focus(); });
+	sel.addEventListener('change', syncState);
+
+	if (nativeValDesc && nativeValDesc.get && nativeValDesc.set) {
+		try {
+			Object.defineProperty(sel, 'value', {
+				configurable: true,
+				get: function() { return nativeValDesc.get.call(sel); },
+				set: function(v) { nativeValDesc.set.call(sel, v); syncState(); }
+			});
+		} catch (_) {}
+	}
+	if (nativeIdxDesc && nativeIdxDesc.get && nativeIdxDesc.set) {
+		try {
+			Object.defineProperty(sel, 'selectedIndex', {
+				configurable: true,
+				get: function() { return nativeIdxDesc.get.call(sel); },
+				set: function(v) { nativeIdxDesc.set.call(sel, v); syncState(); }
+			});
+		} catch (_) {}
+	}
+	if (nativeDisDesc && nativeDisDesc.get && nativeDisDesc.set) {
+		try {
+			Object.defineProperty(sel, 'disabled', {
+				configurable: true,
+				get: function() { return nativeDisDesc.get.call(sel); },
+				set: function(v) { nativeDisDesc.set.call(sel, v); syncState(); }
+			});
+		} catch (_) {}
+	}
+	if (typeof MutationObserver !== 'undefined') {
+		var optObs = new MutationObserver(syncState);
+		optObs.observe(sel, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'aria-label', 'title', 'class'] });
+	}
+	syncState();
+	return wrap;
+}
+
+function enhanceSelects(root) {
+	var scope = root || document;
+	if (!scope || !scope.querySelectorAll) return;
+	var list = scope.querySelectorAll('.bb-app select:not([data-bb-select="ready"]):not([multiple]), .modal:has(.bb-modal-content) select:not([data-bb-select="ready"]):not([multiple])');
+	for (var i = 0; i < list.length; i++) enhanceSelect(list[i]);
+	if (scope.nodeName === 'SELECT') enhanceSelect(scope);
+}
+
+function watchSelects() {
+	if (selectObserver || typeof MutationObserver === 'undefined' || !document.body) return;
+	selectObserver = new MutationObserver(function(mutations) {
+		for (var i = 0; i < mutations.length; i++) {
+			var added = mutations[i].addedNodes;
+			for (var j = 0; j < added.length; j++) {
+				var node = added[j];
+				if (!node || node.nodeType !== 1) continue;
+				if (node.nodeName === 'SELECT' && node.closest && (node.closest('.bb-app') || node.closest('.modal:has(.bb-modal-content)'))) {
+					enhanceSelect(node);
+				} else if (node.querySelectorAll) {
+					var inner = node.querySelectorAll('select:not([data-bb-select="ready"]):not([multiple])');
+					for (var k = 0; k < inner.length; k++) {
+						if (inner[k].closest && (inner[k].closest('.bb-app') || inner[k].closest('.modal:has(.bb-modal-content)'))) {
+							enhanceSelect(inner[k]);
+						}
+					}
+				}
+			}
+		}
+	});
+	selectObserver.observe(document.body, { childList: true, subtree: true });
+}
+
 function mount(){
 	document.body.classList.add('bb-page');
 	mountAppearance();
+	watchSelects();
 	var link=document.getElementById('bettbox-ui-css');
 	if(!link){
 		var guard=E('style',{id:'bettbox-fouc-guard'},'.bb-app{visibility:hidden}');
 		var reveal=function(){if(guard.parentNode)guard.remove();};
-		link=E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261125-6'});
+		link=E('link',{id:'bettbox-ui-css',rel:'stylesheet',href:L.resource('bettbox/ui.css')+'?v=20261127-3'});
 		link.addEventListener('load',reveal,{once:true});
 		link.addEventListener('error',reveal,{once:true});
 		document.head.appendChild(guard);
@@ -188,6 +485,7 @@ function mount(){
 		if(link.sheet)reveal();
 		else window.setTimeout(reveal,250);
 	}
+	enhanceSelects(document);
 }
 var navSeq = 0, popstateWired = false;
 function trackPoll(root, fn, interval){
@@ -204,6 +502,7 @@ function trackPoll(root, fn, interval){
 	return wrapped;
 }
 function navigateTo(pageId, href, fromPopstate){
+	closeActiveSelect(false);
 	var activeRoot = document.querySelector('.bb-app[data-bb-page]');
 	if (!activeRoot || !window.L || typeof L.require !== 'function') {
 		window.location.assign(href);
@@ -295,14 +594,16 @@ function page(id,title,actions,content){
 	appearanceListeners.push(syncNav); syncNav();
 	var nav=E('nav',{'class':'main-nav','aria-label':'Bettbox 页面导航'},[links,quick]);
 	var toolbar=E('div',{'class':'heading-actions'},actions||[]);
-	return E('div',{'class':'bb-app','data-bb-page':id},[nav,E('main',{'class':'shell','aria-label':title},[toolbar,E('div',{'class':'bb-page-content'},content||[])])]);
+	var root=E('div',{'class':'bb-app','data-bb-page':id},[nav,E('main',{'class':'shell','aria-label':title},[toolbar,E('div',{'class':'bb-page-content'},content||[])])]);
+	enhanceSelects(root);
+	return root;
 }
 function panel(title,ico,body,actions){return E('section',{'class':'panel'},[E('div',{'class':'panel-head'},[E('div',{},[E('h2',{},[badge(ico,'bb-section-icon'),document.createTextNode(title)])]),E('div',{'class':'button-row'},actions||[])]),E('div',{'class':'panel-body'},body||[])]);}
 function tag(text,kind){return E('span',{'class':'tag '+(kind||'')},String(text));}
 function bytes(n){if(n==null||!isFinite(n))return '—';var a=['B','KB','MB','GB','TB'],i=0;while(n>=1024&&i<a.length-1){n/=1024;i++;}return n.toFixed(i?2:0)+' '+a[i];}
 function speed(n){if(n==null||!isFinite(n))return '—';var a=['B/s','KB/s','MB/s','GB/s'],i=0;while(n>=1000&&i<a.length-1){n/=1000;i++;}return n.toFixed(i?1:0)+' '+a[i];}
 function empty(title,text,action){return E('div',{'class':'empty-state'},[E('div',{'class':'empty-icon bb-icon-badge bb-tint-blue'},icon('info')),E('h2',{},title),E('p',{},text||''),action||document.createTextNode('')]);}
-function modal(title,body,actions){mount();return ui.showModal(title,[E('div',{'class':'bb-app bb-modal-content'},[E('div',{'class':'bb-dialog-body'},body),E('div',{'class':'button-row bb-dialog-actions'},actions||[button('关闭',ui.hideModal)])])]);}
+function modal(title,body,actions){mount();closeActiveSelect(false);var content=E('div',{'class':'bb-app bb-modal-content'},[E('div',{'class':'bb-dialog-body'},body),E('div',{'class':'button-row bb-dialog-actions'},actions||[button('关闭',ui.hideModal)])]);var res=ui.showModal(title,[content]);enhanceSelects(content);return res;}
 function field(label,control,help){var children=[E('span',{'class':'input-label'},label),control];if(help)children.push(E('span',{'class':'setting-help'},help));return E('label',{'class':'bb-form-field'},children);}
 function search(placeholder,fn){var input=E('input',{type:'search','class':'field',placeholder:placeholder,'aria-label':placeholder});input.addEventListener('input',function(){fn(input.value);});return E('label',{'class':'search'},[icon('search'),input]);}
 function copy(text){if(navigator.clipboard && window.isSecureContext)return navigator.clipboard.writeText(text).then(function(){ui.addNotification(null,E('p',{},'已复制'),'info');});modal('复制地址',[E('input',{'class':'field',value:text,readonly:true})]);}
@@ -310,4 +611,4 @@ function waitJob(id,budget,onProgress,reconnect){var until=Date.now()+budget,fai
 function job(kind,args,onProgress){return startJob(kind,JSON.stringify(args||[])).then(checked).then(function(start){return waitJob(start.id,185000,onProgress);});}
 function operation(result){checked(result);var budget=Number(result.timeout_ms)||630000;budget=Math.max(1000,Math.min(result.reconnect?2430000:1230000,budget));return result.id?waitJob(result.id,budget,null,result.reconnect===true):result;}
 if (typeof document !== 'undefined' && document.head && document.body) mount();
-return baseclass.extend({icon:icon,badge:badge,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,poll:trackPoll,mount:mount,navigate:navigateTo,themePicker:themePicker,appearanceControls:appearanceControls,pages:PAGES});
+return baseclass.extend({icon:icon,badge:badge,artwork:artwork,page:page,panel:panel,button:button,tag:tag,error:error,checked:checked,operation:operation,bytes:bytes,speed:speed,empty:empty,modal:modal,field:field,search:search,copy:copy,job:job,poll:trackPoll,mount:mount,navigate:navigateTo,themePicker:themePicker,appearanceControls:appearanceControls,enhanceSelect:enhanceSelect,enhanceSelects:enhanceSelects,pages:PAGES});

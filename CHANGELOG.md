@@ -1,5 +1,14 @@
 # 更新日志
 
+## v2026.11.27 · 2026-11-27
+
+面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r17` 和 `luci-app-bettbox 1.20.0-r2`。
+
+- **修复设备黑白名单模式下的直连吞吐回落**：在 `device-access.uc`、`render.uc` 与 `firewall.sh` 中为 TUN + 设备分流模式启用内核 TCP `redirect`（自动分配无冲突 `redir-port`，规避用户态 TUN/gVisor 转发直连 TCP 瓶颈）与 UDP TUN + `ct mark` 快速路径，并在 `fw4` `flow offload @ft` 之前放行 `LAN ↔ TUN` 双向转发，显著提升黑/白名单开启时的直连与满速转发吞吐；同步支持 `allow_lan=0` 与仅 IPv4 绑定时的安全回退。
+- **全新「设备分流控制」统一配置体验**：合并原「设备 MAC 控制」与「设备兜底策略」为单一设备管理视图（`device-control.js`），提供 3 格概览统计、统一按设备行选择「完全不走代理 / 进入规则未命中直连 / 未命中走指定节点 / 跟随全局」、在线状态与 DHCP 静态租约识别（`acl.d` 仅增加 `dhcp` 只读权限）、Docker/私有随机 MAC 预警、搜索与添加设备弹窗以及折叠式高级 IP/网段兜底；新增向后兼容的 `device_control_enabled` 字段，关闭总开关时停用兜底规则但保留已配置名单不丢失。
+- **全站前端对齐 Z Design System v2.0.0**：补充 `DESIGN.md` 规范声明，在 `ui.js` 引入渐进增强自定义 `<select>` 组件（支持键盘导航、自动翻转与 `<dialog>` Top Layer 适配）；将概览指标卡、出口卡片、设置与各子页微卡片统一为纯白实色独立卡片，优化暗色分段控件对比度、手机端（`< 600px`）零横向溢出与触控高度。
+- **加固 LuCI `jsmin` 压缩兼容性与 CI 检查**：新增 `.github/scripts/check-luci-jsmin.js` 并接入 `ci.yml`，修复 `logs.js`、`proxies.js`、`toolbox.js`、`device-picker.js` 等文件中 `return /regex/` 在 OpenWrt LuCI 构建期 `jsmin` 压缩下的语法隐患。
+
 ## v2026.11.25 · 2026-11-25
 
 面向 OpenWrt 25.12 / ImmortalWrt 25.12（`x86_64`、`aarch64_generic`、`aarch64_cortex-a53`）。请配套安装 `bettbox 1.19.34-r16` 和 `luci-app-bettbox 1.20.0-r1`。

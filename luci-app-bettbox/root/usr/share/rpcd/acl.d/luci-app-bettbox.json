@@ -27,7 +27,8 @@
 				]
 			},
 			"uci": [
-				"bettbox"
+				"bettbox",
+				"dhcp"
 			]
 		},
 		"write": {

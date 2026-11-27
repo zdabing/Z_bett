@@ -5,7 +5,8 @@
 
 var hostHints=rpc.declare({object:'luci-rpc',method:'getHostHints',expect:{'':{}}}),sequence=0;
 
-function isLinkLocal6(ip){return /^fe[89ab][0-9a-f]:/i.test(ip);}
+var LINK_LOCAL6_RE=/^fe[89ab][0-9a-f]:/i;
+function isLinkLocal6(ip){return LINK_LOCAL6_RE.test(ip);}
 
 function create(value,validate,matchMac,legacy){
 	function entries(values){
@@ -19,9 +20,11 @@ function create(value,validate,matchMac,legacy){
 	var chips=E('div',{'class':'device-picker-chips'}),list=E('div',{'class':'device-picker-options',id:uid,role:'listbox','aria-label':'可选设备','aria-multiselectable':'true'});
 	var message=E('div',{'class':'device-picker-message',role:'status',hidden:true}),error=E('div',{'class':'device-picker-error',role:'alert',hidden:true});
 	var input=E('input',{type:'text','class':'device-picker-search',role:'combobox',autocomplete:'off',placeholder:prompt,'aria-label':prompt,'aria-expanded':'false','aria-controls':uid,'aria-autocomplete':'list'});
-	var toggle=E('button',{type:'button','class':'device-picker-toggle','aria-label':'展开设备列表','aria-expanded':'false','aria-controls':uid},UI.icon('down'));
+	var toggle=E('button',{type:'button','class':'device-picker-toggle','aria-label':'展开设备列表','aria-expanded':'false','aria-controls':uid},UI.icon('chevron'));
 	var popup=E('div',{'class':'device-picker-popup',hidden:true},[list,message]);
-	var root=E('fieldset',{'class':'device-picker'},[chips,E('div',{'class':'device-picker-input'},[input,toggle]),error,popup]);
+	var main=E('div',{'class':'device-picker-main'},[chips,input]);
+	var control=E('div',{'class':'device-picker-control'},[main,toggle]);
+	var root=E('fieldset',{'class':'device-picker'},[control,error,popup]);
 	function notify(){root.dispatchEvent(new Event('change',{bubbles:true}));}
 	function invalid(text){error.textContent=text||'';error.hidden=!text;input.setAttribute('aria-invalid',String(!!text));}
 	function nameFor(value){var host=hosts.find(function(h){return h.value===value;});return host&&host.name;}
@@ -132,6 +135,7 @@ function create(value,validate,matchMac,legacy){
 		}
 		if(e.key==='Enter'){e.preventDefault();if(open&&active>=0&&options[active])options[active].click();else if(custom().length)chooseTyped(custom());else{setOpen(!open);load();}}
 	});
+	control.addEventListener('mousedown',function(e){if(e.target===control||e.target===main){e.preventDefault();input.focus();}});
 	toggle.addEventListener('click',function(){var on=!open;input.focus();setOpen(on);if(on)load();});
 	root.addEventListener('focusout',function(e){if(!root.contains(e.relatedTarget))setOpen(false);});
 	// Keep the settings view's value/list contract and native fieldset disabling.
